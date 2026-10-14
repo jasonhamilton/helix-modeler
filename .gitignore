@@ -1,0 +1,31 @@
+# caches and large local data
+cache/
+*.wav
+*.flac
+*.mp3
+*.aiff
+!fixtures/smoke/*.wav
+
+# user-exported Line 6 presets and catalogs stay local by default
+fixtures/golden/*.hlx
+cache/catalog/
+
+# listening sessions and answer keys
+sessions/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# os / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tonematch"
+version = "0.0.1"
+description = "Match a song's guitar tone and export a Line 6 HX Stomp preset"
+readme = "README.md"
+requires-python = ">=3.11"
+# Licence not yet chosen; see README.
+dependencies = [
+  "numpy>=1.26",
+  "soundfile>=0.12",
+  "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5", "pip-licenses>=4"]
+# native: GPLv3. Imported ONLY by tonematch.engines.native_host, which runs as a child process
+# (licence boundary). May live in a separate venv via TONEMATCH_NATIVE_PYTHON. DawDreamer is the
+# fallback host (MIDI CC route), not added until needed.
+native = ["pedalboard>=0.9.26"]
+# Engines and models are installed by the agent that owns them, once the spike decides what is needed:
+# stomp:  fretwire (Rust), python-rtmidi, sounddevice
+# separation: demucs, audio-separator (RoFormer checkpoints), torch with the backend for this machine
+# search: cma, nevergrad, optuna, botorch
+# metrics: librosa, torchaudio
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100

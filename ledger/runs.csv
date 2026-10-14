@@ -1,0 +1,4 @@
+timestamp,commit,agent,kind,engine,dataset,metric,value,renders,wall_clock_s,notes
+2026-10-14T05:50:52+00:00,nogit,benchmark,smoke,-,smoke,engines_found,0.0,,,no engine available (TONEMATCH_ENGINE=auto); smoke not run; DI is synthetic placeholder
+2026-10-14T06:01:52+00:00,nogit,stomp-engine,smoke,stomp,smoke,protocol_crates_build_macos,1.0,,,T003 offline only - NOT engine-smoke - no pedal - no render. fretwire fa27c819d00e builds and passes 281 offline tests and tonepush 53a6a65b5436 builds and passes 280 on macOS 27 arm64. Evidence docs/notes/T003-stomp-control-spike.md
+2026-10-14T06:02:26+00:00,nogit,native-engine,render-cost,native,smoke,native_available,0.0,,,T002 spike: Helix Native not installed on this Mac; no render measured
