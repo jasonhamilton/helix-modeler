@@ -42,4 +42,4 @@ Open the repo in Claude Code and say `/cycle`. The lead agent reads the board, t
 
 ## Licence
 
-Not yet chosen. The open question is GPLv3 for the whole project versus a permissive licence with the pedalboard host (GPLv3) isolated in a separate process. See `docs/PLAN.md`, Legal and licensing.
+MIT (see [`LICENSE`](LICENSE)). The project's own code is MIT. Third-party components keep their own licences: the optional `native` extra installs pedalboard (GPLv3), which runs only in a separate child process and is never bundled; some optional separation dependencies are LGPL or non-commercial. See [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) and `docs/DECISIONS.md`.

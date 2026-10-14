@@ -399,7 +399,7 @@ The workspace cannot download PDFs from these sites, so the list links to them; 
 
 - [ ] Effects-only mode: which amp do you play through? Should the tool use a chosen Helix amp model as its stand-in, or a capture of your real amp?
 - [ ] Is recording your own DI of the part acceptable as an optional accuracy mode?
-- [ ] Licence preference: GPLv3 for the whole project, or a permissive licence with the plugin host kept in a separate process?
+- [x] Licence preference: GPLv3 for the whole project, or a permissive licence with the plugin host kept in a separate process? (Answered 2026-10-14: MIT for the project code; pedalboard (GPLv3) stays in a separate process and is never bundled. See docs/DECISIONS.md.)
 - [ ] When both engines are present, should the default be Native for search with the Stomp verifying, or the Stomp throughout? And which OS matters most for hardware mode (pedal control: USB on Linux, proposed on macOS, likely MIDI CC on Windows; see docs/notes/T003-stomp-control-spike.md)?
 - [ ] Is your Stomp on firmware 3.80, and is Native 3.82 installed? (Partly answered 2026-10-13: Native is not installed on this Mac; HX Edit here is 3.51. Firmware unconfirmed.)
 - [ ] Which 20 songs should form the test set?
