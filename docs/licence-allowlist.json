@@ -1,0 +1,11 @@
+{
+  "comment": "Dependencies whose copyleft or odd licence was reviewed and accepted. scripts/licence_check.py reports these as WARN with the reason; anything not listed FAILs. Add an entry only with a ruling in docs/DECISIONS.md.",
+  "allow": [
+    {"name": "pedalboard", "match": "gpl", "needs_boundary": true,
+     "reason": "GPLv3; allowed only behind the process boundary (native_host.py), until the project licence is chosen",
+     "ref": "docs/DECISIONS.md, pedalboard process boundary; docs/PLAN.md risks"},
+    {"name": "lameenc", "match": "lgpl",
+     "reason": "LGPL-3.0-or-later MP3 encoder, unmodified, dynamically installed, never called; transitive dependency of demucs via the optional separation extra. Re-review before any bundled or frozen release",
+     "ref": "docs/DECISIONS.md 2026-10-14 cycle 3, lameenc accepted"}
+  ]
+}

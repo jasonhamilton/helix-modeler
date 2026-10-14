@@ -1,0 +1,156 @@
+{
+  "name": "synthetic-v1",
+  "version": 1,
+  "seed": 20261014,
+  "sample_rate": 48000,
+  "clip_seconds": 2.0,
+  "native": {
+    "structures": {
+      "A_clean": {
+        "comp": "EXAMPLE_00",
+        "drive": "EXAMPLE_01",
+        "amp": "EXAMPLE_02",
+        "eq": "EXAMPLE_03",
+        "mod": "EXAMPLE_04",
+        "delay": "EXAMPLE_05",
+        "reverb": "EXAMPLE_06"
+      },
+      "B_crunch": {
+        "comp": "EXAMPLE_07",
+        "drive": "EXAMPLE_08",
+        "amp": "EXAMPLE_09",
+        "eq": "EXAMPLE_10",
+        "mod": "EXAMPLE_11",
+        "delay": "EXAMPLE_12",
+        "reverb": "EXAMPLE_13"
+      },
+      "C_highgain": {
+        "comp": "EXAMPLE_14",
+        "drive": "EXAMPLE_15",
+        "amp": "EXAMPLE_16",
+        "eq": "EXAMPLE_03",
+        "mod": "EXAMPLE_17",
+        "delay": "EXAMPLE_18",
+        "reverb": "EXAMPLE_19"
+      }
+    },
+    "items_per_structure": 40,
+    "knobs": {
+      "comp": 1,
+      "drive": 2,
+      "amp": 5,
+      "eq": 2,
+      "mod": 2,
+      "delay": 2,
+      "reverb": 2
+    },
+    "p_on": {
+      "comp": 0.3,
+      "drive": 0.5,
+      "eq": 0.4,
+      "mod": 0.35,
+      "delay": 0.6,
+      "reverb": 0.7
+    }
+  },
+  "stomp": {
+    "items": 60,
+    "pool": {
+      "comp": [
+        "EXAMPLE_00",
+        "EXAMPLE_07",
+        "EXAMPLE_20",
+        "EXAMPLE_14",
+        "EXAMPLE_21",
+        "EXAMPLE_22"
+      ],
+      "drive": [
+        "EXAMPLE_01",
+        "EXAMPLE_08",
+        "EXAMPLE_23",
+        "EXAMPLE_24",
+        "EXAMPLE_15",
+        "EXAMPLE_25"
+      ],
+      "amp": [
+        "EXAMPLE_02",
+        "EXAMPLE_09",
+        "EXAMPLE_26",
+        "EXAMPLE_16",
+        "EXAMPLE_27",
+        "EXAMPLE_28"
+      ],
+      "eq": [
+        "EXAMPLE_03",
+        "EXAMPLE_10",
+        "EXAMPLE_29",
+        "EXAMPLE_30",
+        "EXAMPLE_31",
+        "EXAMPLE_32"
+      ],
+      "mod": [
+        "EXAMPLE_04",
+        "EXAMPLE_33",
+        "EXAMPLE_11",
+        "EXAMPLE_34",
+        "EXAMPLE_35",
+        "EXAMPLE_17"
+      ],
+      "delay": [
+        "EXAMPLE_05",
+        "EXAMPLE_12",
+        "EXAMPLE_18",
+        "EXAMPLE_36",
+        "EXAMPLE_37",
+        "EXAMPLE_38"
+      ],
+      "reverb": [
+        "EXAMPLE_13",
+        "EXAMPLE_06",
+        "EXAMPLE_19"
+      ]
+    },
+    "p_on": {
+      "comp": 0.3,
+      "drive": 0.5,
+      "eq": 0.4,
+      "mod": 0.35,
+      "delay": 0.6,
+      "reverb": 0.7
+    },
+    "p_model_change": 0.5,
+    "layout": "same 8-block layout as structure A (comp drive amp cab eq mod delay reverb)"
+  },
+  "di_clips": {
+    "source": "dry-signal library (EGDB subset), 2 clips per item: fit and held-out notes",
+    "ids": []
+  },
+  "mix": {
+    "stems_source": "TBD: multitrack set chosen by the human; local only",
+    "densities": {
+      "d0": null,
+      "d1": 6.0,
+      "d2": 0.0,
+      "d3": -6.0
+    },
+    "v1_default_density": "d0"
+  },
+  "perturbation": {
+    "neighbours_per_item": 24,
+    "param_step": 0.15
+  },
+  "tolerance": {
+    "block_f1": 0.02,
+    "model_acc": 0.02,
+    "param_mae": 0.01,
+    "rank1_rate": 0.02
+  },
+  "thresholds_proposed": {
+    "block_f1": 0.85,
+    "model_acc_native": 0.8,
+    "model_acc_stomp": 0.6,
+    "param_mae": 0.15,
+    "rank1_rate_kit": 0.95,
+    "rank1_rate_term": 0.9
+  }
+}

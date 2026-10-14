@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import ast
 import datetime as dt
+import json
+import re
 import subprocess
 import sys
 from importlib import metadata
@@ -27,6 +29,47 @@ HLX_ALLOWED = ("fixtures/golden/", "fixtures/smoke/known.hlx")
 LINE6_MARKERS = ("HD2_", "\"@model\"", "HX_ModelCatalog")
 MARKER_SUFFIXES = {".json", ".models", ".hlx"}
 OWN_NAMES = {"tonematch"}
+ALLOWLIST = "docs/licence-allowlist.json"
+# (regex on the licence file header, name). Order matters: LGPL/AGPL before GPL, Apache before MIT.
+LICENCE_TEXT = (
+    (r"GNU AFFERO GENERAL PUBLIC", "AGPL"), (r"GNU LESSER GENERAL PUBLIC", "LGPL"),
+    (r"GNU GENERAL PUBLIC", "GPL"), (r"Apache License", "Apache-2.0"),
+    (r"Mozilla Public License", "MPL-2.0"), (r"Permission is hereby granted, free of charge", "MIT"),
+    (r"Redistribution and use in source and binary forms", "BSD"),
+    (r"Permission to use, copy, modify, and/or distribute", "ISC"),
+)
+
+
+def classify_licence_text(text: str) -> str | None:
+    """Classify a licence file from its header (first 3000 chars). None when unrecognised."""
+    head = re.sub(r"\s+", " ", text[:3000])
+    for pat, name in LICENCE_TEXT:
+        if re.search(pat, head, re.IGNORECASE):
+            return name
+    return None
+
+
+def licence_from_files(d) -> str | None:
+    """Fallback for empty or UNKNOWN metadata: read the dist-info licence file(s)."""
+    for f in d.files or []:
+        low = f.name.lower()
+        if low.startswith(("licen", "copying", "notice")) and "dist-info" in str(f):
+            try:
+                found = classify_licence_text(Path(str(d.locate_file(f))).read_text(
+                    encoding="utf-8", errors="ignore"))
+            except OSError:
+                continue
+            if found:
+                return f"{found} (from {f.name})"
+    return None
+
+
+def load_allowlist(root: Path) -> dict[str, dict]:
+    """name (lower) -> {match, reason, ref, needs_boundary?}. Only reviewed, DECISIONS-backed entries."""
+    path = root / ALLOWLIST
+    if not path.exists():
+        return {}
+    return {e["name"].lower(): e for e in json.loads(path.read_text(encoding="utf-8"))["allow"]}
 
 
 def walk(root: Path):
@@ -44,12 +87,14 @@ def dependency_rows() -> list[tuple[str, str, str]]:
         name = d.metadata["Name"] or "?"
         if name.lower() in OWN_NAMES:
             continue
-        lic = (d.metadata["License-Expression"] or d.metadata["License"] or "").strip()
+        lic = (d.metadata.get("License-Expression") or d.metadata.get("License") or "").strip()
         if not lic or len(lic) > 80:
             cls = [c.split("::")[-1].strip() for c in d.metadata.get_all("Classifier") or []
                    if c.startswith("License ::")]
             lic = "; ".join(cls) or lic.splitlines()[0][:60] if lic else "; ".join(cls)
-        rows.append((name, d.version, lic or "UNKNOWN"))
+        if not lic or "unknown" in lic.lower():
+            lic = licence_from_files(d) or lic or "UNKNOWN"
+        rows.append((name, d.version, lic))
     return sorted(rows, key=lambda r: r[0].lower())
 
 
@@ -168,11 +213,21 @@ def build_report(root: Path, date: str) -> tuple[str, bool]:
     flagged = [r for r in deps if any(c in r[2].lower() for c in COPYLEFT)]
     dep_status = "PASS"
     dep_notes = []
+    allow = load_allowlist(root)
     for n, v, lic in flagged:
-        ok = n.lower() == "pedalboard" and boundary == "PASS"
-        if not ok:
+        entry = allow.get(n.lower())
+        if entry and entry["match"].lower() in lic.lower():
+            if entry.get("needs_boundary") and boundary != "PASS":
+                dep_status = "FAIL"
+                dep_notes.append(f"{n} {v}: {lic} (allowlisted but the process boundary FAILS)")
+            else:
+                if dep_status == "PASS":
+                    dep_status = "WARN"
+                dep_notes.append(f"WARN {n} {v}: {lic}. {entry['reason']} ({entry['ref']})")
+        else:
             dep_status = "FAIL"
-        dep_notes.append(f"{n} {v}: {lic}" + (" (allowed behind the process boundary)" if ok else ""))
+            dep_notes.append(f"{n} {v}: {lic} (NEW, unreviewed: record a ruling in docs/DECISIONS.md "
+                             f"and add it to {ALLOWLIST})")
     out = [f"# licence-check {date}", ""]
     ordered = {"Dependency licences": (dep_status, dep_notes), **sections}
     overall_fail = any(s == "FAIL" for s, _ in ordered.values())

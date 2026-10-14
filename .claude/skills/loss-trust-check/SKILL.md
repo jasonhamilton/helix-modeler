@@ -15,6 +15,17 @@ Script: `scripts/loss_trust_check.py --term <name> [--all]` (owner: `tone-metric
 4. `rank1_rate` over the set, plus the rate on the held-out-notes subset (same tone, different notes), which tests content invariance.
 5. Threshold: the value `benchmark` set in `docs/DECISIONS.md` (until set, report only). Pass means the term may carry a non-zero default weight in `contracts/loss-kit.md`.
 
+## Proxy mode (until synthetic-v1 exists)
+
+`scripts/loss_trust_check.py --proxy --all [--ledger]` runs the same procedure on offline numpy/scipy
+DSP chains and a synthetic plucked DI (`tonematch.metrics.proxy`), with a jittered-ratio-mask
+separation stand-in. Half the distractors are "near" (the true preset with one group re-drawn), half
+random. Dataset `proxy-dsp-v0`, `--engine -`, and every note starts "PROXY not Helix". A proxy
+result is never admission evidence and never moves a weight in `DEFAULT_WEIGHTS`. Without `--proxy`
+the script exits 2 until `fixtures/synthetic/manifest.json` exists. Diagnostics: `--no-sep`
+(clean target), `--seconds` (clip length, default 12), `--bleed-db`, `--mask`. JSON report under
+`cache/loss-trust/`.
+
 ## Ledger
 
 `--kind loss-trust --dataset synthetic-v<N> --metric rank1_rate --value <r> --notes "term=<name>"`, plus a row for the held-out-notes subset.

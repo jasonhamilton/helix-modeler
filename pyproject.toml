@@ -29,8 +29,14 @@ stomp = ["sounddevice>=0.5"]
 # python-rtmidi, MIT). On macOS with Python 3.14 it has no wheel; build it with
 #   pip install python-rtmidi --config-settings=setup-args="-Djack=false"
 spike = ["python-rtmidi>=1.5"]
+# separation: htdemucs_6s through demucs (MIT) and torch (BSD). NOT a hard dependency: the package
+# imports without torch and a missing extra raises SeparatorUnavailable. User-supplied stems need
+# none of this. Weights download into cache/models/ (see docs/notes/separation-models.md).
+separation = ["torch>=2.2", "demucs>=4.1"]
+# separation-roformer: BS-/Mel-RoFormer and MDX23C checkpoints via audio-separator (MIT); each
+# checkpoint carries its own licence, check it before use. Untested on this machine.
+separation-roformer = ["audio-separator>=0.30"]
 # Engines and models are installed by the agent that owns them, once the spike decides what is needed:
-# separation: demucs, audio-separator (RoFormer checkpoints), torch with the backend for this machine
 # search: cma, nevergrad, optuna, botorch
 # metrics: librosa, torchaudio
 

@@ -9,6 +9,7 @@ Only `benchmark` ticks an evidence item, with a ledger row id. Only the human ti
 - [x] A generated `.hlx` is accepted by HX Edit (no error -8309) and loads on the pedal (ledger rows: 2026-10-14T17:38:00+00:00 hx_edit_import_ok and 2026-10-14T17:51:18+00:00 pedal_load_ok, known.hlx as 04C Smoke Known; both human-reported via the lead, not observed by benchmark)
 - [x] Engine interface v0 frozen in `contracts/engine-interface.md`, with the Native load route and the Stomp control route recorded in `docs/DECISIONS.md` (verified by benchmark: contract header says frozen 2026-10-14 and has Resolved-at-Gate-1 section; DECISIONS 2026-10-14 entries for Native route and Stomp route; no ledger row, repo evidence only)
 - [x] Human sign-off: Jason, 2026-10-14 (instructed to the lead in session; caveats accepted: Stomp tick rests on stomp-engine rows, hardware-load rows are human-reported, firmware 3.50 and macOS only; gate ledger row: 2026-10-14T18:04:42+00:00 gate/both/gate1 gate_passed 1)
+- Note (benchmark, 2026-10-14): benchmark-owned Stomp engine-smoke re-run now exists (ledger rows 2026-10-14T18:09:13+00:00 smoke/stomp/smoke peak_dbfs -13.47 and render-cost seconds_per_render 2.6823; TONEMATCH_ENGINE=stomp, stompd from cache/stomp/bin, exit 0, restore check passed, pedal on 04C). It corroborates the stomp-engine rows at 17:28:04/17:28:05 (-13.49 dBFS, 2.6669 s); no regression. The sign-off and gate row are unchanged.
 
 ## Gate 2 — recovers known presets (end of week 3)
 
