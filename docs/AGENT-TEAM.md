@@ -6,7 +6,7 @@ The agents live in `.claude/agents/`, the skills in `.claude/skills/`, the contr
 
 ## Summary
 
-Thirteen agents in three tiers build and police the pipeline the plan describes: one **lead** that owns the plan, the task board and the shared contracts; eight **specialists**, one per pipeline step; and four **guardians** that cut across every step. Twelve reusable **skills** carry the procedures every agent repeats. The team moves in short cycles tied to the roadmap's three gates. A **priority mode** decides which agents are active in a cycle, and a short list of **priority rules** orders the work inside it. Three controls keep it honest: the benchmark ledger, the gates, and the human's blind listening sign-off.
+Fourteen agents in three tiers build and police the pipeline the plan describes: one **lead** that owns the plan, the task board and the shared contracts; eight **specialists**, one per pipeline step; and five **guardians** that cut across every step. Thirteen reusable **skills** carry the procedures every agent repeats. The team moves in short cycles tied to the roadmap's three gates. A **priority mode** decides which agents are active in a cycle, and a short list of **priority rules** orders the work inside it. Three controls keep it honest: the benchmark ledger, the gates, and the human's blind listening sign-off.
 
 What no agent can do: listen. Every metric is a proxy. The final gate for any tone is a blind listening test run by a person, which the benchmark agent prepares but cannot score. The human is also the only hand on the pedal, the only buyer of licences, and the only judge of the legal calls.
 
@@ -33,6 +33,7 @@ What no agent can do: listen. Every metric is a proxy. The final gate for any to
 | `benchmark` | Guardian | Evaluation plan; the gates | Synthetic recovery set, separation stress, parity null, engine comparison, blind A/B session preparation, the results ledger | `synthetic-benchmark`, `parity-null` and `blind-ab-session` skills; gate evidence | Sonnet |
 | `research` | Guardian | Documentation index; Legal and licensing | The papers (ST-ITO, Fx-Encoder++, DeepAFx-ST and the rest), Line 6 manuals and release notes, EULA reading, a watch on new firmware and models | Answers with sources, doc index updates, licence memos | Sonnet |
 | `platform` | Guardian | Scope (OS, GPU); Roadmap | Installs on Windows, macOS and Linux, the CI matrix, GPU backend packaging, Wine, driver coexistence, release packaging | Dev environments, CI, installers | Sonnet |
+| `status-reporter` | Guardian | The by-feature status page (`reports/status/index.html`) and its registry `docs/features.json` | Reading the board, ledger, decisions and code and reporting honestly, by feature, how far each part has got, with evidence, challenges and what is left | The overview table and one section per feature, regenerated at the end of every cycle | Sonnet |
 | `reviewer` | Guardian | All code | Contract adherence, tests, no Line 6 assets in the repo, licence hygiene at the GPLv3 boundary, the regression gate | Review verdicts; blocks a merge that breaks a contract or the benchmark | Sonnet |
 
 ## Skills (shared procedures)
@@ -52,6 +53,7 @@ A skill is a procedure any agent can run the same way every time. These are the 
 | `synthetic-benchmark` | benchmark, CI | Loads or regenerates the synthetic set, runs recovery, writes a ledger row | Every merge |
 | `parity-null` | benchmark | Same DI through Native and the Stomp, level-match, null, residual to the ledger | Once per firmware; after engine changes |
 | `blind-ab-session` | benchmark | Builds a randomized A/B or MUSHRA folder for the human and collects the ratings into the ledger | Gate 3 and later milestones |
+| `status-report` | status-reporter, lead | Refreshes `docs/features.json` and renders the by-feature HTML status page | End of every cycle, after `plan-sync` |
 | `licence-check` | reviewer, platform | Scans dependencies and repo contents for GPL boundaries and Line 6 assets | Every dependency change |
 
 ## Shared contracts

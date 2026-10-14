@@ -108,6 +108,11 @@ def summarise(items: list[dict], names: list[str]) -> dict:
                 w = it[subset][t]["winner"]
                 if w != "true":
                     beaten_by[w] = beaten_by.get(w, 0) + 1
+            pair: dict[str, list[bool]] = {}
+            for it in items:
+                sc = np.asarray(it[subset][t]["scores"])
+                for k, lab in enumerate(it["labels"][1:], 1):
+                    pair.setdefault(lab, []).append(bool(sc[k] > sc[0]))
             pools = {}
             for pool in ("random", "near"):
                 r1 = []
@@ -120,7 +125,9 @@ def summarise(items: list[dict], names: list[str]) -> dict:
                                "mean_rank": float(ranks.mean()),
                                "rank1_vs_random_only": pools["random"],
                                "rank1_vs_near_only": pools["near"],
-                               "beaten_by": dict(sorted(beaten_by.items()))}
+                               "beaten_by": dict(sorted(beaten_by.items())),
+                               # P(true scores strictly better than one distractor of this kind)
+                               "pairwise_win": {k: float(np.mean(v)) for k, v in sorted(pair.items())}}
     return summ
 
 
@@ -142,8 +149,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--proxy", action="store_true", help="offline numpy DSP proxy (not Helix)")
     ap.add_argument("--items", type=int, default=40)
     ap.add_argument("--distractors", type=int, default=15)
-    ap.add_argument("--seed", type=int, default=2026,
-                    help="item seed; the weights were tuned on seeds 0 and 1, keep this different")
+    ap.add_argument("--seed", type=int, nargs="+", default=[2026],
+                    help="item seed(s), pooled; feature scales were tuned on seeds 0 and 1, never "
+                         "evaluate on those")
     ap.add_argument("--mask", action="store_true", help="pass the proxy separator's confidence mask")
     ap.add_argument("--seconds", type=float, default=12.0, help="clip length (sections are 10-30 s)")
     ap.add_argument("--bleed-db", type=float, default=-12.0, help="proxy separation bleed level")
@@ -151,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1))
     ap.add_argument("--out", type=Path, default=None, help="JSON report path (default under cache/)")
     ap.add_argument("--ledger", action="store_true", help="append loss-trust rows (proxy dataset)")
+    ap.add_argument("--note", default="", help="extra text for the ledger notes")
     a = ap.parse_args(argv)
 
     terms = list(IMPLEMENTED) if a.all else [a.term]
@@ -163,7 +172,11 @@ def main(argv: list[str] | None = None) -> int:
 
     t0 = time.perf_counter()
     bleed = None if a.no_sep else a.bleed_db
-    jobs = [(i, a.seed, a.distractors, terms, a.mask, a.seconds, bleed) for i in range(a.items)]
+    if {0, 1} & set(a.seed):
+        print("warning: seeds 0 and 1 were used to tune the term scales; this is not held out",
+              file=sys.stderr)
+    jobs = [(i, sd, a.distractors, terms, a.mask, a.seconds, bleed) for sd in a.seed
+            for i in range(a.items)]
     if a.jobs > 1:
         with ProcessPoolExecutor(a.jobs) as ex:
             items = list(ex.map(proxy_item, jobs))
@@ -172,17 +185,22 @@ def main(argv: list[str] | None = None) -> int:
     wall = time.perf_counter() - t0
     names = terms + ([COMBO] if COMBO in items[0]["heldout_notes"] else [])
     summ = summarise(items, names)
+    per_seed = {str(sd): {subset: {t: float(np.mean([it[subset][t]["rank"] == 1 for it in
+                                                      items[k * a.items:(k + 1) * a.items]]))
+                                   for t in names} for subset in SUBSETS}
+                for k, sd in enumerate(a.seed)}
     report = {"dataset": PROXY_DATASET, "proxy": True,
               "warning": "PROXY: numpy DSP chains and synthetic DI; not Helix; not admission evidence",
               "items": a.items, "distractors": a.distractors, "near_distractors": a.distractors // 2,
-              "seed": a.seed, "mask": a.mask, "seconds": a.seconds, "bleed_db": bleed, "wall_clock_s": round(wall, 1), "summary": summ,
+              "seed": a.seed, "per_seed_rank1": per_seed, "mask": a.mask, "seconds": a.seconds, "bleed_db": bleed, "wall_clock_s": round(wall, 1), "summary": summ,
               "chance_rank1_rate": 1.0 / (a.distractors + 1), "per_item": items}
     tag = ("-mask" if a.mask else "") + ("-nosep" if a.no_sep else "") + f"-{a.seconds:g}s"
     out = a.out or ROOT / "cache" / "loss-trust" / f"{PROXY_DATASET}{tag}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=1))
 
-    print(f"PROXY loss-trust-check ({PROXY_DATASET}; NOT Helix): {a.items} items x "
+    print(f"PROXY loss-trust-check ({PROXY_DATASET}; NOT Helix): {a.items * len(a.seed)} items "
+          f"(seeds {a.seed}) x "
           f"{a.distractors} distractors ({a.distractors // 2} near); chance = {1 / (a.distractors + 1):.3f}")
     print(f"{'term':19s} | heldout: {'r1':>5s} {'rank':>5s} {'r1rnd':>5s} {'r1near':>6s} | same: "
           f"{'r1':>5s} {'rank':>5s} {'r1rnd':>5s} {'r1near':>6s} | top beaten-by (heldout)")
@@ -193,14 +211,24 @@ def main(argv: list[str] | None = None) -> int:
               f"{h['rank1_vs_random_only']:5.3f} {h['rank1_vs_near_only']:6.3f} |       "
               f"{s['rank1_rate']:5.3f} {s['mean_rank']:5.2f} {s['rank1_vs_random_only']:5.3f} "
               f"{s['rank1_vs_near_only']:6.3f} | {top}")
+    for t in names:
+        pw = summ["heldout_notes"][t]["pairwise_win"]
+        print(f"  {t:17s} heldout pairwise win: " + " ".join(f"{k}={v:.2f}" for k, v in pw.items()))
     print(f"report: {out}  ({wall:.1f} s)")
 
     if a.ledger:
-        extra = (f"items={a.items} distractors={a.distractors} near={a.distractors // 2} seed={a.seed} "
-                 f"seconds={a.seconds:g} bleed_db={bleed} mask={int(a.mask)}")
+        seeds = "+".join(str(sd) for sd in a.seed)
+        extra = (f"items={a.items * len(a.seed)} distractors={a.distractors} near={a.distractors // 2} "
+                 f"seed={seeds} seconds={a.seconds:g} bleed_db={bleed} mask={int(a.mask)}")
         for t in terms:
             for subset in SUBSETS:
-                ledger_row(t, subset, summ[subset][t]["rank1_rate"], wall, extra)
+                sm = summ[subset][t]
+                diag = (f" rank1_vs_random={sm['rank1_vs_random_only']:.3f} pairwise_win_mean="
+                        f"{np.mean([v for v in sm['pairwise_win'].values()]):.3f}")
+                if len(a.seed) > 1:
+                    diag += " per_seed=" + "/".join(f"{per_seed[str(sd)][subset][t]:.3f}" for sd in a.seed)
+                ledger_row(t, subset, sm["rank1_rate"], wall,
+                           extra + diag + (f" {a.note}" if a.note else ""))
     return 0
 
 

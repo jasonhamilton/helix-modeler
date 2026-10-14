@@ -27,8 +27,14 @@ measured with an impulse (once per chain), and level-matched by a fixed calibrat
 Native's digital output *is* the reference level (``calibration_db`` defaults to 0), so a
 silent input stays silent and per-preset loudness differences survive for the loss to judge.
 Each render resets the plugin (deterministic) and pre-rolls ``PREROLL`` samples of silence over
-Native's post-reset fade-in. The reset is most of the cost on 3.82 (~1.6 s fixed); the opt-in
-``reset_mode="flush"`` skips it once the spike shows it matches on the chains in use.
+Native's post-reset fade-in. The reset is most of the cost on 3.82 (~1.6 s fixed on the empty
+preset, ~1.8 s on the known.hlx amp+cab+delay chain, whose DSP adds ~0.045 s per second of
+audio); ``set_params`` only moves automation knobs (~0.5 ms, no state is re-sent). The opt-in
+``reset_mode="flush"`` skips the reset once the spike shows it matches on the chains in use.
+
+``cost()`` is measured on the loaded chain (or, before any load, on a captured template) and
+cached on disk by chain structure, not by raw state: knob moves change Native's raw state, and
+a state-keyed cache re-ran the ~150 s measurement on every new knob value.
 
 State findings (T002, Native 3.82, VST3 and AU): the saved state wraps a ``CMXH`` chunk
 container whose preset records are opaque and high-entropy, and Native rejects replayed library
@@ -454,7 +460,7 @@ class NativeEngine:
             firmware_version=plugin_version(self.plugin) or str(info.get("version") or ""),
             models=models,
             snapshots=3,
-            extras={"route": self.route, "plugin": self.plugin, "host": "pedalboard",
+            extras={"route": self.route, "control_route": self.route, "plugin": self.plugin, "host": "pedalboard",
                     "host_params": len(self._params), "latency_samples": self._latency.get(self.current_chain),
                     "templates": len(self.templates), "calibration_db": self.calibration_db,
                     "reset_mode": self.reset_mode},
@@ -496,16 +502,51 @@ class NativeEngine:
             self._latency[key] = onset_latency(self._raw_render(imp)[self.preroll:])
         return self._latency[key]
 
-    def measure_cost(self, max_workers: int | None = None, clip_s: float = 2.0, repeats: int = 3) -> Cost:
-        """Measure seconds per 2 s render, parallel throughput and model-change settling. Cached to disk."""
-        state = self._get_state()
-        sh = hashlib.sha1(state).hexdigest()[:12] if state else "nostate"  # cost depends on the chain
-        key = (f"{self.plugin}|{self.host.info.get('version')}|{platform.node()}|{os.cpu_count()}|{sh}"
-               f"|{self.reset_mode}")
+    def cost_key(self) -> str:
+        """Disk-cache key for cost(): plugin, machine, reset mode and the chain *structure*.
+
+        Keyed by chain, not by a hash of the raw state: a knob move changes Native's raw state
+        (measured 2026-10-14), so a state-hash key missed the cache on every parameter change and
+        re-ran the whole ~150 s measurement inside the caller (search's smoke demo spent 156 of
+        its 202 s there). Knob values do not change the fixed reset cost, which dominates.
+        """
+        if self.current_chain is not None:
+            sh = "chain:" + chain_id([list(x) for x in self.current_chain])
+        else:
+            state = self._get_state()
+            sh = "state:" + (hashlib.sha1(state).hexdigest()[:12] if state else "nostate")
+        return (f"{self.plugin}|{self.host.info.get('version')}|{platform.node()}|{os.cpu_count()}|{sh}"
+                f"|{self.reset_mode}")
+
+    def measure_cost(self, max_workers: int | None = None, clip_s: float = 2.0, repeats: int = 3,
+                     force: bool = False) -> Cost:
+        """Measure seconds per 2 s render, parallel throughput and model-change settling. Cached to disk.
+
+        Measured on a real chain: the loaded one, or (before any load) a captured template, so the
+        figure includes the chain's DSP and not only the empty default preset's pass-through.
+        The engine's state is restored afterwards. ``force`` re-measures and overwrites the entry.
+        """
+        switched = None
+        if self.current_chain is None and self.templates and self.route == "automation":
+            tpl = min(self.templates.values(), key=lambda t: chain_id([list(x) for x in t.chain]))
+            switched = self._get_state()
+            self._set_state(tpl.state)
+            self.current_chain, self.current_template = tpl.chain, tpl
+        try:
+            return self._measure_cost(max_workers, clip_s, repeats, force)
+        finally:
+            if switched is not None:
+                self._set_state(switched)
+                self.current_chain = self.current_template = None
+
+    def _measure_cost(self, max_workers, clip_s, repeats, force) -> Cost:
+        key = self.cost_key()
         f = cache_dir() / "cost.json"
         cached = json.loads(f.read_text()) if f.is_file() else {}
-        if key in cached:
+        if key in cached and not force:
             return Cost(**cached[key]["cost"])
+        load_before = [round(v, 2) for v in os.getloadavg()] if hasattr(os, "getloadavg") else None
+        state = self._get_state()
         clip = test_signal(clip_s)
         self.render(clip)  # warm-up
         times = []
@@ -519,8 +560,11 @@ class NativeEngine:
         par, scan = measure_parallelism(self.plugin, self.plugin_name, state, clip, max_workers, pre, reset=reset)
         pen, pair = self.measure_load_penalty(clip)
         cost = Cost(seconds_per_render=spr, parallelism=par, load_penalty_s=pen)
+        chain = [list(x) for x in self.current_chain] if self.current_chain else None
         cached[key] = {"cost": cost.__dict__, "throughput_by_workers": scan, "render_times": times,
-                       "load_penalty_pair": pair, "preroll": self.preroll,
+                       "load_penalty_pair": pair, "preroll": self.preroll, "chain": chain,
+                       "loadavg_before": load_before,
+                       "loadavg_after": [round(v, 2) for v in os.getloadavg()] if load_before else None,
                        "measured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps(cached, indent=1))
@@ -560,34 +604,56 @@ class NativeEngine:
 def measure_parallelism(plugin: str, plugin_name: str | None, state: bytes, clip: np.ndarray,
                         max_workers: int | None = None, preroll: int = 0,
                         rounds: int = 3, reset: bool = True) -> tuple[int, dict[int, float]]:
-    """Renders/s for k host processes rendering at once; picks the k past which gains drop under 15%."""
+    """Renders/s for k host processes rendering at once; picks the k past which gains drop under 15%.
+
+    The scan stops at the first k that gains under 15% (the choice cannot change after it), and
+    new host processes are opened concurrently (each Native open is ~5 s), so a cold scan costs
+    well under a minute instead of ~2.5 minutes.
+    """
     cpu = os.cpu_count() or 2
     max_workers = max_workers or max(1, cpu - 1)
     ks = sorted({k for k in (1, 2, 4, 6, 8, 12, 16, 24, 32) if k <= max_workers} | {max_workers})
     hosts: list[HostProcess] = []
     scan: dict[int, float] = {}
     payload = np.concatenate([np.zeros(preroll, np.float32), clip]).astype("<f4").tobytes()
+
+    def open_host(_=None) -> HostProcess:
+        h = HostProcess(plugin, plugin_name)
+        try:
+            if state and h.info.get("has_state"):
+                h.call("set_state", state)
+            h.call("render", payload, reset=True)  # warm-up
+        except EngineError:
+            h.close()
+            raise
+        return h
+
+    best = ks[0]
     try:
         for k in ks:
-            while len(hosts) < k:
-                h = HostProcess(plugin, plugin_name)
-                if state and h.info.get("has_state"):
-                    h.call("set_state", state)
-                h.call("render", payload, reset=True)  # warm-up
-                hosts.append(h)
+            need = k - len(hosts)
+            if need > 0:
+                with cf.ThreadPoolExecutor(need) as ex:
+                    futs = [ex.submit(open_host) for _ in range(need)]
+                    for fu in futs:  # collect every opened host so finally closes them all
+                        try:
+                            hosts.append(fu.result())
+                        except EngineError:
+                            pass
+                if len(hosts) < k:
+                    raise EngineError(f"could not open {k} Native host processes")
             with cf.ThreadPoolExecutor(k) as ex:
                 t0 = time.perf_counter()
                 list(ex.map(lambda h: [h.call("render", payload, reset=reset) for _ in range(rounds)], hosts[:k]))
                 scan[k] = k * rounds / (time.perf_counter() - t0)
+            if k != ks[0]:
+                if scan[k] >= scan[best] * 1.15:
+                    best = k
+                else:
+                    break
     finally:
         for h in hosts:
             h.close()
-    best = ks[0]
-    for k in ks[1:]:
-        if scan[k] >= scan[best] * 1.15:
-            best = k
-        else:
-            break
     return best, scan
 
 

@@ -24,7 +24,11 @@ random. Dataset `proxy-dsp-v0`, `--engine -`, and every note starts "PROXY not H
 result is never admission evidence and never moves a weight in `DEFAULT_WEIGHTS`. Without `--proxy`
 the script exits 2 until `fixtures/synthetic/manifest.json` exists. Diagnostics: `--no-sep`
 (clean target), `--seconds` (clip length, default 12), `--bleed-db`, `--mask`. JSON report under
-`cache/loss-trust/`.
+`cache/loss-trust/`, with per-seed rank-1 and the pairwise win rate against each distractor kind
+(which groups a term can and cannot see). Term scales are tuned on proxy seeds 0 and 1 only: evaluate
+on other seeds (`--seed 9101 9102 9103` pools several; the script warns on 0 or 1), name the seeds in
+`docs/DECISIONS.md` before running, and add `--note` to say which term version was measured. Keep
+`--jobs` at 2 or less when other agents are timing renders.
 
 ## Ledger
 

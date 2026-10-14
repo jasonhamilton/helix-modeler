@@ -107,16 +107,20 @@ class Htdemucs6s:
 class AudioSeparatorRoformer:
     """BS-/Mel-RoFormer and MDX23C checkpoints through the `audio-separator` package.
 
-    UNTESTED on this machine: the extra is not installed here. The checkpoint filename must be set
-    in TONEMATCH_ROFORMER_CKPT (or the default below is tried); check the checkpoint's licence
-    first (docs/notes/separation-models.md). Weights download into cache/models/.
+    Only ONE checkpoint in audio-separator 0.47's catalogue produces a guitar stem:
+    `BS-Roformer-SW.ckpt` (6 stems). Its licence is NOT STATED (see docs/notes/separation-models.md),
+    so it is not loaded unless the user opts in with TONEMATCH_ROFORMER_LICENCE_ACK=1 or names a
+    checkpoint explicitly in TONEMATCH_ROFORMER_CKPT. The other catalogue RoFormer/MDX23C files
+    (vocals, instrumental, karaoke, de-reverb, drumsep) have no guitar output. Weights download
+    into cache/models/audio-separator/.
     """
 
     guitar_stem = "guitar"
-    default_ckpt: ClassVar[dict[str, str]] = {
-        "bs-roformer": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
-        "mel-roformer": "model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt",
-        "mdx23c": "MDX23C-8KFFT-InstVoc_HQ.ckpt",
+    # None = no catalogue checkpoint of this family produces a guitar stem.
+    default_ckpt: ClassVar[dict[str, str | None]] = {
+        "bs-roformer": "BS-Roformer-SW.ckpt",
+        "mel-roformer": None,
+        "mdx23c": None,
     }
 
     def __init__(self, name: str, backend: str | None = None):
@@ -134,7 +138,17 @@ class AudioSeparatorRoformer:
 
         import soundfile as sf
 
-        ckpt = os.environ.get("TONEMATCH_ROFORMER_CKPT", self.default_ckpt[self.name])
+        explicit = os.environ.get("TONEMATCH_ROFORMER_CKPT")
+        ckpt = explicit or self.default_ckpt[self.name]
+        if ckpt is None:
+            raise SeparatorUnavailable(
+                f"{self.name}: no audio-separator catalogue checkpoint of this family has a guitar "
+                "stem. Use 'bs-roformer' (BS-Roformer-SW, licence unstated) or htdemucs_6s.")
+        if (not explicit and ckpt == self.default_ckpt["bs-roformer"]
+                and os.environ.get("TONEMATCH_ROFORMER_LICENCE_ACK") != "1"):
+            raise SeparatorUnavailable(
+                "BS-Roformer-SW has no stated licence; set TONEMATCH_ROFORMER_LICENCE_ACK=1 to "
+                "accept that for private local use (docs/notes/separation-models.md).")
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory() as td:
             src = Path(td) / "mix.wav"

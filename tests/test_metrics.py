@@ -5,6 +5,7 @@ nothing here touches an engine.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import subprocess
 import sys
@@ -108,7 +109,79 @@ def test_envelope_sees_gate():
     di = proxy.guitar_di(5, SECONDS) * bursts + 3e-4 * rng.standard_normal(n)
     open_ = envelope.features(proxy.render(ProxyPreset(drive=0.6), di))
     gated = envelope.features(proxy.render(ProxyPreset(drive=0.6, gate_thr=0.6), di))
-    assert gated.vec[1] < open_.vec[1] - 6.0  # lower floor
+    assert gated.as_dict()["floor_db"] < open_.as_dict()["floor_db"] - 6.0  # lower floor
+
+
+# ------------------------------------------------------------------ envelope v1 (T025)
+# The attack, onset and rhythm tests fail on envelope v0 (5 ms-hop attack, level-rise onsets); the
+# noise-floor test passes on v0 too and guards the new floor estimate. See docs/DECISIONS.md.
+
+
+def _ramp_notes(attack_ms: float, n_notes: int = 10, ioi: float = 0.3, f: float = 3000.0) -> np.ndarray:
+    """Repeated 3 kHz notes with a linear amplitude attack of `attack_ms`, then a 150 ms decay."""
+    sr = 48_000
+    t = np.arange(int(ioi * sr)) / sr
+    amp = np.minimum(t / (attack_ms / 1000), 1.0) * np.exp(-np.maximum(t - attack_ms / 1000, 0) / 0.15)
+    x = np.zeros(int((n_notes * ioi + 0.3) * sr))
+    for k in range(n_notes):
+        s = int((0.1 + k * ioi) * sr)
+        x[s:s + t.size] += 0.5 * amp * np.sin(2 * np.pi * f * t)
+    return x
+
+
+def test_envelope_attack_resolves_below_the_hop():
+    """v0 quantised attack to the 5 ms hop (0.5 and 2 ms ramps both read 10 ms)."""
+    att = [envelope.features(_ramp_notes(a)).as_dict()["attack_ms"] for a in (0.5, 2.0, 4.0, 8.0)]
+    assert all(b - a > 0.4 for a, b in itertools.pairwise(att)), att
+    assert att[0] < 2.0 and att[-1] > 3.0, att
+
+
+def _plucks_at(times: np.ndarray, seed: int = 0) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    buf = np.zeros(int((times[-1] + 1.0) * 48_000))
+    for t0 in times:
+        midi = int(rng.integers(40, 70))
+        proxy._pluck(buf, int(t0 * 48_000), 0.9, 440.0 * 2 ** ((midi - 69) / 12), 0.8, rng)
+    return 0.5 * buf / np.abs(buf).max()
+
+
+@pytest.mark.parametrize("drive", [0.0, 0.5])
+def test_envelope_finds_the_notes_of_a_driven_tone(drive):
+    """v0's level-rise onsets found 1 of 24 overlapping notes once driven (25% when clean)."""
+    times = np.cumsum(np.random.default_rng(1).choice([0.25, 0.35, 0.5], 24))
+    on = envelope.features(proxy.render(ProxyPreset(drive=drive), _plucks_at(times))).onsets_s
+    # the flux frame sits up to ~25 ms after the pluck
+    hit = np.mean([np.min(np.abs(on - t - 0.01)) < 0.04 for t in times])
+    false = np.mean([np.min(np.abs(times + 0.01 - o)) >= 0.04 for o in on])
+    assert hit >= 0.85 and false <= 0.35, (hit, false, on.size)
+
+
+@pytest.mark.parametrize("a,b", [
+    (ProxyPreset(drive=0.3), ProxyPreset(drive=0.3, comp=0.8, comp_thr=0.8)),
+    (ProxyPreset(drive=0.5), ProxyPreset(drive=0.9)),
+])
+def test_envelope_insensitive_to_rhythm_and_notes(a, b):
+    """Other notes AND another rhythm: same tone must stay closer than the changed tone.
+    v0 failed both cases (per-note medians over two or three detected notes)."""
+    dis = [proxy.guitar_di(s, 12.0) for s in (21, 22, 23)]
+    fa = [envelope.features(proxy.render(a, d)) for d in dis]
+    fb = [envelope.features(proxy.render(b, d)) for d in dis]
+    same = [envelope.distance(fa[i], fa[j]) for i in range(3) for j in range(3) if i != j]
+    diff = [envelope.distance(fa[i], fb[j]) for i in range(3) for j in range(3) if i != j]
+    assert max(same) < 0.5 * min(diff), (same, diff)
+
+
+def test_envelope_noise_floor_tracks_hiss():
+    rng = np.random.default_rng(4)
+    n = int(SECONDS * 48_000)
+    phrases = (np.arange(n) // 24_000) % 2 == 0
+    di = proxy.guitar_di(6, SECONDS) * phrases
+    floors = []
+    for hiss_db in (-70.0, -50.0):
+        y = proxy.render(ProxyPreset(drive=0.2), di)
+        y = y + np.sqrt(np.mean(y ** 2)) * 10 ** (hiss_db / 20) * rng.standard_normal(n)
+        floors.append(envelope.features(y).as_dict()["floor_db"])
+    assert floors[1] - floors[0] == pytest.approx(20.0, abs=4.0), floors
 
 
 # ------------------------------------------------------------------ kit API

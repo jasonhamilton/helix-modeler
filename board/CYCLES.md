@@ -22,3 +22,12 @@ Reviews: T006, T003, T004 allowed (T004/T003 after bridge fixes); T002 and T007 
 Gate 1 signed by Jason 2026-10-14. Caveats: Stomp tick on stomp-engine rows; load rows human-reported; firmware 3.50 and macOS only.
 Next: T017-T019, T020a, mode 2 (separation, dry-signal, tone-metrics, search, synthetic benchmark). Blocked on the human: stompd run approval, EULA reading, go on T018.
 Living doc not synced.
+
+## Cycle 3 — 2026-10-14 — mode 2, make the loop work (mode 2 batch complete)
+
+Shipped (commit 614bc18 and later): `separate` skill and `src/tonematch/separation/` (T020, synthetic mix only), `src/tonematch/dry.py` DI picker (T021, no real library yet), loss kit v0 `src/tonematch/metrics/` with envelope v1 (T022, T025; proxy results only, no term admitted), search core `src/tonematch/search/` (T023; fake engine plus one smoke demo), synthetic benchmark design and generator (T024; real manifest generated to gitignored cache/), RoFormer adapter gated (T020b; no licence granted for the only guitar-capable checkpoint), licence checker upgrades (allowlist, licence-file fallback, non-commercial detection), Native `cost()` cache fix and render-time measurements (T026), benchmark-owned Stomp smoke (T019), status reporting (`status-reporter` agent, `status-report` skill, `docs/features.json`, `scripts/status_report.py`, `reports/status/index.html`).
+Ledger: separate rows (synthetic-sep-v0), loss-trust rows (proxy-dsp-v0), Native render-cost rows with load noted, Stomp smoke 18:09:13. No synthetic-v1, parity or ab rows.
+Gate 2 has no evidence. No loss term is admitted. Nothing has been judged by ear.
+Blocked on the human: three Native chain captures (A_clean, B_crunch, C_highgain), a reference DI set, the AFx-Rep checkpoint go, a real song for separation, EULA reading (T017), the T018 spike go, firmware decision (T020a), project licence.
+Next: capture templates, then render synthetic-v1 and run the real Helix loss-trust check; freeze Gate 2 thresholds after baselines.
+Living doc not synced.

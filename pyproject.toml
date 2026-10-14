@@ -34,7 +34,7 @@ spike = ["python-rtmidi>=1.5"]
 # none of this. Weights download into cache/models/ (see docs/notes/separation-models.md).
 separation = ["torch>=2.2", "demucs>=4.1"]
 # separation-roformer: BS-/Mel-RoFormer and MDX23C checkpoints via audio-separator (MIT); each
-# checkpoint carries its own licence, check it before use. Untested on this machine.
+# checkpoint carries its own licence (docs/notes/separation-models.md). Installed in .venv 2026-10-14.
 separation-roformer = ["audio-separator>=0.30"]
 # Engines and models are installed by the agent that owns them, once the spike decides what is needed:
 # search: cma, nevergrad, optuna, botorch

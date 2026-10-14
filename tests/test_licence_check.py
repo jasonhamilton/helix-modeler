@@ -90,3 +90,50 @@ def test_allowlisted_pedalboard_fails_without_boundary(tmp_path, monkeypatch):
     monkeypatch.setattr(lc, "dependency_rows", lambda: [("pedalboard", "1", "GPLv3")])
     text, _ = lc.build_report(root, "2026-01-01")
     assert "## Dependency licences: FAIL" in text
+
+
+def test_noncommercial_detection():
+    for s in ("CC BY-NC 4.0", "CC-BY-NC-SA-4.0", "Non-Commercial use only", "noncommercial",
+              "Research-only licence", "Creative Commons Attribution-NonCommercial"):
+        assert lc.is_noncommercial(s), s
+    for s in ("MIT", "Apache-2.0", "LGPL-3.0", "BSD-3-Clause", "Simple licence"):
+        assert not lc.is_noncommercial(s), s
+    assert lc.classify_licence_text("Attribution-NonCommercial 4.0 International") == "CC-BY-NC"
+
+
+def test_noncommercial_listed_warns_unlisted_fails(tmp_path, monkeypatch):
+    root = _root_with_allowlist(tmp_path, [
+        {"name": "diffq", "match": "nc", "reason": "private research", "ref": "DECISIONS-NC"}])
+    monkeypatch.setattr(lc, "dependency_rows", lambda: [("diffq", "1", "CC BY-NC 4.0")])
+    text, _ = lc.build_report(root, "2026-01-01")
+    assert "## Dependency licences: WARN" in text
+    assert "blocks bundled/commercial release" in text and "DECISIONS-NC" in text
+    assert "NEW, unreviewed" not in text and "unlisted" not in text
+    monkeypatch.setattr(lc, "dependency_rows",
+                        lambda: [("diffq", "1", "CC BY-NC 4.0"), ("other", "2", "non-commercial")])
+    text, failed = lc.build_report(root, "2026-01-01")
+    assert "## Dependency licences: FAIL" in text and "NON-COMMERCIAL, unlisted" in text and failed
+
+
+def test_noncommercial_via_fake_dist_info(tmp_path, monkeypatch):
+    di = tmp_path / "ncpkg-1.0.dist-info"
+    di.mkdir()
+    (di / "METADATA").write_text("Metadata-Version: 2.1\nName: ncpkg\nVersion: 1.0\n"
+                                 "License: CC BY-NC 4.0\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    rows = {n: lic for n, _, lic in lc.dependency_rows()}
+    assert lc.is_noncommercial(rows["ncpkg"])
+
+
+def test_mpl_and_soxr_allowlist_warn(tmp_path, monkeypatch):
+    root = _root_with_allowlist(tmp_path, [
+        {"name": "certifi", "match": "mpl", "reason": "weak copyleft", "ref": "D"},
+        {"name": "soxr", "match": "lgpl", "reason": "r", "ref": "D"}])
+    monkeypatch.setattr(lc, "dependency_rows",
+                        lambda: [("certifi", "1", "MPL-2.0"), ("soxr", "1", "LGPL-2.1-or-later"),
+                                 ("fine", "1", "Simple BSD")])
+    text, _ = lc.build_report(root, "2026-01-01")
+    assert "## Dependency licences: WARN" in text and "WARN certifi" in text and "WARN soxr" in text
+    assert "fine 1" not in text.split("## All dependencies")[0]
+    monkeypatch.setattr(lc, "dependency_rows", lambda: [("certifi2", "1", "MPL-2.0")])
+    assert "## Dependency licences: FAIL" in lc.build_report(root, "2026-01-01")[0]

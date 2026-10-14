@@ -1,0 +1,1442 @@
+{
+  "headline": "Both render engines can be driven from code and Gate 1 was signed on 2026-10-14: Helix Native 3.82 renders a captured chain (about 1.9 s per 2 s clip, fixed reset cost plus 0.045 s per second of audio) and the HX Stomp (firmware 3.50, macOS only) renders over USB (about 2.7 s per clip); a generated .hlx was accepted by HX Edit and loaded on the pedal. Around that sit unit-tested but unproven building blocks: a preset parser and validator, a guitar separator, a section segmenter, a reference-DI picker, a loss kit and a CMA-ES search that now plans serially against the real render cost. Since the first report the envelope loss term was rebuilt (v1) but on non-Helix proxy signals its held-out rank-1 is only 0.033 to 0.117 on fresh seeds, so it is still weak and no loss term is admitted (every default weight is 0). Nothing has been measured on real songs or on a Helix-rendered known-answer set; there is no song-to-preset command; Gates 2 and 3 have no evidence; nothing has been judged by ear. The human's next actions are to capture three Native chains, approve the synthetic-benchmark thresholds, download a DI set, give the go on the T018 spike and the AFx-Rep checkpoint, read the installer EULAs, decide the firmware and the project licence.",
+  "cycle": "Cycle 3 (mode 2), end of cycle refresh; board/CYCLES.md has a cycle 3 entry (marked in progress)",
+  "generated_for": "tone-matcher-lead (end-of-cycle refresh, second run of the status-report skill)",
+  "human_priority": [
+    "Capture",
+    "thresholds",
+    "EULA",
+    "go on",
+    "DI set",
+    "AFx-Rep",
+    "firmware"
+  ],
+  "discrepancies": [
+    "T022 and T023 are marked done but mean 'built', not 'trusted': no loss term is admitted and search has never run on a trusted loss, on the Helix set, or with a ledger row (its smoke demo timing is a render-cost row only). T024 is partly done (design and generator; the 'every change (CI)' synthetic run cannot run until the human captures three Native chains and .github/workflows/ci.yml still has the benchmark step commented out).",
+    "Gate 1's Stomp tick was written on stomp-engine's rows; benchmark's own re-run (2026-10-14T18:09:13) corroborates it with no regression, but hx_edit_import_ok and pedal_load_ok are human-reported through the lead and not observed by benchmark.",
+    "stompd source is intentionally not in the repo (human decision, docs/notes/stompd.md): the Stomp ledger rows and docs/notes/T003-stomp-control-spike.md results cannot be reproduced by others until a wrapper is published or re-written to the documented protocol. Not a board error; recorded as a reproducibility gap. The registry's old todo 'build stompd from tools/stompd/' was wrong and has been removed."
+  ],
+  "features": [
+    {
+      "id": "native-engine",
+      "name": "Helix Native engine",
+      "purpose": "Render a DI clip through a candidate preset offline in Helix Native, fast enough to be the searching engine.",
+      "done_when": "A NativeEngine behind the frozen interface renders any chain structure the search needs at a measured cost, loads candidates without a GUI step per candidate, agrees with the Stomp within a measured null residual, and has run a full synthetic recovery pass.",
+      "status": "prototype",
+      "completion": 50,
+      "completion_reason": "Hosting, replay and 16+16 automation work, engine-smoke is green, and the cost() cache bug that made search's demo look 5x slower is fixed and re-measured. Still: each new chain structure needs one manual GUI capture, only an empty preset and known.hlx were measured, whole-preset write is rejected, T018 (easier load route) is unstarted awaiting the human's go, and no recovery run or parity null exists.",
+      "functionality": "Renders a 2 s DI through a GUI-captured chain template with automated knob and switch values (about 1.87 s per render: fixed ~1.80 s reset plus ~0.045 s per second of audio; set_params 0.5 ms; pool about 2.0 to 2.1 renders/s at 6 processes; replay null -72.9 dB in a fresh process); cost() is cached per chain structure. Cannot load an arbitrary preset or a new chain structure without a human GUI step.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_native.py (17 tests, pedalboard never imported in the main process)"
+          ]
+        },
+        {
+          "level": "hardware",
+          "refs": [
+            "ledger 2026-10-14T17:33:57+00:00 benchmark smoke/native peak_dbfs -13.5",
+            "ledger 2026-10-14T16:57:54+00:00 replay_null_db -72.9",
+            "ledger 2026-10-14T16:57:53+00:00 seconds_per_render 1.883 (known.hlx chain, parallelism 6)",
+            "ledger 2026-10-14T21:02:07+00:00 render-cost rows (quiet and loaded runs, pool k=1..6)",
+            "ledger 2026-10-14T21:02:08+00:00 cost() re-measured by fixed native.py 1.9264 s",
+            "scripts/native_render_probe.py; docs/notes/native-spike.md 'Render-time gap'"
+          ]
+        }
+      ],
+      "owners": [
+        "native-engine",
+        "benchmark"
+      ],
+      "tasks": [
+        "T002",
+        "T013",
+        "T012",
+        "T018",
+        "T026"
+      ],
+      "blockers": [
+        "Each new chain structure needs one GUI capture by the human (three needed for the synthetic set); T018 awaits the human's go."
+      ],
+      "implemented": [
+        {
+          "item": "NativeEngine implementing the frozen interface, with a chain-template replay route and 16 knob / 16 switch automation",
+          "paths": [
+            "src/tonematch/engines/native.py",
+            "src/tonematch/engines/native_state.py"
+          ]
+        },
+        {
+          "item": "pedalboard host in a child process, keeping the GPLv3 boundary",
+          "paths": [
+            "src/tonematch/engines/native_host.py"
+          ]
+        },
+        {
+          "item": "Spike driver: state inspection, record replay, automation probe, render cost, template capture",
+          "paths": [
+            "scripts/native_spike.py",
+            "scripts/native_render_probe.py",
+            "docs/notes/native-spike.md"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "Whole-preset state write is impossible: the saved state is opaque high-entropy records in a CMXH container, and replayed library records are refused. Going further would mean attacking the cipher, which the interop-only rule forbids.",
+          "source": "docs/notes/native-spike.md; DECISIONS 2026-10-14 cycle 2"
+        },
+        {
+          "finding": "Every render is a reset render with a 4,800-sample pre-roll; reset costs about 1.6 s regardless of clip length, so cost() not clip length sets the budget. Measured on an empty preset and one chain: a lower bound.",
+          "source": "DECISIONS 2026-10-14 cycle 2; ledger 16:37:06"
+        },
+        {
+          "finding": "cost() was cached by raw-state hash; a knob move changes Native's raw state, so plan_budget re-ran a ~130-156 s measurement inside search's smoke demo (156 of 202 s). Fixed by keying on chain structure; demo went to 46 s, 2.4 s per render call, same answer. Loaded-machine runs (two foreign CPU-bound jobs) are 1.96 s, so timings vary about 5 percent with load.",
+          "source": "DECISIONS 2026-10-14 native-engine T026; ledger 2026-10-14T21:02:08+00:00"
+        },
+        {
+          "finding": "Throughput scales to about 2.3 renders/s at 6 to 8 workers; parallel use inside CI is not measured.",
+          "source": "ledger 2026-10-14T16:57:53+00:00 notes"
+        },
+        {
+          "finding": "Native EULA is silent on training ML on Native renders; installer EULAs unread.",
+          "source": "docs/notes/line6-eula-flags.md; PLAN risks"
+        }
+      ],
+      "todo": [
+        "T018 spike: emit .hlx with knob/switch assignments pre-written, then Setlist import plus MIDI Program Change via DawDreamer on the AU build",
+        "Compare reset_mode flush against reset on a real chain",
+        "Linux via Wine and yabridge is untested",
+        "Measure render cost on a heavy multi-block chain (known.hlx only so far)"
+      ],
+      "needs_human": [
+        "Go or no-go on the T018 spike",
+        "Capture three Native chains (A_clean, B_crunch, C_highgain) by GUI",
+        "Read the Native and HX Edit installer EULAs (T017)"
+      ],
+      "decisions": [
+        "Native route: template replay plus 16+16 automation (DECISIONS 2026-10-14 cycle 2)",
+        "pedalboard (GPLv3) stays behind a process boundary (DECISIONS 2026-10-13 cycle 1)",
+        "Reset render with pre-roll (DECISIONS 2026-10-14 cycle 2)"
+      ],
+      "risks": [
+        "PLAN risk: Native cannot be loaded with arbitrary presets (resolved to a limit, not eliminated)",
+        "PLAN risk: Native EULA silent on ML training",
+        "PLAN risk: Native on Linux"
+      ],
+      "key_files": [
+        "src/tonematch/engines/native.py",
+        "src/tonematch/engines/native_host.py",
+        "docs/notes/native-spike.md",
+        "tests/test_native.py",
+        "scripts/native_render_probe.py"
+      ],
+      "ledger": [
+        {
+          "engine": "native"
+        }
+      ]
+    },
+    {
+      "id": "stomp-engine",
+      "name": "HX Stomp engine and hardware reamp",
+      "purpose": "Drive the real pedal from code and capture its USB audio, so the final check is the actual hardware and hardware-only users have an engine.",
+      "done_when": "A StompEngine renders any candidate within the pedal's capabilities on macOS, Windows and Linux, with edit-buffer-only control, a calibrated reamp path, parity to Native measured, and a user-DI accuracy mode used on real songs.",
+      "status": "working",
+      "completion": 55,
+      "completion_reason": "Verified end to end on one pedal, one firmware (3.50) and one OS (macOS): control, reamp, latency, restore. Windows and Linux are unverified, the user-DI and parallel-render paths are untested on hardware, layout changes are unsupported, and no parity or recovery run exists.",
+      "functionality": "Loads models, parameters and bypass on the pedal's existing block layout and reamps a DI over USB 5/6 to 1/2 at about 2.7 s per render (+0.66 s per model change); restores the original preset on close; cannot change the block layout and has no Windows or Linux route verified.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_stomp.py (19 tests)"
+          ]
+        },
+        {
+          "level": "hardware",
+          "refs": [
+            "ledger 2026-10-14T17:28:04+00:00 stomp smoke peak_dbfs -13.49",
+            "ledger 2026-10-14T18:09:13+00:00 benchmark-owned smoke peak_dbfs -13.47, restore check passed",
+            "ledger 2026-10-14T17:26:18+00:00 latency 1206 samples",
+            "ledger 2026-10-14T17:29:42+00:00 load_penalty 0.658 s",
+            "docs/notes/T003-stomp-control-spike.md H1 to H9 PASS"
+          ]
+        }
+      ],
+      "owners": [
+        "stomp-engine",
+        "benchmark"
+      ],
+      "tasks": [
+        "T003",
+        "T004",
+        "T014",
+        "T019",
+        "T020a"
+      ],
+      "blockers": [
+        "Verified on firmware 3.50 and macOS only; Linux (H10) and Windows (H11) boxes are needed, and generated presets target 3.50 until the pedal is updated."
+      ],
+      "implemented": [
+        {
+          "item": "StompEngine over the stompd JSON-lines helper (tonepush hx-usb, built outside the repo), edit-buffer only, with restore-on-close",
+          "paths": [
+            "src/tonematch/engines/stomp.py",
+            "src/tonematch/engines/stomp_bridge.py",
+            "docs/notes/stompd.md"
+          ]
+        },
+        {
+          "item": "reamp-capture: impulse latency calibration, level calibration, trimmed and level-matched reamp",
+          "paths": [
+            "src/tonematch/reamp.py",
+            "scripts/reamp_capture.py"
+          ]
+        },
+        {
+          "item": "Spike probe for ports, MIDI CC and Program Change",
+          "paths": [
+            "scripts/stomp_spike_probe.py",
+            "docs/notes/T003-stomp-control-spike.md"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "HX Edit holds the control interface exclusively, so it must be quit during Stomp runs; the busy-claim check (H3a/b) was skipped.",
+          "source": "docs/notes/T003-stomp-control-spike.md"
+        },
+        {
+          "finding": "Firmware is 3.50, not the 3.80 the plan assumed; an op-21 whole-document write is a last resort because fretwire records it as the cause of every device lockup.",
+          "source": "DECISIONS 2026-10-14 stomp-engine entry"
+        },
+        {
+          "finding": "Hardware rendering is serial and real time: one render at a time, so recovery over 60 items is about 10 h and a CI run on hardware is not practical.",
+          "source": "docs/notes/synthetic-benchmark-design.md"
+        },
+        {
+          "finding": "One 5.8 s render row (17:27:11) and one 3.1 s row (17:21:05) preceded the settled 2.67 s; the calibration note was corrected in a later row because it named the wrong PortAudio latency mode.",
+          "source": "ledger 2026-10-14T17:26:26+00:00"
+        },
+        {
+          "finding": "The stompd helper's source is intentionally not in the repo, so the Stomp results cannot be reproduced by others yet; the Python side depends only on the documented JSON-lines protocol.",
+          "source": "docs/notes/stompd.md"
+        }
+      ],
+      "todo": [
+        "Test --user-di and Path A/B parallel renders on hardware",
+        "Linux (H10) and Windows (H11) control checks",
+        "Layout-changing loads (currently raise UnsupportedModelChange)",
+        "Parity null against Native",
+        "Reproducibility: stompd source is deliberately not in the repo (human decision); others need the published wrapper or their own to the protocol in docs/notes/stompd.md"
+      ],
+      "needs_human": [
+        "Decide whether to update the pedal from firmware 3.50 to 3.80",
+        "H3a/b: open HX Edit and check the claim error, then quit it",
+        "Provide a Linux and a Windows machine for H10 and H11, or accept macOS-only"
+      ],
+      "decisions": [
+        "macOS control route: USB interface 0 via tonepush hx-usb behind stompd (DECISIONS 2026-10-14 stomp-engine)",
+        "No flash writes in Stomp mode (same entry)",
+        "Tonepush MIT licence for stompd (same entry)",
+        "Firmware 3.50 target (DECISIONS 2026-10-14 Gate 1 prep)"
+      ],
+      "risks": [
+        "PLAN risk: pedal control unavailable on Windows and macOS (macOS confirmed, Windows unverified)",
+        "PLAN risk: hardware budget too small for a close match",
+        "Native and Stomp differ (parity unmeasured)",
+        "Stomp results not reproducible by others while stompd is unpublished"
+      ],
+      "key_files": [
+        "src/tonematch/engines/stomp.py",
+        "src/tonematch/reamp.py",
+        "scripts/reamp_capture.py",
+        "docs/notes/T003-stomp-control-spike.md",
+        "tests/test_stomp.py"
+      ],
+      "ledger": [
+        {
+          "engine": "stomp"
+        }
+      ]
+    },
+    {
+      "id": "engine-interface",
+      "name": "Engine interface and selection",
+      "purpose": "One interface (load, set_params, render, cost, capabilities, close) so every other step is engine-agnostic, plus the rule for which engine runs.",
+      "done_when": "The interface is frozen, both engines implement it, and the auto selection (Native searches, Stomp verifies) runs a real search and verification pass in one session.",
+      "status": "working",
+      "completion": 65,
+      "completion_reason": "The contract is frozen (2026-10-14) and implemented twice, with a registry and a smoke script. render_many is deferred, and the auto role split has not been exercised by a search-then-verify run.",
+      "functionality": "Both engines implement the frozen interface; TONEMATCH_ENGINE=native|stomp|auto selects one; engine-smoke detects an engine, renders a clip and checks level, silence, NaN and length.",
+      "health": "ok",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_scaffold.py",
+            "tests/test_native.py",
+            "tests/test_stomp.py"
+          ]
+        },
+        {
+          "level": "hardware",
+          "refs": [
+            "ledger 2026-10-14T17:33:57+00:00 (native) and 2026-10-14T18:09:13+00:00 (stomp) benchmark smoke rows",
+            "ledger 2026-10-14T18:04:42+00:00 gate_passed 1"
+          ]
+        }
+      ],
+      "owners": [
+        "tone-matcher-lead",
+        "native-engine",
+        "stomp-engine",
+        "benchmark"
+      ],
+      "tasks": [
+        "T001",
+        "T008",
+        "T015"
+      ],
+      "blockers": [
+        "render_many is deferred; a search-then-verify session using both engines has not run."
+      ],
+      "implemented": [
+        {
+          "item": "Engine abstract base class and capability and cost types",
+          "paths": [
+            "src/tonematch/engines/base.py"
+          ]
+        },
+        {
+          "item": "Engine detection and role-based selection",
+          "paths": [
+            "src/tonematch/engines/registry.py"
+          ]
+        },
+        {
+          "item": "engine-smoke script with a restore check",
+          "paths": [
+            "scripts/engine_smoke.py"
+          ]
+        },
+        {
+          "item": "Frozen spec with resolved Native and Stomp routes",
+          "paths": [
+            "contracts/engine-interface.md"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "The reference level is read as a fixed calibration gain and latency is per chain, not per engine; both were interim interpretations accepted at the freeze.",
+          "source": "DECISIONS 2026-10-13 cycle 1; Gate 1 prep"
+        },
+        {
+          "finding": "The smoke DI is a synthetic placeholder; a real licence-clean clip is still needed.",
+          "source": "fixtures/smoke/PROVENANCE.md; T008"
+        }
+      ],
+      "todo": [
+        "render_many (batched rendering)",
+        "Replace the synthetic smoke DI with a licence-clean real clip",
+        "Exercise the auto role split end to end"
+      ],
+      "needs_human": [],
+      "decisions": [
+        "Engine interface v0 frozen (DECISIONS 2026-10-14 Gate 1 prep)",
+        "Engine is user-selectable; at least one required (DECISIONS 2026-10-13 planning)",
+        "Edit-buffer-only rule (DECISIONS 2026-10-13 cycle 1)"
+      ],
+      "risks": [
+        "Native and Stomp differ: low to medium (PLAN risk table)"
+      ],
+      "key_files": [
+        "contracts/engine-interface.md",
+        "src/tonematch/engines/base.py",
+        "src/tonematch/engines/registry.py",
+        "scripts/engine_smoke.py"
+      ],
+      "ledger": [
+        {
+          "kind": "gate"
+        },
+        {
+          "kind": "smoke",
+          "dataset": "smoke"
+        }
+      ]
+    },
+    {
+      "id": "preset",
+      "name": "Preset generation and validation (.hlx, catalog import)",
+      "purpose": "Represent, write and validate a Line 6 .hlx preset that HX Edit accepts and the pedal loads, using a model catalog read at runtime from the user's own install.",
+      "done_when": "Search results become a valid .hlx (full-rig and effects-only, up to three snapshots, DSP budget and amp/cab pairing respected) that imports into HX Edit and loads on the pedal, for every block the search can choose.",
+      "status": "working",
+      "completion": 55,
+      "completion_reason": "Parse, byte-equal round trip, catalog import, validation and both export modes exist and one generated file was accepted by HX Edit and the pedal. Snapshot generation from a search result, the schema extensions, and the DSP unit and budget semantics are unverified or not built.",
+      "functionality": "Reads and writes .hlx byte-equal for both golden templates, imports the 677-model catalog from HX Edit 3.82, validates blocks, DSP cost, pairing and device version, and exports full-rig or effects-only; does not yet build snapshots from a match.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_preset.py (16 tests)",
+            "tests/test_catalog.py (8 tests)"
+          ]
+        },
+        {
+          "level": "hardware",
+          "refs": [
+            "ledger 2026-10-14T16:09:41+00:00 hlx_bytes_equal 1.0",
+            "ledger 2026-10-14T17:38:00+00:00 hx_edit_import_ok (human-reported)",
+            "ledger 2026-10-14T17:51:18+00:00 pedal_load_ok (human-reported)"
+          ]
+        }
+      ],
+      "owners": [
+        "preset"
+      ],
+      "tasks": [
+        "T005",
+        "T006",
+        "T010"
+      ],
+      "blockers": [
+        "Snapshot generation and the proposed schema extensions are not in the contract yet; DSP budget units are unverified."
+      ],
+      "implemented": [
+        {
+          "item": "Preset model, read_hlx, write_hlx (byte-equal on both goldens), validate, export (full-rig and effects-only), golden diff",
+          "paths": [
+            "src/tonematch/preset.py",
+            "scripts/hlx_validate.py",
+            "docs/notes/golden-diff.md"
+          ]
+        },
+        {
+          "item": "Catalog import from the user's HX Edit *.models files into cache/catalog/ (nothing copied into the repo)",
+          "paths": [
+            "src/tonematch/catalog.py",
+            "scripts/catalog_import.py"
+          ]
+        },
+        {
+          "item": "Smoke preset generator (local, gitignored output)",
+          "paths": [
+            "scripts/make_smoke_hlx.py"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "The Stomp golden says device_version 3.50 and the Native golden 3.80; generated files must match the pedal's firmware or HX Edit refuses them (error -8309 means wrong device).",
+          "source": "DECISIONS 2026-10-14 cycle 2; Gate 1 prep"
+        },
+        {
+          "finding": "known.hlx has been accepted, but only one generated file has ever gone through HX Edit and the pedal; the two ledger rows are human-reported, not observed by benchmark.",
+          "source": "board/GATES.md Gate 1"
+        },
+        {
+          "finding": "Slots follow real @position order, not a fixed 8-slot template; the catalog's per-model load seeds a DSP cost table whose units and budget are unverified.",
+          "source": "DECISIONS 2026-10-14 cycle 2"
+        }
+      ],
+      "todo": [
+        "Put the proposed schema extensions into contracts/preset-schema.md at the next contract pass",
+        "Snapshot builder: up to three snapshots from section groups with the model-sharing rule",
+        "Verify the DSP budget on the pedal",
+        "hlx-validate on a preset built from a search result"
+      ],
+      "needs_human": [
+        "Import every new generated preset in HX Edit and report the result (error -8309 means wrong device)"
+      ],
+      "decisions": [
+        "Catalog source is the per-model definition files in the HX Edit Resources folder, not the names-only catalog JSON (DECISIONS 2026-10-13 planning)",
+        "Two export modes (DECISIONS 2026-10-13 planning)",
+        "Schema extensions and DSP-cost table proposals (DECISIONS 2026-10-13 cycle 1 and 2026-10-14 cycle 2)"
+      ],
+      "risks": [
+        "Native and HX Edit versions out of step with firmware: medium (PLAN risk table)"
+      ],
+      "key_files": [
+        "src/tonematch/preset.py",
+        "src/tonematch/catalog.py",
+        "scripts/hlx_validate.py",
+        "contracts/preset-schema.md",
+        "tests/test_preset.py"
+      ],
+      "ledger": [
+        {
+          "dataset": "golden-roundtrip"
+        },
+        {
+          "dataset": "known.hlx"
+        }
+      ]
+    },
+    {
+      "id": "separation",
+      "name": "Guitar separation and section segmentation",
+      "purpose": "Isolate the guitar from a mix, say how reliable the isolation is, and cluster the song into at most three tone groups for snapshots.",
+      "done_when": "On a stress set of real songs the separator's guitar stem is good enough that the loss still ranks the true tone first (a curve of match quality against separation quality), the confidence estimate is calibrated, and segmentation agrees with a human's section labels.",
+      "status": "prototype",
+      "completion": 35,
+      "completion_reason": "htdemucs_6s runs on MPS and CPU and the pieces exist, but the only quality number is an SDR of 0.002 dB on a synthetic Karplus-Strong mix where the guitar went to the wrong stem, so real-song quality is unmeasured. Confidence is an uncalibrated heuristic, segmentation is unvalidated, and the RoFormer path was never run.",
+      "functionality": "Separates a song with htdemucs_6s (7.8 s warm on MPS, 13.1 s on CPU for 32 s), accepts user-supplied stems, segments into sections and at most three tone groups, and computes a heuristic confidence mask; nothing here is shown to work on a real recording.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_separation.py"
+          ]
+        },
+        {
+          "level": "synthetic",
+          "refs": [
+            "ledger 2026-10-14T18:20:57+00:00 guitar_sdr_db 0.002 (synthetic mix, shows the failure to isolate, not quality)",
+            "ledger 2026-10-14T18:19:39..55 wall_clock rows"
+          ]
+        }
+      ],
+      "owners": [
+        "separation"
+      ],
+      "tasks": [
+        "T020",
+        "T020b"
+      ],
+      "blockers": [
+        "No real-song test material or stress set, and the only guitar-capable RoFormer checkpoint has no stated licence."
+      ],
+      "implemented": [
+        {
+          "item": "separate() with backend detection (CUDA, MPS, ROCm, DirectML, CPU) and a cache keyed by song hash",
+          "paths": [
+            "src/tonematch/separation/core.py",
+            "src/tonematch/separation/models.py",
+            "src/tonematch/separation/stems.py",
+            "scripts/separate.py",
+            "src/tonematch/gpu.py"
+          ]
+        },
+        {
+          "item": "Section segmentation, tone clustering to at most 3 groups, confidence mask, recombine-and-re-separate comparison",
+          "paths": [
+            "src/tonematch/separation/segment.py",
+            "src/tonematch/separation/confidence.py"
+          ]
+        },
+        {
+          "item": "Synthetic mix generator for tests",
+          "paths": [
+            "src/tonematch/separation/synth.py"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "On the synthetic mix htdemucs_6s put the guitar into the 'other' stem (SDR about 0 dB), so a clean-synthetic test says nothing about real songs.",
+          "source": "ledger 2026-10-14T18:20:57+00:00"
+        },
+        {
+          "finding": "The only guitar-capable catalogue checkpoint (BS-Roformer-SW) has no stated licence and an unverifiable origin; it is gated behind TONEMATCH_ROFORMER_LICENCE_ACK=1 and nothing was downloaded. mel-roformer and mdx23c have no guitar-capable checkpoint.",
+          "source": "docs/notes/separation-models.md; DECISIONS separation entries"
+        },
+        {
+          "finding": "Optional extra diffq is CC BY-NC 4.0: blocks any bundled or commercial release; soxr is LGPL-2.1 and accepted as a WARN.",
+          "source": "DECISIONS 2026-10-14 RoFormer licence rulings"
+        },
+        {
+          "finding": "The confidence estimate (dominance times consistency) is uncalibrated and read 0.044 on the synthetic mix.",
+          "source": "ledger 2026-10-14T18:19:39+00:00"
+        }
+      ],
+      "todo": [
+        "Separation stress set with real songs (Gate 2 item)",
+        "Calibrate the confidence estimate against measured quality",
+        "Validate segmentation on real songs",
+        "Try a RoFormer checkpoint if a licensed one is found"
+      ],
+      "needs_human": [
+        "Supply a few real songs, or user guitar stems, for local-only stress testing (no audio leaves the machine)"
+      ],
+      "decisions": [
+        "User-supplied stems accepted; hosted separation deferred (DECISIONS 2026-10-13 planning)",
+        "RoFormer opt-in and ungranted; default htdemucs_6s (DECISIONS 2026-10-14 RoFormer rulings)",
+        "GPU optional and not NVIDIA-specific (DECISIONS 2026-10-13 planning)"
+      ],
+      "risks": [
+        "Separation artifacts mislead the loss: high (PLAN risk table)",
+        "Several guitars in one stem: medium"
+      ],
+      "key_files": [
+        "src/tonematch/separation/core.py",
+        "src/tonematch/separation/segment.py",
+        "docs/notes/separation-models.md",
+        "tests/test_separation.py"
+      ],
+      "ledger": [
+        {
+          "kind": "separate"
+        }
+      ]
+    },
+    {
+      "id": "dry-signal",
+      "name": "Reference DI library (dry signal)",
+      "purpose": "Supply a clean DI clip that matches a tone's register and style, because the engines need dry input and the song has none.",
+      "done_when": "A licence-clean DI library is indexed locally, the picker returns clips that make the loss rank the true preset first more often than a single fixed clip does, and the user's own DI is a working accuracy mode.",
+      "status": "prototype",
+      "completion": 20,
+      "completion_reason": "The indexer and picker exist and are tested, but no real DI set has been downloaded (data/di holds only a README), so the picker falls back to a synthetic clip with a warning, and its benefit to the loss is unmeasured.",
+      "functionality": "Indexes a folder of DI clips by register and style and picks one; with no library it returns a synthetic fallback and warns; the user-DI capture path exists in reamp-capture but is untested on hardware.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_dry.py (5 tests)"
+          ]
+        }
+      ],
+      "owners": [
+        "dry-signal"
+      ],
+      "tasks": [
+        "T021"
+      ],
+      "blockers": [
+        "No DI dataset downloaded; the human's download is needed (Guitar-TECHS recommended)."
+      ],
+      "implemented": [
+        {
+          "item": "index_library and pick_di over an EGDB-style library with a manifest, plus a synthetic fallback",
+          "paths": [
+            "src/tonematch/dry.py",
+            "docs/notes/dry-signal.md",
+            "data/di/README.md"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "DI mismatch biases EQ and gain; content-invariant losses and several reference DIs per tone are the mitigation, neither measured yet.",
+          "source": "PLAN risk table"
+        },
+        {
+          "finding": "Licences of candidate DI datasets are not yet recorded in a model card or dataset card; licence-check flags data/ for hand review.",
+          "source": "reviews/licence-2026-10-14.md"
+        }
+      ],
+      "todo": [
+        "Download and index a real DI set",
+        "Measure whether the picker beats a fixed clip on the synthetic set",
+        "Blind DI recovery and A+B hybrid are research only",
+        "Hardware-test the user-DI accuracy mode"
+      ],
+      "needs_human": [
+        "Download a DI set (recommend Guitar-TECHS) into data/di/ and confirm its licence"
+      ],
+      "decisions": [
+        "Dry signal v0: B (reference DI library) default, E (blind estimation) as starting guess (DECISIONS 2026-10-13 planning)"
+      ],
+      "risks": [
+        "DI mismatch biases EQ and gain: medium (PLAN risk table)"
+      ],
+      "key_files": [
+        "src/tonematch/dry.py",
+        "docs/notes/dry-signal.md",
+        "data/di/README.md",
+        "tests/test_dry.py"
+      ],
+      "ledger": []
+    },
+    {
+      "id": "loss-kit",
+      "name": "Loss kit (tone metrics)",
+      "purpose": "Score how close a candidate render is to the target tone, with terms that are trustworthy despite separation artifacts and DI mismatch.",
+      "done_when": "At least one loss term, or a combination, passes the loss-trust-check threshold on the Helix synthetic set (true preset ranked first against distractors), so it has non-zero default weights, and the ear agrees with the metric on real songs.",
+      "status": "prototype",
+      "completion": 32,
+      "completion_reason": "Four no-DI terms and a LossKit exist, but none is admitted (all default weights 0) and the only trust measurement is on non-Helix proxy signals. Envelope v1 (T025) improved the weakest term but held-out rank-1 on fresh seeds is only 0.117 against chance 0.0625 and 15 distractors; learned embeddings were researched, not run.",
+      "functionality": "LossKit.score() returns per-term scores (LTAS tilt, crest/flatness/HNR, envelope, multi-resolution STFT) but with default weights 0 its objective is flat; the search must pass provisional weights explicitly and label results unadmitted.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_metrics.py (20 tests, 6 added for envelope v1; full suite 169 passed, 1 skipped)"
+          ]
+        },
+        {
+          "level": "proxy",
+          "refs": [
+            "ledger 2026-10-14T18:27:57+00:00 x8 loss-trust proxy-dsp-v0 rank1_rate: ltas_tilt 0.225/0.375, crest_flatness_hnr 0.10/0.30, envelope 0.05/0.175, mrstft 0.00/0.775 (held-out/same notes); NOT Helix, NOT admission evidence",
+            "ledger 2026-10-14T21:17:05..21:20:25+00:00 envelope on fresh seeds 9101-9103, 120 items: v0 held-out 0.0333 / same-notes 0.15; v1 held-out 0.1167 / same-notes 0.325; PROXY, NOT Helix, not admission evidence"
+          ]
+        }
+      ],
+      "owners": [
+        "tone-metrics"
+      ],
+      "tasks": [
+        "T022",
+        "T025"
+      ],
+      "blockers": [
+        "Real admission waits on the Helix synthetic set (the human's three Native chain captures and the lead's threshold decision)."
+      ],
+      "implemented": [
+        {
+          "item": "Loss kit v0: ltas_tilt, crest_flatness_hnr, envelope, mrstft terms and LossKit.score with a measured dict; tonematch.losses re-exports it",
+          "paths": [
+            "src/tonematch/metrics/kit.py",
+            "src/tonematch/metrics/ltas.py",
+            "src/tonematch/metrics/crest.py",
+            "src/tonematch/metrics/envelope.py",
+            "src/tonematch/metrics/mrstft.py",
+            "src/tonematch/losses/__init__.py"
+          ]
+        },
+        {
+          "item": "Proxy trust check (numpy DSP chains, not Helix) and the real trust-check driver",
+          "paths": [
+            "scripts/loss_trust_check.py",
+            "src/tonematch/metrics/proxy.py"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "No loss term is admitted. Against random distractors the provisional sum ranked the truth first 0.95 of the time, but against near distractors (one parameter group re-drawn) held-out rank-1 was 0.225 at best; easy distractors overstate the kit.",
+          "source": "DECISIONS 2026-10-14 cycle 3 loss kit"
+        },
+        {
+          "finding": "mrstft is only valid with an aligned DI (0.775 same-notes, 0.00 held-out), so it cannot be used on a song with an unknown DI.",
+          "source": "ledger 2026-10-14T18:27:57+00:00"
+        },
+        {
+          "finding": "Envelope is the weakest term. v1 (spectral-flux onsets, sub-ms attack, per-note decay, sustain slope, noise floor) lifted held-out rank-1 from 0.033 to 0.117 on fresh seeds, still weak; same-notes 0.15 to 0.325 mostly reflects knowing the notes. Crest after the cab barely tracks drive; spectral flatness carries that term.",
+          "source": "board T025; ledger 2026-10-14T21:17:05..21:20:25+00:00"
+        },
+        {
+          "finding": "The confidence mask had no effect on the proxy because the proxy separator introduced no artifacts; its value is untested.",
+          "source": "DECISIONS 2026-10-14 tone-metrics entry"
+        },
+        {
+          "finding": "Only AFx-Rep is cleanly licensed (Apache-2.0, 1.16 GB checkpoint); Fx-Encoder++ is CC BY-NC 4.0 and Open-Amp has no licence file. No weights downloaded.",
+          "source": "DECISIONS 2026-10-14 cycle 3 loss kit"
+        }
+      ],
+      "todo": [
+        "Run loss-trust-check on the Helix synthetic-v1 set (the real admission)",
+        "Add AFx-Rep embedding term after the human's go on the checkpoint",
+        "Write the mask and Stems types into contracts/loss-kit.md",
+        "Review score statistics on 10 s or longer sections against the search's 2.0 s clip",
+        "Decide whether envelope v1 is worth further work: it is still near chance on held-out notes, so it carries little weight"
+      ],
+      "needs_human": [
+        "Go on downloading the AFx-Rep checkpoint (1.16 GB)",
+        "Decide the trust threshold with benchmark's proposal"
+      ],
+      "decisions": [
+        "No loss term is admitted; search must pass PROVISIONAL_WEIGHTS and label results (DECISIONS 2026-10-14 cycle 3 loss kit)",
+        "Dataset name proxy-dsp-v0 kept out of synthetic-v<N> comparisons (same entry)",
+        "Layered comparison (DECISIONS 2026-10-13 planning)"
+      ],
+      "risks": [
+        "Separation artifacts mislead the loss: high (PLAN risk table)",
+        "DI mismatch biases EQ and gain: medium"
+      ],
+      "key_files": [
+        "src/tonematch/metrics/kit.py",
+        "contracts/loss-kit.md",
+        "scripts/loss_trust_check.py",
+        "tests/test_metrics.py"
+      ],
+      "ledger": [
+        {
+          "kind": "loss-trust"
+        }
+      ]
+    },
+    {
+      "id": "search",
+      "name": "Search and optimiser",
+      "purpose": "Find the preset whose render best matches the target section within a render budget set by the engine's cost.",
+      "done_when": "On the Helix synthetic-v1 set the search recovers known presets at the thresholds benchmark set (block-type F1, model accuracy, parameter MAE), then beats the nearest community preset on real songs, with the final candidate verified on the pedal.",
+      "status": "prototype",
+      "completion": 28,
+      "completion_reason": "CMA-ES over a fixed template, budget planning from cost() (now with parallelism 1 for a single engine), a Gaussian prior and a report writer exist and recover known answers on a fake engine with a spectral stub. It has never run against a trusted loss, the real LossKit objective is flat at default weights, and there are no predictor or retrieval seeds, no beam search over models, no successive halving on hardware and no benchmark ledger row.",
+      "functionality": "match() plans a render budget from engine.cost() assuming serial rendering, refines parameters with CMA-ES, ranks candidates and writes a report; recovery is proven only on a fake engine and a spectral stub; the Native smoke demo (46 s, 2.4 s per render call, found Drive 0.765) is a timing check, not a benchmark.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_search.py (12 tests: fake engine recovery with a spectral stub)"
+          ]
+        },
+        {
+          "level": "hardware",
+          "refs": [
+            "ledger 2026-10-14T21:02:08+00:00 wall_per_render_call_s 8.8 before and 2.4 after the cost-cache fix (Native smoke demo, timing only, not recovery evidence)"
+          ]
+        }
+      ],
+      "owners": [
+        "search"
+      ],
+      "tasks": [
+        "T023"
+      ],
+      "blockers": [
+        "Needs an admitted loss term and the Helix synthetic set to show recovery on real engine renders."
+      ],
+      "implemented": [
+        {
+          "item": "Search loop, budget planner, evaluator, constraint checking and per-chain CMA-ES",
+          "paths": [
+            "src/tonematch/search/loop.py",
+            "src/tonematch/search/cmaes.py",
+            "src/tonematch/search/types.py"
+          ]
+        },
+        {
+          "item": "Parameter space and Gaussian prior fit on presets",
+          "paths": [
+            "src/tonematch/search/space.py"
+          ]
+        },
+        {
+          "item": "Report writer, fake engine and stub loss for tests, Native smoke demo",
+          "paths": [
+            "src/tonematch/search/report.py",
+            "src/tonematch/search/stubs.py",
+            "scripts/search_smoke.py",
+            "docs/notes/search-design.md"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "With default LossKit weights of 0 the objective is flat, so search must be given PROVISIONAL_WEIGHTS and its output labelled unadmitted.",
+          "source": "DECISIONS 2026-10-14 cycle 3 loss kit"
+        },
+        {
+          "finding": "Budget.clip_s is 2.0 s today while loss statistics need 10 s or more; the budget needs review.",
+          "source": "DECISIONS 2026-10-14 cycle 3 loss kit"
+        },
+        {
+          "finding": "Native varies only 16 knobs and 16 switches inside a captured structure, so model choice cannot be searched on Native without new captures; model search is realistic only on the Stomp at about 2.7 s per render plus 0.66 s per model change.",
+          "source": "docs/notes/synthetic-benchmark-design.md"
+        },
+        {
+          "finding": "Plan.est_wall_s divided by cost().parallelism although match() renders serially (estimated 3.9 s, took 46 s) and popsize was rounded up to the parallelism for no gain. The planner now plans with parallelism 1 and notes the unused parallelism; a CMA-ES generation through NativeRenderPool or render_many would use the 2 renders/s pool but is not built.",
+          "source": "DECISIONS 2026-10-14 native-engine T026; src/tonematch/search/loop.py"
+        }
+      ],
+      "todo": [
+        "Run on the Helix synthetic set with an admitted loss",
+        "Predictor and retrieval seeds (needs Learning)",
+        "Beam search over models and successive halving on the Stomp",
+        "Hardware final check of the top candidate",
+        "Review Budget.clip_s",
+        "Render a generation through NativeRenderPool or render_many to use parallelism"
+      ],
+      "needs_human": [],
+      "decisions": [
+        "Search passes provisional weights explicitly (DECISIONS 2026-10-14 cycle 3 loss kit)",
+        "Edit-buffer-only rule and cost() budgets (DECISIONS 2026-10-13 cycle 1 and 2026-10-14 cycle 2)"
+      ],
+      "risks": [
+        "Search space too large for the budget: medium (PLAN risk table)",
+        "Hardware budget too small for a close match: medium"
+      ],
+      "key_files": [
+        "src/tonematch/search/loop.py",
+        "src/tonematch/search/cmaes.py",
+        "docs/notes/search-design.md",
+        "tests/test_search.py"
+      ],
+      "ledger": []
+    },
+    {
+      "id": "evaluation",
+      "name": "Benchmark, ledger and gates (evaluation)",
+      "purpose": "Measure progress with known answers, record every run in an append-only ledger, and decide when a gate is passed.",
+      "done_when": "The synthetic-v1 recovery set is captured and rendered, thresholds are agreed, CI runs the smoke recovery on every change, the separation stress curve and parity null are recorded, and Gates 2 and 3 are evidenced and signed.",
+      "status": "prototype",
+      "completion": 30,
+      "completion_reason": "The ledger and Gate 1 work and the synthetic-benchmark design, label generator and tests exist, but no benchmark row exists: nothing has been rendered for the synthetic set, thresholds are only proposed, parity-null and blind-ab scripts do not exist, and CI does not yet run the benchmark.",
+      "functionality": "Appends and reads the ledger, runs engine-smoke, generates 180 labelled synthetic items (labels, no audio); cannot yet render the set, run a recovery, or compute parity.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_synthetic_benchmark.py (13 tests)",
+            "tests/test_scaffold.py"
+          ]
+        },
+        {
+          "level": "hardware",
+          "refs": [
+            "Gate 1 rows: ledger 2026-10-14T18:04:42+00:00 gate_passed 1; 2026-10-14T17:33:57+00:00 and 2026-10-14T18:09:13+00:00 smoke"
+          ]
+        }
+      ],
+      "owners": [
+        "benchmark",
+        "reviewer",
+        "tone-matcher-lead"
+      ],
+      "tasks": [
+        "T008",
+        "T015",
+        "T019",
+        "T024"
+      ],
+      "blockers": [
+        "The Helix synthetic set cannot be rendered until the human captures three Native chains; thresholds await the lead's decision."
+      ],
+      "implemented": [
+        {
+          "item": "Append-only ledger and its writer, format contract",
+          "paths": [
+            "ledger/runs.csv",
+            "scripts/ledger_append.py",
+            "contracts/ledger-format.md"
+          ]
+        },
+        {
+          "item": "Gate checklists with Gate 1 evidenced and signed",
+          "paths": [
+            "board/GATES.md"
+          ]
+        },
+        {
+          "item": "Synthetic recovery benchmark design, manifest and labels generator, cost planner",
+          "paths": [
+            "scripts/synthetic_benchmark.py",
+            "docs/notes/synthetic-benchmark-design.md",
+            "tests/test_synthetic_benchmark.py"
+          ]
+        },
+        {
+          "item": "CI for tests and lint",
+          "paths": [
+            ".github/workflows/ci.yml"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "The plan's 'every change' synthetic run can only be a 6-item Native smoke recovery (about 7.5 min); the full Native pass is nightly (about 9.4 h) and Stomp recovery is milestone-only because hardware renders are serial.",
+          "source": "docs/notes/synthetic-benchmark-design.md"
+        },
+        {
+          "finding": "Native can only test which of three fixed structures and bypass switches and knobs, so model accuracy is meaningful only on the Stomp sub-set.",
+          "source": "docs/notes/synthetic-benchmark-design.md"
+        },
+        {
+          "finding": "A benchmark re-run of stompd from the scratchpad was blocked by the permission system the first time; a benchmark-owned row exists since 18:09:13.",
+          "source": "board/GATES.md Gate 1 note"
+        },
+        {
+          "finding": "The ledger has no benchmark, stress, parity, engine-compare or ab rows yet: the ledger shows smoke, render-cost, separate, loss-trust and gate only.",
+          "source": "ledger/runs.csv"
+        }
+      ],
+      "todo": [
+        "Render synthetic-v1 truth and run the recovery",
+        "Build parity_null.py and ab_session.py",
+        "Separation stress curve",
+        "Add the benchmark step to CI",
+        "Engine comparison on the same songs"
+      ],
+      "needs_human": [
+        "Capture three Native chains (A_clean, B_crunch, C_highgain)",
+        "Decide the proposed synthetic-v1 thresholds with the lead",
+        "Sign off Gates 2 and 3 when evidence exists"
+      ],
+      "decisions": [
+        "Benchmark regression freezes merges (CLAUDE.md standing rule)",
+        "Dataset naming for proxy rows (DECISIONS 2026-10-14 cycle 3 loss kit)"
+      ],
+      "risks": [
+        "Hardware budget too small for a close match",
+        "Native and Stomp differ: parity null not recorded"
+      ],
+      "key_files": [
+        "ledger/runs.csv",
+        "board/GATES.md",
+        "scripts/synthetic_benchmark.py",
+        "docs/notes/synthetic-benchmark-design.md"
+      ],
+      "ledger": [
+        {
+          "kind": "gate"
+        },
+        {
+          "kind": "benchmark"
+        },
+        {
+          "kind": "stress"
+        },
+        {
+          "kind": "parity"
+        },
+        {
+          "kind": "engine-compare"
+        }
+      ]
+    },
+    {
+      "id": "learning",
+      "name": "Learning (predictor, proxies)",
+      "purpose": "Learn from rendered pairs to seed the search with a blind predictor and, later, to speed the inner loop with neural block proxies and a learned similarity metric.",
+      "done_when": "A predictor trained on Helix-rendered pairs improves the search's start (measurably fewer renders to the same loss), its weights have a model card and a licence that allows publishing, and the flywheel adds verified matches as training data.",
+      "status": "not-started",
+      "completion": 0,
+      "completion_reason": "No code, data or model; only the task T030 exists and the plan defers neural proxies until after week 6.",
+      "functionality": "Nothing. There is no data generator, predictor or proxy.",
+      "health": "unknown",
+      "evidence": [
+        {
+          "level": "none",
+          "refs": []
+        }
+      ],
+      "owners": [
+        "learning"
+      ],
+      "tasks": [
+        "T030"
+      ],
+      "blockers": [
+        "Needs working engines, a trusted loss and the DI library; also Native's EULA may limit publishing weights trained on Native renders."
+      ],
+      "implemented": [],
+      "challenges": [
+        {
+          "finding": "The Native EULA is silent on training ML on Native renders; prefer hardware renders for anything published until the installer EULAs are read.",
+          "source": "docs/notes/line6-eula-flags.md; PLAN risk table"
+        }
+      ],
+      "todo": [
+        "T030 data generator: EGDB DI through random plausible chains on Native; predictor v0",
+        "Model card and licence note for any published weights"
+      ],
+      "needs_human": [
+        "Read the Native and HX Edit installer EULAs (T017)"
+      ],
+      "decisions": [
+        "Neural proxies deferred to after week 6 (DECISIONS 2026-10-13 planning)",
+        "LLM 'listen and suggest' step declined (same entry)"
+      ],
+      "risks": [
+        "Predictor training depends on Native renders: medium (PLAN risk table)"
+      ],
+      "key_files": [
+        "docs/PLAN.md",
+        ".claude/agents/learning.md"
+      ],
+      "ledger": []
+    },
+    {
+      "id": "listening",
+      "name": "Blind listening sessions and export",
+      "purpose": "Prepare level-matched, randomised blind A/B or MUSHRA sessions so the human, who is the final judge, can rate matches against references and baselines.",
+      "done_when": "A blind-ab-session script builds a session folder with the answer key kept out, the human has rated the 20-song set, results are ingested as ledger rows, and Gate 3 has the human's sign-off.",
+      "status": "designing",
+      "completion": 5,
+      "completion_reason": "Only the skill description exists; no script (ab_session.py), no session, no ratings, and no matched presets or baselines to play.",
+      "functionality": "Nothing runs. No session has been prepared; nothing has been judged by ear.",
+      "health": "unknown",
+      "evidence": [
+        {
+          "level": "none",
+          "refs": []
+        }
+      ],
+      "owners": [
+        "benchmark"
+      ],
+      "tasks": [],
+      "blockers": [
+        "Needs matched presets from the whole pipeline and a 20-song set."
+      ],
+      "implemented": [
+        {
+          "item": "Skill description only (the script is not built)",
+          "paths": [
+            ".claude/skills/blind-ab-session/SKILL.md"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "The ear is the final judge and no preset has ever been listened to against a reference; every quality claim in this report is metric or hardware-level only.",
+          "source": "CLAUDE.md standing rules"
+        }
+      ],
+      "todo": [
+        "Build scripts/ab_session.py to the skill",
+        "Assemble the 20-song set and the nearest-community-preset baselines",
+        "Prepare Gate 3 session, ingest ratings as ledger rows"
+      ],
+      "needs_human": [
+        "Listen and rate the blind sessions when they exist (Gate 3 sign-off)"
+      ],
+      "decisions": [
+        "Comparison ends in a blind human listen (DECISIONS 2026-10-13 planning)"
+      ],
+      "risks": [
+        "Studio processing on the record limits how close any preset can get: medium (PLAN risk table)"
+      ],
+      "key_files": [
+        ".claude/skills/blind-ab-session/SKILL.md",
+        "board/GATES.md"
+      ],
+      "ledger": [
+        {
+          "kind": "ab"
+        }
+      ]
+    },
+    {
+      "id": "pipeline",
+      "name": "End-to-end song-to-preset pipeline and CLI",
+      "purpose": "Give it a song, get back an HX Stomp .hlx with up to three snapshots, verified on the pedal.",
+      "done_when": "One command takes a song (and optional stems), runs separation, segmentation, DI choice, search and export, and returns a validated .hlx whose result is verified on the engine of the user's choice.",
+      "status": "designing",
+      "completion": 5,
+      "completion_reason": "The individual steps exist as library code in various states, but nothing wires them: there is no CLI entry point, no pipeline module and no run from a song to a preset.",
+      "functionality": "Nothing end to end. No command turns a song into a preset.",
+      "health": "unknown",
+      "evidence": [
+        {
+          "level": "none",
+          "refs": []
+        }
+      ],
+      "owners": [
+        "tone-matcher-lead"
+      ],
+      "tasks": [],
+      "blockers": [
+        "Depends on a trusted loss, a measured separator and a DI library; none exist yet."
+      ],
+      "implemented": [
+        {
+          "item": "Plan and pipeline description only; the step modules exist separately (see the other features)",
+          "paths": [
+            "docs/PLAN.md",
+            "README.md"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "No end-to-end run has ever happened, so no integration failure has been found yet; expect some.",
+          "source": "repository survey (no CLI entry point in pyproject.toml)"
+        }
+      ],
+      "todo": [
+        "Define the CLI and pipeline module",
+        "Wire separation, segmentation, DI, search, export and hardware verification",
+        "Snapshot assignment from section groups"
+      ],
+      "needs_human": [],
+      "decisions": [
+        "Fixed 8-slot template for v0 (DECISIONS 2026-10-13 planning), since superseded by real @position order in the preset code"
+      ],
+      "risks": [
+        "Several guitars in one stem: medium",
+        "Studio processing on the record: medium"
+      ],
+      "key_files": [
+        "docs/PLAN.md",
+        "pyproject.toml"
+      ],
+      "ledger": []
+    },
+    {
+      "id": "platform",
+      "name": "Platform, install and packaging",
+      "purpose": "Install and run on Windows, macOS and Linux with whichever GPU backend is present, and ship releases others can use.",
+      "done_when": "A clean install works on all three OSes in CI, GPU backends are packaged, Native on Linux works through Wine and yabridge or is documented as unsupported, and a release package exists.",
+      "status": "prototype",
+      "completion": 15,
+      "completion_reason": "Dev-environment notes, a GPU backend detector and a Linux-only CI for tests and lint exist; the backend is verified only as CPU and MPS on one arm64 Mac. No Windows or Linux run, no packaging, and the pyproject has no entry points.",
+      "functionality": "pip install -e .[dev] works on this Mac; detect_backend picks cpu or mps; CI runs ruff and pytest on Ubuntu with Python 3.11 only.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_gpu.py (9 tests, other backend branches covered by monkeypatching only)"
+          ]
+        }
+      ],
+      "owners": [
+        "platform"
+      ],
+      "tasks": [
+        "T007"
+      ],
+      "blockers": [
+        "No Windows or Linux machine available for H10, H11 or Wine tests."
+      ],
+      "implemented": [
+        {
+          "item": "GPU backend detection stub (CUDA, MPS, ROCm, DirectML, CPU)",
+          "paths": [
+            "src/tonematch/gpu.py"
+          ]
+        },
+        {
+          "item": "Dev environment notes including Wine and yabridge for Native on Linux",
+          "paths": [
+            "docs/DEV-ENV.md"
+          ]
+        },
+        {
+          "item": "CI workflow (Ubuntu, Python 3.11, ruff and pytest)",
+          "paths": [
+            ".github/workflows/ci.yml"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "The CI runs on Ubuntu without the optional extras, so the engine, separation and Native paths are untested there; python-rtmidi has no wheel on macOS with Python 3.14.",
+          "source": ".github/workflows/ci.yml; pyproject.toml comments"
+        },
+        {
+          "finding": "The project licence is not chosen; pedalboard (GPLv3) and non-commercial diffq constrain what can be bundled.",
+          "source": "pyproject.toml; reviews/licence-2026-10-14.md"
+        }
+      ],
+      "todo": [
+        "CI matrix across OSes",
+        "Entry points and installers",
+        "GPU packaging per backend",
+        "Wine and yabridge test for Native on Linux"
+      ],
+      "needs_human": [
+        "Choose the project licence (blocks any release)"
+      ],
+      "decisions": [
+        "GPU optional and not NVIDIA-specific (DECISIONS 2026-10-13 planning)",
+        "Pin original Helix Native 3.8x (same entry)"
+      ],
+      "risks": [
+        "Native on Linux: low (PLAN risk table)",
+        "Pedal control unavailable on Windows and macOS: high for hardware-only users"
+      ],
+      "key_files": [
+        "docs/DEV-ENV.md",
+        "src/tonematch/gpu.py",
+        ".github/workflows/ci.yml",
+        "pyproject.toml"
+      ],
+      "ledger": []
+    },
+    {
+      "id": "licensing",
+      "name": "Licensing and legal hygiene",
+      "purpose": "Keep Line 6 assets out of the repo, respect the GPLv3 boundary and dependency licences, and flag EULA and model-weight questions before they bite.",
+      "done_when": "licence-check passes on every dependency change with every WARN justified, the EULAs have been read, the project licence is chosen, and no release ships a non-commercial or unlicensed component.",
+      "status": "working",
+      "completion": 60,
+      "completion_reason": "licence_check.py runs and passes with six documented WARN rulings (docs/licence-allowlist.json), detects non-commercial licences, the pedalboard boundary is enforced by a test, T016 and T016a are closed, and no Line 6 asset is in the repo. The EULAs are unread, the project licence is undecided, diffq is non-commercial (private research only) and the RoFormer checkpoint is unlicensed and ungranted.",
+      "functionality": "licence_check.py scans dependency licences, the pedalboard import boundary, Line 6 assets and committed golden presets and writes a review; it passes today with six WARN entries.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_licence_check.py (10 tests)",
+            "tests/test_native.py boundary test"
+          ]
+        },
+        {
+          "level": "none",
+          "refs": [
+            "reviews/licence-2026-10-14.md is a scan report, not a legal opinion"
+          ]
+        }
+      ],
+      "owners": [
+        "reviewer",
+        "research"
+      ],
+      "tasks": [
+        "T009",
+        "T011",
+        "T016",
+        "T016a",
+        "T017",
+        "T020b"
+      ],
+      "blockers": [
+        "Installer EULAs unread and the project licence undecided."
+      ],
+      "implemented": [
+        {
+          "item": "licence_check.py, allowlist with DECISIONS references, review reports",
+          "paths": [
+            "scripts/licence_check.py",
+            "docs/licence-allowlist.json",
+            "reviews/licence-2026-10-13.md",
+            "reviews/licence-2026-10-14.md"
+          ]
+        },
+        {
+          "item": "Research notes: EULA flags, fretwire protocol, Native automation",
+          "paths": [
+            "docs/notes/line6-eula-flags.md",
+            "docs/notes/fretwire-protocol.md",
+            "docs/notes/native-automation.md"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "The checker's copyleft list originally missed the non-commercial diffq licence; it now detects non-commercial licences, and the scan of installed extras (T016a) is done. A WARN is not a clearance: soxr, lameenc, tqdm, certifi need re-review before any bundled release.",
+          "source": "DECISIONS 2026-10-14 RoFormer rulings; board T016a"
+        },
+        {
+          "finding": "The generic Line 6 EULA forbids reverse engineering beyond interoperability and hosted or cloud use, and is silent on ML training from Native renders. This is not legal advice.",
+          "source": "docs/notes/line6-eula-flags.md"
+        },
+        {
+          "finding": "Fixtures golden .hlx are the user's own exports and stay gitignored.",
+          "source": "CLAUDE.md; reviews/licence-2026-10-14.md"
+        }
+      ],
+      "todo": [
+        "Re-review soxr, lameenc, tqdm WARNs before any bundled release",
+        "Dataset and model cards when data or weights land"
+      ],
+      "needs_human": [
+        "Read the Native and HX Edit installer EULAs (T017)",
+        "Choose the project licence"
+      ],
+      "decisions": [
+        "No firmware decompilation (DECISIONS 2026-10-13 planning)",
+        "No Line 6 data or binaries in the repo (same entry)",
+        "soxr, lameenc, tqdm, certifi accepted as WARN; diffq private research only (DECISIONS 2026-10-14 licence rulings)"
+      ],
+      "risks": [
+        "Native EULA silent on ML training: medium (PLAN risk table)"
+      ],
+      "key_files": [
+        "scripts/licence_check.py",
+        "docs/licence-allowlist.json",
+        "docs/notes/line6-eula-flags.md",
+        "reviews/licence-2026-10-14.md"
+      ],
+      "ledger": []
+    },
+    {
+      "id": "process",
+      "name": "Agent team, board and process",
+      "purpose": "Coordinate the agents through contracts, a task board, gates, an append-only ledger, a decision log and cycle notes so work is honest and traceable.",
+      "done_when": "Every cycle ends with synced docs, a current board, a cycle entry and a status page, contracts are current, and the board matches the code.",
+      "status": "working",
+      "completion": 60,
+      "completion_reason": "Three cycles of work are on a maintained board with gates, a decision log, a ledger and now a cycle 3 entry; the lead fixed the T020 and T016 discrepancies. Remaining drift: README.md and contracts/README.md are stale and T020b text is out of date.",
+      "functionality": "The lead runs cycles from the board, ledger and gates; agents hand off by file and ledger row; this status report is new.",
+      "health": "partial",
+      "evidence": [
+        {
+          "level": "unit-tests",
+          "refs": [
+            "tests/test_status_report.py"
+          ]
+        }
+      ],
+      "owners": [
+        "tone-matcher-lead",
+        "status-reporter"
+      ],
+      "tasks": [
+        "T001",
+        "T010",
+        "T012",
+        "T014",
+        "T017",
+        "T020a",
+        "T031"
+      ],
+      "blockers": [
+        "Several tasks wait on the human; board and READMEs have stale lines."
+      ],
+      "implemented": [
+        {
+          "item": "Board, gates, cycle notes, decision log, contracts and agent definitions",
+          "paths": [
+            "board/TASKS.md",
+            "board/GATES.md",
+            "board/CYCLES.md",
+            "docs/DECISIONS.md",
+            "contracts/",
+            ".claude/agents/",
+            "docs/AGENT-TEAM.md"
+          ]
+        },
+        {
+          "item": "Status report: registry, renderer and page",
+          "paths": [
+            "docs/features.json",
+            "scripts/status_report.py",
+            "reports/status/index.html"
+          ]
+        }
+      ],
+      "challenges": [
+        {
+          "finding": "Prose drift persists: README.md says nothing renders audio; contracts/README.md says the engine interface is only proposed; the T020b line predates the licence rulings. T020 and T016 were corrected this cycle.",
+          "source": "README.md; contracts/README.md; board/TASKS.md"
+        },
+        {
+          "finding": "Agents ran concurrently in cycle 3; tone-metrics (T025) and native-engine (T026) have now landed and are in this snapshot.",
+          "source": "board/TASKS.md T025, T026"
+        }
+      ],
+      "todo": [
+        "Fix README.md and contracts/README.md (lead)",
+        "Refresh the T020b board line",
+        "Regenerate this status page at the end of every cycle"
+      ],
+      "needs_human": [
+        "Answer the open decisions on the board: T018 go, T020a firmware, thresholds"
+      ],
+      "decisions": [
+        "Agent team adopted (DECISIONS 2026-10-13 planning)",
+        "Lint is a merge condition (DECISIONS 2026-10-13 cycle 1)",
+        "Status page regenerated at the end of every cycle (DECISIONS 2026-10-14 status report)"
+      ],
+      "risks": [
+        "Docs drift from code between cycles"
+      ],
+      "key_files": [
+        "board/TASKS.md",
+        "board/GATES.md",
+        "docs/DECISIONS.md",
+        "docs/AGENT-TEAM.md",
+        "docs/features.json"
+      ],
+      "ledger": []
+    }
+  ]
+}

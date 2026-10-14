@@ -22,6 +22,13 @@ PEDALBOARD_HOST = "src/tonematch/engines/native_host.py"
 BOUNDARY_DECLARED_IN = "src/tonematch/engines/native.py"
 SKIP_DIRS = {".venv", ".git", "cache", "__pycache__", ".ruff_cache", ".pytest_cache", "node_modules"}
 COPYLEFT = ("gpl", "agpl", "lgpl", "unknown", "general public")
+# Weak copyleft that is flagged (WARN when allowlisted) alongside the GPL family.
+WEAK_COPYLEFT = re.compile(r"\bmpl\b|mozilla public", re.IGNORECASE)
+# Non-commercial / research-only terms: a distinct category that blocks bundled or commercial release.
+NONCOMMERCIAL = re.compile(
+    r"\bcc[ _-]?by[ _-]?nc|\bby[ _-]nc\b|non[ -]?commercial|research[ -]only|only for research",
+    re.IGNORECASE)
+NC_REASON = "blocks bundled/commercial release"
 BANNED_SUFFIXES = {".hxf", ".hxb", ".hxs", ".hxl", ".vst3", ".component", ".dll", ".dylib", ".so",
                    ".exe", ".dmg", ".pkg", ".msi"}
 FIRMWARE_HINTS = ("firmware", "hxstomp.bin", ".fw")
@@ -32,6 +39,7 @@ OWN_NAMES = {"tonematch"}
 ALLOWLIST = "docs/licence-allowlist.json"
 # (regex on the licence file header, name). Order matters: LGPL/AGPL before GPL, Apache before MIT.
 LICENCE_TEXT = (
+    (r"Attribution-NonCommercial", "CC-BY-NC"),
     (r"GNU AFFERO GENERAL PUBLIC", "AGPL"), (r"GNU LESSER GENERAL PUBLIC", "LGPL"),
     (r"GNU GENERAL PUBLIC", "GPL"), (r"Apache License", "Apache-2.0"),
     (r"Mozilla Public License", "MPL-2.0"), (r"Permission is hereby granted, free of charge", "MIT"),
@@ -62,6 +70,10 @@ def licence_from_files(d) -> str | None:
             if found:
                 return f"{found} (from {f.name})"
     return None
+
+
+def is_noncommercial(lic: str) -> bool:
+    return bool(NONCOMMERCIAL.search(lic))
 
 
 def load_allowlist(root: Path) -> dict[str, dict]:
@@ -210,13 +222,24 @@ def build_report(root: Path, date: str) -> tuple[str, bool]:
         "Committed golden presets": section_golden(root),
         "Datasets and model cards": section_data(root),
     }
-    flagged = [r for r in deps if any(c in r[2].lower() for c in COPYLEFT)]
+    flagged = [r for r in deps if any(c in r[2].lower() for c in COPYLEFT)
+               or WEAK_COPYLEFT.search(r[2]) or is_noncommercial(r[2])]
     dep_status = "PASS"
     dep_notes = []
     allow = load_allowlist(root)
     for n, v, lic in flagged:
         entry = allow.get(n.lower())
-        if entry and entry["match"].lower() in lic.lower():
+        nc = is_noncommercial(lic)
+        if nc and not (entry and entry["match"].lower() in lic.lower()):
+            dep_status = "FAIL"
+            dep_notes.append(f"{n} {v}: {lic} (NON-COMMERCIAL, unlisted: {NC_REASON}; record a ruling in "
+                             f"docs/DECISIONS.md and add it to {ALLOWLIST})")
+        elif nc:
+            if dep_status == "PASS":
+                dep_status = "WARN"
+            dep_notes.append(f"WARN NON-COMMERCIAL {n} {v}: {lic}. {NC_REASON}. {entry['reason']} "
+                             f"({entry['ref']})")
+        elif entry and entry["match"].lower() in lic.lower():
             if entry.get("needs_boundary") and boundary != "PASS":
                 dep_status = "FAIL"
                 dep_notes.append(f"{n} {v}: {lic} (allowlisted but the process boundary FAILS)")

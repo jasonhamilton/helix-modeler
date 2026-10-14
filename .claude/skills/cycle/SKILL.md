@@ -35,4 +35,8 @@ Ask `benchmark` to run what the mode needs: `engine-smoke` (mode 1), `synthetic-
 
 ## 7. Sync
 
-Run `plan-sync`. End with one paragraph to the person: mode, what shipped (ledger rows), what is blocked on them, what is next.
+Run `plan-sync`.
+
+## 8. Status report
+
+Run `status-report` (agent `status-reporter`): refresh `docs/features.json` and regenerate `reports/status/index.html`, the by-feature progress page for the person. Then end with one paragraph to the person: mode, what shipped (ledger rows), what is blocked on them, what is next, and the path to the status page with its three biggest blockers.

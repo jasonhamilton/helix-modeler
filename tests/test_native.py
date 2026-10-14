@@ -221,6 +221,29 @@ def test_cost_is_measured_and_cached(delay_engine, tmp_path):
     assert delay_engine.measure_cost(max_workers=2) == c
 
 
+@needs_host
+def test_cost_keyed_by_chain_and_measured_on_a_template(monkeypatch):
+    """A knob move changes Native's raw state; the cost cache must not miss because of it."""
+    e = nat.NativeEngine("builtin:Gain?gain_db=0")
+    try:
+        chain = (("amp", "HD2_TestAmp"), ("cab", None))
+        e.templates = {chain: nat.ChainTemplate(chain, b"", {"0:Drive": "gain_db"}, name="t")}
+        monkeypatch.setattr(e, "_set_state", lambda blob: None)  # builtin stand-ins have no state
+        assert "|state:" in e.cost_key()
+        c = e.measure_cost(max_workers=1)
+        assert e.current_chain is None and e.current_template is None  # restored after measuring
+        cached = json.loads((nat.cache_dir() / "cost.json").read_text())
+        cid = nat.chain_id([list(x) for x in chain])
+        (entry,) = [v for k, v in cached.items() if f"|chain:{cid}|" in k]
+        assert entry["chain"] == [list(x) for x in chain] and len(entry["loadavg_before"]) == 3
+        e.current_chain = chain  # as after load(); knob values are not part of the key
+        k = e.cost_key()
+        monkeypatch.setattr(e, "_get_state", lambda: b"knob moved")
+        assert e.cost_key() == k and e.measure_cost(max_workers=1) == c  # cache hit, no re-measure
+    finally:
+        e.close()
+
+
 @dataclass
 class _Slot:
     category: str

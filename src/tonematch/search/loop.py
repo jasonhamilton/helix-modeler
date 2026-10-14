@@ -41,19 +41,23 @@ def plan_budget(engine, budget: Budget) -> Plan:
     name = caps.engine
     assumed = not math.isfinite(c.load_penalty_s)
     penalty = c.seconds_per_render if assumed else c.load_penalty_s  # conservative guess when unmeasured
-    par = max(1, int(c.parallelism))
+    # match() renders serially through one engine, so plan with parallelism 1 whatever cost() reports.
+    par = 1
     notes = []
     halving = name not in FIXED_COST_ENGINES and budget.short_s < budget.clip_s
     short_frac = budget.short_s / budget.clip_s if halving else 1.0
-    spr = c.seconds_per_render * budget.clip_s / 2.0 if name not in FIXED_COST_ENGINES else c.seconds_per_render
+    if name in FIXED_COST_ENGINES:  # reset ~1.8 s fixed + 0.045 s per second of audio (native-engine, 2 s clip = 1.89)
+        spr = c.seconds_per_render * (1.8 + 0.045 * budget.clip_s) / 1.89
+    else:
+        spr = c.seconds_per_render * budget.clip_s / 2.0
     cap = budget.max_renders
     if budget.wall_s is not None:
         cap = min(cap, int(budget.wall_s * par / max(spr, 1e-9)))
         notes.append(f"wall_s={budget.wall_s} caps renders at {cap}")
     cap = max(cap, 1)
     pop = 4 + int(3 * math.log(max(2, 8)))
-    if par > 1:
-        pop = int(math.ceil(pop / par) * par)  # fill the engine's parallel lanes
+    if c.parallelism > 1:
+        notes.append(f"engine parallelism {c.parallelism} unused: renders are serial")
     if assumed:
         notes.append("load_penalty_s is NaN: assumed one render time per model change")
     return Plan(name, cap, pop, halving, short_frac, par, spr, penalty, assumed,

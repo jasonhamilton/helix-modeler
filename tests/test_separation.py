@@ -146,3 +146,18 @@ def test_hf_telemetry_disabled_and_cache_redirected():
     env = {k: v for k, v in __import__("os").environ.items()
            if k not in ("HF_HUB_DISABLE_TELEMETRY", "HF_HUB_CACHE")}
     assert subprocess.call([sys.executable, "-c", code], env=env) == 0
+
+
+def test_roformer_gating(monkeypatch):
+    import numpy as np
+    import pytest
+
+    from tonematch.separation.models import AudioSeparatorRoformer, SeparatorUnavailable
+
+    monkeypatch.delenv("TONEMATCH_ROFORMER_CKPT", raising=False)
+    monkeypatch.delenv("TONEMATCH_ROFORMER_LICENCE_ACK", raising=False)
+    mix = np.zeros((2, 4800), dtype=np.float32)
+    assert AudioSeparatorRoformer.default_ckpt["bs-roformer"] == "BS-Roformer-SW.ckpt"
+    for name in ("mel-roformer", "mdx23c", "bs-roformer"):
+        with pytest.raises(SeparatorUnavailable):
+            AudioSeparatorRoformer(name, backend="cpu").separate(mix)

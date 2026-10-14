@@ -63,8 +63,9 @@ def test_plan_handles_nan_load_penalty_and_wall_cap():
     assert p.load_penalty_assumed and math.isfinite(p.load_penalty_s)
     assert p.max_renders == int(600 / 2.7)
     n = plan_budget(FakeEngine(1.63, 6, 0.016, "native"), B(max_renders=1000, wall_s=600))
-    assert not n.halving and n.max_renders == 1000 and not n.load_penalty_assumed
-    assert n.popsize % 6 == 0
+    assert not n.halving and n.max_renders == int(600 / 1.63) and not n.load_penalty_assumed
+    assert n.parallelism == 1 and n.est_wall_s == n.max_renders * n.seconds_per_render
+    assert n.popsize == 4 + int(3 * math.log(8))
 
 
 def test_chain_grouping_and_unsupported_chain_skipped():

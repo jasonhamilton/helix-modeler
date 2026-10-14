@@ -1,6 +1,6 @@
 # T002 / T013 Native spike: can a whole preset be written into Helix Native's state?
 
-Owner: native-engine. Status 2026-10-14: **whole-preset state write: NO. Automation/replay route: pending one GUI step.**
+Owner: native-engine. Status 2026-10-14: **whole-preset state write: NO. Automation/replay route: YES (T013 GUI run, replay null -72.9 dB). Render-time gap explained and fixed (T026, below).**
 Plugin: Helix Native **3.82** (original, not Stadium), both builds installed on the dev Mac:
 
 - VST3 `/Library/Audio/Plug-Ins/VST3/Line 6/Helix Native.vst3` (`com.line6.helixnative.vst`, 3.82). The installer puts it in a `Line 6/` subfolder.
@@ -54,6 +54,30 @@ Open formats seen in the same install (read in place, not copied): `res/default_
 - **Cost** (`cost()` measured, cached in `cache/native/cost.json`, VST3, empty preset, reset mode): **1.628 s per 2 s render**. Throughput is 0.61 / 1.19 / 1.85 / 2.26 / 2.24 / 1.98 renders/s for 1 / 2 / 4 / 6 / 8 / 9 processes, so **parallelism = 6** on this 10-core Mac. Chain-change settling is **0.016 s** (state load plus polls, measured from the opening state to the current one; with a single distinct state this is a reload). These are lower bounds: the GUI run re-measures on the `known.hlx` chain.
 
 Ledger: `2026-10-14T16:37:06+00:00 render-cost native smoke seconds_per_render 1.6278` and `smoke native smoke passthrough_null_db -92.0`. Both are labelled empty-preset. Neither is engine-smoke or Gate 1 evidence.
+
+## Render-time gap (T026, 2026-10-14, known.hlx chain)
+
+Question: `cost()` reports 1.63 s per render (empty preset) and 1.88 s (known.hlx), but search's smoke demo (`scripts/search_smoke.py`) took about 10 s per render. Measured with `scripts/native_render_probe.py` (synthetic `test_signal` only, raw JSON in `cache/native/probe/`). Each section was run twice: run 1 at 13:47 PDT on a quiet machine, run 2 at 13:59 PDT with two unidentified, non-native, CPU-bound Python processes running. The Mac has 10 cores (8 performance and 2 efficiency).
+
+**Cause: a cost-cache miss, not rendering.** `measure_cost()` keyed its disk cache on a hash of Native's raw state. A knob move changes the raw state (`knob_01`: `e0622cc67dd3` to `a2a2ca82d838`). The demo loads the target with Drive=0.75, and `plan_budget()` then calls `cost()`, so every new knob value missed the cache and re-ran the whole measurement inside the demo: a warm-up, 3 renders, a parallel scan opening 9 host processes one after another at about 5 s each, and the settling test. I reproduced it on a scratch cache copy: **202 s wall, of which 156 s was `measure_cost`**. That is 23 render calls at 8.8 s each, while the renders themselves had a median of 1.92 s (load 3.35, no foreign jobs). Running at the same time as separation and tone-metrics (18:19 to 18:27 UTC) pushed the original run to about 10 s per render.
+
+**Fix (in `native.py`):** the cache key is now `chain:<chain_id>` once a chain is loaded. Before any load, `cost()` measures on a captured template (a real chain) and restores the state afterwards. The parallel scan opens hosts concurrently and stops at the first k that gains less than 15%. `capabilities().extras` gains the contract's `control_route`. After the fix the demo took **46 s, 2.4 s per render call** (including a 7.4 s engine open), with `cost()` at 0.0 s and the same answer (Drive 0.765). A cold `cost()` on a new chain still takes about 130 s, but only once per chain per machine.
+
+| Measurement (2 s clip unless stated) | Run 1, quiet (load1 1.3) | Run 2, loaded (load1 3.9-4.5, 2 foreign jobs at 100%) |
+|---|---|---|
+| (a) pure render, no `set_params` (median of 5) | 1.869 s | 1.958 s |
+| (b) `set_params(knob_01)` then render | 1.863 s; `set_params` 0.5 ms | 1.962 s; 0.5 ms |
+| (c) reset render, 0.5 / 2 / 10 s | 1.820 / 1.915 / 2.248 s | 1.877 / 1.926 / 2.249 s |
+| (c) flush render, 0.5 / 2 / 10 s (2 s flush pre-roll) | 0.113 / 0.180 / 0.544 s | 0.113 / 0.182 / 0.546 s |
+| (d) pool, renders/s at 1 / 2 / 4 / 6 processes | 0.53 / 1.03 / 1.68 / 2.13 | 0.53 / 0.91 / 1.70 / 2.03 (load1 4.95 before; no foreign jobs during d) |
+| (d) seconds per render per process | 1.89 / 1.95 / 2.38 / 2.81 | 1.87 / 2.21 / 2.35 / 2.95 |
+
+- **`set_params` re-sends no state and adds no reset.** It costs 0.5 ms. Two renders after a knob move null at -320 dB, and the knob moves the render (-3.2 dB residual for Drive 0.9 against 0.3).
+- **The reset cost is fixed.** On this chain a reset render costs about 1.80 s, plus about 0.045 s per second of audio (amp, cab and delay DSP). A 10 s clip costs only 1.2x a 2 s clip, so longer sections are nearly free on Native. Flush mode shows the same 0.045x DSP rate with no fixed cost, but it is still opt-in.
+- **Pool:** per-process render time grows from 1.9 s to 2.8 to 2.95 s at 6 processes. The knee is at 6 on a quiet machine. The fixed cost() re-measure (21:02:08 UTC row, load1 4.9 to 6.5) picked 8 (k=6 1.98, k=8 2.35, k=9 2.37 renders/s), so the knee is noisy under load.
+- **For `search`:** `Plan.est_wall_s` divides by `parallelism`, but `match()` renders serially through one engine. The demo estimated 3.9 s and took 46 s. See DECISIONS 2026-10-14 (T026).
+
+Ledger: 11 `render-cost` rows, 2026-10-14T21:02:07 to 08, each noting its load. The quiet 2 s figure (1.8685) is in line with the 16:57 row (1.883), so no regression.
 
 ## The one GUI step (human, about 3 minutes)
 

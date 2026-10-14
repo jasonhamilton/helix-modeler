@@ -1,11 +1,42 @@
 {
-  "comment": "Dependencies whose copyleft or odd licence was reviewed and accepted. scripts/licence_check.py reports these as WARN with the reason; anything not listed FAILs. Add an entry only with a ruling in docs/DECISIONS.md.",
-  "allow": [
-    {"name": "pedalboard", "match": "gpl", "needs_boundary": true,
-     "reason": "GPLv3; allowed only behind the process boundary (native_host.py), until the project licence is chosen",
-     "ref": "docs/DECISIONS.md, pedalboard process boundary; docs/PLAN.md risks"},
-    {"name": "lameenc", "match": "lgpl",
-     "reason": "LGPL-3.0-or-later MP3 encoder, unmodified, dynamically installed, never called; transitive dependency of demucs via the optional separation extra. Re-review before any bundled or frozen release",
-     "ref": "docs/DECISIONS.md 2026-10-14 cycle 3, lameenc accepted"}
-  ]
+ "comment": "Dependencies whose copyleft or odd licence was reviewed and accepted. scripts/licence_check.py reports these as WARN with the reason; anything not listed FAILs. Add an entry only with a ruling in docs/DECISIONS.md.",
+ "allow": [
+  {
+   "name": "pedalboard",
+   "match": "gpl",
+   "needs_boundary": true,
+   "reason": "GPLv3; allowed only behind the process boundary (native_host.py), until the project licence is chosen",
+   "ref": "docs/DECISIONS.md, pedalboard process boundary; docs/PLAN.md risks"
+  },
+  {
+   "name": "lameenc",
+   "match": "lgpl",
+   "reason": "LGPL-3.0-or-later MP3 encoder, unmodified, dynamically installed, never called; transitive dependency of demucs via the optional separation extra. Re-review before any bundled or frozen release",
+   "ref": "docs/DECISIONS.md 2026-10-14 cycle 3, lameenc accepted"
+  },
+  {
+   "name": "soxr",
+   "match": "lgpl",
+   "reason": "LGPL-2.1-or-later resampler, unmodified, dynamically installed, optional separation-roformer extra, never bundled or frozen. Same terms as lameenc. Re-review before any bundled or frozen release",
+   "ref": "docs/DECISIONS.md 2026-10-14 cycle 3, RoFormer extra licence rulings (soxr accepted on lameenc terms; see also lameenc entry)"
+  },
+  {
+   "name": "certifi",
+   "match": "mpl",
+   "reason": "MPL-2.0 weak copyleft, unmodified CA bundle; accepted as WARN",
+   "ref": "docs/DECISIONS.md 2026-10-14 cycle 3, RoFormer extra licence rulings"
+  },
+  {
+   "name": "diffq",
+   "match": "nc",
+   "reason": "CC BY-NC 4.0 non-commercial: acceptable for private local research use only while the project licence is undecided",
+   "ref": "docs/DECISIONS.md 2026-10-14 cycle 3, RoFormer extra licence rulings"
+  },
+  {
+   "name": "tqdm",
+   "match": "mpl",
+   "reason": "MPL-2.0 AND MIT, weak copyleft, unmodified; accepted as WARN, same class as certifi",
+   "ref": "docs/DECISIONS.md 2026-10-14 cycle 3, tqdm ruling"
+  }
+ ]
 }
