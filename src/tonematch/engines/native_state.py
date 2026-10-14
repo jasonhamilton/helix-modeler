@@ -114,6 +114,105 @@ def join_vst3_state(raw_template: bytes, parts: dict[str, bytes]) -> bytes:
     return wrap_vc2(xml)
 
 
+# ----------------------------------------------------------------------------- AU + container
+
+AU_STATE_KEY = "Line6PresetData"   # key inside the AU ClassInfo bplist that holds Native's container
+CONTAINER_MAGIC = b"CMXH"           # Native 3.82's tagged-chunk container (observed, 2026-10-14)
+
+
+def plugin_component(raw: bytes) -> tuple[str, bytes]:
+    """('vst3' | 'au' | 'unknown', plugin-owned bytes) from a pedalboard raw_state blob.
+
+    VST3: the IComponent bytes inside JUCE's VC2! XML. AU: ``Line6PresetData`` inside the
+    ClassInfo binary plist. Both carry the same Native container (see ``container_chunks``).
+    """
+    if raw.startswith(JUCE_MAGIC):
+        return "vst3", split_vst3_state(raw).get("IComponent", b"")
+    if raw.startswith(b"bplist00"):
+        import plistlib
+
+        d = plistlib.loads(raw)
+        return "au", bytes(d.get(AU_STATE_KEY, b""))
+    return "unknown", raw
+
+
+def replace_component(raw: bytes, comp: bytes) -> bytes:
+    """Inverse of ``plugin_component``: the same wrapper with the plugin-owned bytes replaced."""
+    fmt, _ = plugin_component(raw)
+    if fmt == "vst3":
+        return join_vst3_state(raw, {"IComponent": comp})
+    if fmt == "au":
+        import plistlib
+
+        d = plistlib.loads(raw)
+        d[AU_STATE_KEY] = comp
+        return plistlib.dumps(d, fmt=plistlib.FMT_BINARY)
+    return comp
+
+
+def container_chunks(comp: bytes) -> list[dict]:
+    """Walk Native's container: b'CMXH' + uint32 size, then chunks of
+    tag[4] + uint32 version + uint32 size + uint32 reserved + payload[size].
+
+    Observed tags (Native 3.82, read as stored): RHCP, ILCP, VGCP, VTCP (small headers), DPCP and
+    BDCP (one preset record each, same 46,616-byte format as the files in Native's own preset
+    library; high-entropy, opaque), IUCP (editor window size). Structure only: payloads are not
+    interpreted, and nothing here decrypts anything.
+    """
+    if not comp.startswith(CONTAINER_MAGIC):
+        return []
+    out, o = [], 8
+    while o + 16 <= len(comp):
+        tag = comp[o:o + 4]
+        if not all(65 <= c <= 90 for c in tag):
+            break
+        ver, size, res = struct.unpack_from("<3I", comp, o + 4)
+        if o + 16 + size > len(comp):
+            break
+        out.append({"tag": tag.decode("ascii"), "offset": o, "version": ver, "size": size,
+                    "reserved": res, "payload_offset": o + 16})
+        o += 16 + size
+    return out
+
+
+def describe_container(comp: bytes) -> dict:
+    """JSON-able structure of the container: chunk table plus entropy of each payload."""
+    chunks = container_chunks(comp)
+    rows = []
+    for c in chunks:
+        p = comp[c["payload_offset"]:c["payload_offset"] + c["size"]]
+        row = {k: c[k] for k in ("tag", "offset", "version", "size")}
+        row["entropy_bits_per_byte"] = round(entropy(p), 3)
+        if c["size"] >= 8:
+            inner_len, rec_ver = struct.unpack_from("<2I", p, 0)
+            row["record_len_field"], row["record_version"] = inner_len, rec_ver
+            row["body_bytes"] = c["size"] - 8
+            row["body_multiple_of_16"] = (c["size"] - 8) % 16 == 0
+        rows.append(row)
+    end = chunks[-1]["payload_offset"] + chunks[-1]["size"] if chunks else 0
+    return {"magic": comp[:4].decode("latin1"), "bytes": len(comp), "chunks": rows,
+            "parsed_to": end, "trailing_bytes": len(comp) - end}
+
+
+def chunk_payload(comp: bytes, tag: str) -> bytes | None:
+    for c in container_chunks(comp):
+        if c["tag"] == tag:
+            return comp[c["payload_offset"]:c["payload_offset"] + c["size"]]
+    return None
+
+
+def replace_chunk_payloads(comp: bytes, payloads: dict[str, bytes]) -> bytes:
+    """Same-size payload replacement (opaque bytes; used only to test record replay)."""
+    b = bytearray(comp)
+    for c in container_chunks(comp):
+        new = payloads.get(c["tag"])
+        if new is not None:
+            if len(new) != c["size"]:
+                raise ValueError(f"{c['tag']}: payload {len(new)} bytes, chunk holds {c['size']}")
+            b[c["payload_offset"]:c["payload_offset"] + c["size"]] = new
+    return bytes(b)
+
+
 # ----------------------------------------------------------------------------- scanning
 
 

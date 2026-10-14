@@ -1,14 +1,49 @@
 # T003 spike: driving the HX Stomp from code (stomp-engine, 2026-10-13)
 
-Status: **offline half done; the hardware half is a batched runbook below.** No pedal was connected, so nothing here was sent to a device and no render happened. Upstream code was read and built in a scratch directory; none of it, and no Line 6 file, is in this repo.
+Status: **offline half done 2026-10-13; hardware batch H1-H9 run on macOS 2026-10-14 (results in "Hardware batch results" below).** H3a/H3b (HX Edit exclusivity) were skipped on instruction (HX Edit not launched); H10/H11 need Linux/Windows machines. Upstream code was read and built in a scratch directory; none of it, and no Line 6 file, is in this repo.
+
+## Hardware batch results (2026-10-14, macOS 27 arm64, HX Edit closed)
+
+**Firmware: 3.50** (build `v3.15-207-g09aad57`, device id `0x00210006`, serial 3554786), read over USB in H2. Not 3.80: generated `.hlx` files for this pedal must carry device_version for 3.50 (the HX Edit golden says 3.50, consistent; the Native golden's 3.80 is not this pedal).
+
+Tooling (scratchpad only, not in the repo): `stompd`, a long-lived JSON-lines helper (about 450 lines, written for this task) built as an example inside the scratch tonepush checkout at `53a6a65`. It holds one session, sends keepalives and drains notifications every second when idle, and exposes edit-buffer operations only. Save, rename, slot write, settings write and IR commands are not exposed. Python client: `src/tonematch/engines/stomp_bridge.py` (`TONEMATCH_STOMPD` points at the binary). Sessions opened in about 0.5 s; about 20 sessions were opened and closed this run without a wedge.
+
+| # | Result | Evidence |
+|---|---|---|
+| H1 | PASS | `system_profiler SPUSBHostDataType`: HX Stomp, VID 0x0e41, PID 0x4246, 480 Mb/s; `fretwire detect`: "HX Stomp: present"; `tonepush list`: "HX Stomp (pid 0x4246) serial 3554786 - 126 presets" |
+| H2 | PASS (firmware 3.50, not 3.80) | Original preset **04C "Smoke Known"** (setlist 0, index 11). Edit buffer backed up to `cache/stomp/spike/orig_editbuffer.bin` (2460 bytes) and chain to `cache/stomp/spike/orig_chain.json`. `read_preset_at` (op 4, read a stored slot) fails on 3.50: "preset blob was not an l6-helix document". |
+| H3a/b | SKIPPED | HX Edit was not launched (instruction). Exclusivity still rests on upstream evidence only. |
+| H3c | PASS | "HX Stomp" CoreAudio device has 8 in and 8 out at 48 kHz (no volume or mute controls; one stream each way); MIDI in and out "HX Stomp". Control `info` calls made during an 8 s render: no error, no dropout. USB control, USB audio and USB MIDI (H8, H8b) coexist. |
+| H4 | PASS, after a fix | **Input "USB 5/6" is value 6 on the Stomp**, not the Floor menu's 15. tonepush's name lookup picks 15, which the device accepts and echoes back, but no audio arrives. A sweep of 0..16 found 6 = host 5/6 (5 to L, 6 to R) and 7 = host 7/8. Values 3, 5, 9, 10, 12 and 13 are refused. Record side: 1/2 = Path A, 3/4 = Path B, 5/6 = dry Main L/R in (digital zero with nothing plugged in). |
+| H5 | PASS | Drive 6.1, 2.0, 8.0: probe renders changed (aligned null p0/p2 -15.0 dB, p1/p2 -6.0 dB, p0/p1 -6.8 dB); repeat at the same setting -30.8 dB. Without input, Drive and Ch Vol at 10 raised the idle noise floor from -86.99 to -71.65 dBFS, and putting them back gave -86.99 again. |
+| H6 | PASS | Essex A15 to US Deluxe Nrm: model command 0.242 s; render null +10.9 dB (louder and brighter); repeat -48.4 dB. **`set_model` on an Amp+Cab drops the cab**; the engine uses `set_model_pair`. |
+| H7 | PASS | Amp bypass: render changed (rms -5.6 dB, null -1.7 dB); re-enabled render nulls at -67.3 dB against the earlier one. Bypassed amp with idle input: -186.6 dBFS. |
+| H8 | PASS | Drive assigned to MIDI (source 8) and CC 20; reads back as "MIDI CC", CC 20. CC 20 = 0 / 127 on channel 1 gives Drive 0.0 / 10.0 (read back over USB); renders 27 dB apart. Narrowed range Min 0.4 / Max 0.6: CC 0, 1, 64, 127 give 0.400, 0.4016, 0.5008, 0.600, so the step is 0.00157 of the range. |
+| H8b | PASS | Program Change 12 moves the pedal to 05A, PC 11 back to 04C, with the USB control session open throughout. |
+| H9 | PASS | Re-selecting 04C reloads it from flash; chain, routing, values and assignments match H2 exactly (`chain_signature`, `cache/stomp/spike/final_chain.json`). The original buffer had no unsaved edits. No flash write was made at any point in this batch. |
+
+Protocol findings on firmware 3.50 (fed back into the helper; tonepush is tested on 3.80):
+
+- **Output-block routing is confirmed under key 52, not 51.** tonepush's `set_routing` sends 51 for both blocks. On an Output block this left it routed to None and silent, and re-sending 51 did not undo it. `{98: 9, 52: 1}` on op 42 fixed it. The engine never routes the Output block.
+- `request` does not check reply status, so a refused write looks like success. The helper's `set` and `route_key` check the status.
+- An Amp+Cab's cab parameters are op 30 with key 26 = 1 (fretwire's `set_paired_value`). The cab's **mic** sits past its `Helix.sym` list (an "extra" value): key 29 = false, key 28 = 0, int wire type. `.hlx` calls it `@mic`. tonepush's `.hlx` import does not apply cab settings at all.
+- A whole-buffer write (op 21, `write_preset`) restored the slots and the same assignments, in a different order. One op-21 write was made, to the edit buffer only, during the first engine dry run.
+
+Audio and timing (`tonematch.reamp`, `cache/stomp/latency.json`):
+
+- Round-trip latency (impulse, USB 5/6 to USB 1/2, transparent chain): **1206 samples (25.1 ms)** with PortAudio `latency='low'` (measurements 1207, 1206, 1206, 1206, 1206). With default buffering it is 12498 to 12499 (260 ms); blocksize 256 gives 1490 to 1491, blocksize 512 gives 8914 to 8915. The impulse comes back as a single sample at unity. **Stream-start jitter is 0 to 1 sample on every setting.** `render()` cancels it by aligning (±2 samples) to the chain's first render of the same clip.
+- Level: -18 dBFS 1 kHz through the transparent chain comes back at -18.000 dBFS, so the calibration gain is 0.0 dB.
+- Repeatability on known.hlx, di_2s, after alignment: -31 to -36 dB null between repeat renders. Probably sub-sample variation (the Essex model's Hum and Ripple may add some); fractional alignment is a possible improvement. `load()` rebuilding the chain from a different amp, then rendering, nulls at **-50.3 dB** against the flash-loaded preset.
+- Cost (engine, 2 s clip): **2.667 s per render**, parallelism 1. `load_penalty_s` **0.658 s** (whole `load()` with one Amp+Cab model change; the model command alone is 0.12 s). No settle is needed: a render straight after `load()` nulls as well as a repeat does. A `load()` with nothing to change takes 0.081 s. The reamp-capture script's capture (1 s pre-roll, 2 s tail) takes 5.82 s for the 2 s clip.
+- Not measured: parallel Path A/B renders (`parallelism=2`), user-DI capture (`--user-di` is written but not run on hardware, nothing plugged in).
 
 Machine: macOS 27.0.1 (26A434), Apple Silicon arm64, Python 3.14.8. Rust 1.99.0 and 1.98.0, installed for this spike under the session scratchpad only (`RUSTUP_HOME`/`CARGO_HOME` pointed there; nothing added to `~/.cargo` or the shell profile).
 
-## Summary: control route per OS (proposed; hardware confirms)
+## Summary: control route per OS (macOS confirmed on hardware 2026-10-14; Linux and Windows still proposed)
 
-| OS | Route | Confidence before hardware | Why |
+| OS | Route | Confidence | Why |
 |---|---|---|---|
-| **macOS** | **USB control (interface 0) through tonepush's `hx-usb` crate; fretwire also builds** | High | tonepush was developed and hardware-tested on exactly this setup (HX Stomp fw 3.80, macOS 27.0, Apple Silicon, HX Edit 3.82). On macOS interface 0 has no kernel driver bound. Audio and MIDI are class-compliant and live on other interfaces. Both projects build and pass their offline tests here. |
+| **macOS** | **USB control (interface 0) through tonepush's `hx-usb` crate, behind the `stompd` helper. CONFIRMED: H1 to H9 pass, and `engine-smoke` is green on firmware 3.50.** MIDI CC (H8) and PC (H8b) work alongside it. | Confirmed | tonepush was developed and hardware-tested on exactly this setup (HX Stomp fw 3.80, macOS 27.0, Apple Silicon, HX Edit 3.82). On macOS interface 0 has no kernel driver bound. Audio and MIDI are class-compliant and live on other interfaces. Both projects build and pass their offline tests here. |
 | **Linux** | USB control: fretwire (its home OS) or tonepush (also supports Linux, with a udev rule) | High | fretwire is verified on the HX Stomp on Linux. It needs the udev rule. Pin 48 kHz for audio. |
 | **Windows** | **MIDI CC fallback** on templates; USB control is unlikely | Medium | fretwire states that the Line 6 driver owns interface 0 on Windows. `nusb` on Windows can only claim an interface bound to WinUSB. Rebinding with Zadig would break HX Edit and probably the Line 6 ASIO audio. tonepush ships Windows builds, but nothing in its tree or issues shows a Windows claim succeeding with the Line 6 driver installed. One hardware check settles it (H9). |
 
@@ -53,7 +88,10 @@ Found on this Mac: **HX Edit 3.51** at `/Applications/Line6/HX Edit.app` (bundle
 1. Allow `load()` on the Stomp MIDI route to raise `UnsupportedModelChange`, as the contract already allows for Native-by-automation. **Breaks:** `search` (it must group by chain for this engine too; it already must for Native) and `benchmark` (engine-smoke must load a template that exists).
 2. Standardise two `Capabilities.extras` keys: `control_route` (`"usb"` | `"midi-cc"`) and `param_steps` (`None` = continuous, `128` = CC). **Breaks:** nobody, since it is additive. `search` should read `param_steps` for its step size.
 3. Parallel Path A/B renders (`parallelism=2`) need either a `render_many(dry, presets)` method or two engines sharing one device. Defer until T004 measures whether it works. **Would break:** `search` and `learning`.
-4. `close()`: "restores the pedal's original preset" should also say "including unsaved edit-buffer changes present at open". **Breaks:** `benchmark` (smoke check step 4 should compare the document, not only the index).
+4. `close()`: "restores the pedal's original preset" should also say "including unsaved edit-buffer changes present at open". **Breaks:** `benchmark` (smoke check step 4 should compare the document, not only the index). *Implemented in StompEngine (restore_report, value signature with assignments in any order). `engine_smoke.py` now fails when `restore_report.match` is false; that is the skill's step 4, and no contract text was changed.*
+5. (hardware, 2026-10-14) `preset-schema.md` assumes firmware 3.80. This pedal is on **3.50**. **Affects:** `preset` (device_version of generated files; models newer than 3.50 must be refused for this pedal), `benchmark` (Gate 3 "parity for firmware 3.80" would read "3.50" unless the human updates the pedal).
+6. (hardware) On the Stomp, the Input block's "USB 5/6" is `@input` = **6**. **Affects:** `preset` (a reamp template should write 6; `known.hlx` has 1 = Main L/R). The engine routes the edit buffer to 6 itself, so nothing breaks today.
+7. (hardware) v0 `load()` cannot add or remove blocks: a preset whose layout differs from the pedal's current one raises `UnsupportedModelChange`, the same as Native's automation route. **Affects:** `search` (group trials by chain layout, as for Native).
 
 ## Proposed DECISIONS.md entry (for the lead, after the hardware batch)
 

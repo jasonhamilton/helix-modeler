@@ -1,0 +1,21 @@
+{
+ "source": "example shape only; synthetic ids",
+ "budget": null,
+ "heavy": [
+  "EXAMPLE_Heavy"
+ ],
+ "models": {
+  "EXAMPLE_Amp": {
+   "mono": 20.0,
+   "stereo": null
+  },
+  "EXAMPLE_Delay": {
+   "mono": 4.0,
+   "stereo": 8.0
+  },
+  "EXAMPLE_Heavy": {
+   "mono": 40.0,
+   "stereo": null
+  }
+ }
+}

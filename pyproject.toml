@@ -21,8 +21,15 @@ dev = ["pytest>=8", "ruff>=0.5", "pip-licenses>=4"]
 # (licence boundary). May live in a separate venv via TONEMATCH_NATIVE_PYTHON. DawDreamer is the
 # fallback host (MIDI CC route), not added until needed.
 native = ["pedalboard>=0.9.26"]
+# stomp: USB audio for StompEngine and reamp-capture (sounddevice, MIT). The control helper
+# `stompd` (Rust, on tonepush's MIT hx-usb crate) is built outside this repo and found through
+# TONEMATCH_STOMPD.
+stomp = ["sounddevice>=0.5"]
+# spike: USB MIDI for scripts/stomp_spike_probe.py (CC fallback and Program Change checks;
+# python-rtmidi, MIT). On macOS with Python 3.14 it has no wheel; build it with
+#   pip install python-rtmidi --config-settings=setup-args="-Djack=false"
+spike = ["python-rtmidi>=1.5"]
 # Engines and models are installed by the agent that owns them, once the spike decides what is needed:
-# stomp:  fretwire (Rust), python-rtmidi, sounddevice
 # separation: demucs, audio-separator (RoFormer checkpoints), torch with the backend for this machine
 # search: cma, nevergrad, optuna, botorch
 # metrics: librosa, torchaudio

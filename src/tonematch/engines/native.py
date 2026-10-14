@@ -26,6 +26,13 @@ How a whole preset gets in (task T002, the spike decides; see docs/notes/native-
 measured with an impulse (once per chain), and level-matched by a fixed calibration gain:
 Native's digital output *is* the reference level (``calibration_db`` defaults to 0), so a
 silent input stays silent and per-preset loudness differences survive for the loss to judge.
+Each render resets the plugin (deterministic) and pre-rolls ``PREROLL`` samples of silence over
+Native's post-reset fade-in. The reset is most of the cost on 3.82 (~1.6 s fixed); the opt-in
+``reset_mode="flush"`` skips it once the spike shows it matches on the chains in use.
+
+State findings (T002, Native 3.82, VST3 and AU): the saved state wraps a ``CMXH`` chunk
+container whose preset records are opaque and high-entropy, and Native rejects replayed library
+records, so there is no readable preset document to write. ``route="state"`` stays disabled.
 
 ``NativeRenderPool`` is the batch render service for ``benchmark`` and ``learning``: N worker
 processes, jobs grouped by chain so state loads are minimised.
@@ -63,10 +70,12 @@ SRC = Path(__file__).resolve().parents[2]
 
 # --------------------------------------------------------------------------- locating Native
 
-_MAC = [
+_MAC = [  # VST3 first (plan Step 4); the AU is the fallback and also the only Mac build with MIDI PC recall
     "/Library/Audio/Plug-Ins/VST3/Helix Native.vst3",
     "~/Library/Audio/Plug-Ins/VST3/Helix Native.vst3",
-    "/Library/Audio/Plug-Ins/VST3/Line 6/Helix Native.vst3",
+    "/Library/Audio/Plug-Ins/VST3/Line 6/Helix Native.vst3",   # where the 3.82 installer puts it
+    "/Library/Audio/Plug-Ins/Components/Helix Native.component",
+    "~/Library/Audio/Plug-Ins/Components/Helix Native.component",
 ]
 _WIN = [
     "C:/Program Files/Common Files/VST3/Helix Native.vst3",
@@ -93,8 +102,34 @@ def candidate_paths(plat: str | None = None) -> list[Path]:
     return out
 
 
+def bundle_info(path: str | Path) -> dict:
+    """Selected Info.plist fields of a macOS plugin bundle ({} elsewhere or if unreadable)."""
+    import plistlib
+
+    f = Path(path) / "Contents" / "Info.plist"
+    try:
+        d = plistlib.loads(f.read_bytes())
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        return {}
+    keys = ("CFBundleName", "CFBundleIdentifier", "CFBundleShortVersionString", "CFBundleVersion",
+            "CFBundleGetInfoString")
+    out = {k: d[k] for k in keys if k in d}
+    comps = d.get("AudioComponents") or []
+    if comps:
+        out["AudioComponentName"] = comps[0].get("name", "")
+    return out
+
+
 def is_stadium(path: str | Path) -> bool:
-    return "stadium" in str(path).lower()
+    """Helix Stadium Native, judged by the path and (on macOS) the bundle's Info.plist."""
+    if "stadium" in str(path).lower():
+        return True
+    return any("stadium" in str(v).lower() for v in bundle_info(path).values())
+
+
+def plugin_version(path: str | Path) -> str:
+    """Marketing version from the bundle (e.g. '3.82'), or '' if unknown."""
+    return str(bundle_info(path).get("CFBundleShortVersionString", ""))
 
 
 def locate_plugin() -> Path | None:
@@ -276,10 +311,21 @@ class NativeEngine:
 
     SILENT_IN_DB = -70.0    # input RMS above this counts as non-silent
     SILENT_OUT_DB = -100.0  # output RMS below this for a non-silent input is an error
+    # Native 3.82 fades its output in after a host reset: about 3,180 samples to reach unity
+    # within 0.1% (measured 2026-10-14, VST3 and AU, any block size). Every render is reset for
+    # determinism, so each one is prefixed with this much silence, then trimmed off.
+    PREROLL = 4800
+    # A host reset costs Native 3.82 about 1.59 s regardless of clip length or block size, while
+    # an empty chain's DSP runs near 0.01x real time (measured 2026-10-14). reset_mode="flush"
+    # skips the reset and pre-rolls flush_s of silence instead: much faster, but deterministic
+    # only if every block's state (delay/reverb tails, LFO phase) is cleared or decays within the
+    # flush. The spike's --gui step measures that on a real chain; "reset" stays the default.
+    RESET_MODES = ("reset", "flush")
 
     def __init__(self, plugin_path: str | Path | None = None, plugin_name: str | None = None,
                  *, calibration_db: float = 0.0, block_size: int = 512,
-                 templates_dir: Path | None = None, route: str | None = None):
+                 templates_dir: Path | None = None, route: str | None = None,
+                 preroll: int | None = None, reset_mode: str | None = None, flush_s: float = 2.0):
         p = plugin_path or os.environ.get("TONEMATCH_NATIVE_PLUGIN") or locate_plugin()
         if p is None:
             raise EngineError("Helix Native not found. Install it (your own licence) or set TONEMATCH_NATIVE_PLUGIN.")
@@ -290,10 +336,16 @@ class NativeEngine:
         self.plugin_name = plugin_name
         self.calibration_db = float(calibration_db)
         self.block_size = int(block_size)
+        self.preroll = self.PREROLL if preroll is None else int(preroll)
+        self.reset_mode = reset_mode or os.environ.get("TONEMATCH_NATIVE_RESET", "reset")
+        if self.reset_mode not in self.RESET_MODES:
+            raise EngineError(f"reset_mode must be one of {self.RESET_MODES}, got {self.reset_mode!r}")
+        self.flush_s = float(flush_s)
         self.templates_dir = templates_dir
         self.host = HostProcess(p, plugin_name, block_size)
         self._params = {d["name"]: d for d in self.host.info.get("params", [])}
         self.templates = ChainTemplate.load_all(templates_dir)
+        self._initial_state = self._get_state()
         self.codec = _load_codec()
         self.route = route or ("state" if self.codec else "automation")
         self.current_chain: tuple | None = None
@@ -307,7 +359,7 @@ class NativeEngine:
 
     @staticmethod
     def is_available() -> bool:
-        """True when a non-Stadium Helix Native VST3 is installed and a plugin host is importable."""
+        """True when a non-Stadium Helix Native (VST3, or AU on macOS) is installed and a plugin host is importable."""
         env = os.environ.get("TONEMATCH_NATIVE_PLUGIN", "")
         if env.startswith("builtin:"):
             return False  # test stand-ins never count as Native
@@ -370,8 +422,10 @@ class NativeEngine:
             raise EngineError(f"render() takes mono (n,) float32, got shape {x.shape}")
         if len(x) == 0:
             return x.copy()
-        lat = self.latency()
-        y = self._raw_render(np.concatenate([x, np.zeros(lat, np.float32)]))[lat:lat + len(x)]
+        lat, reset = self.latency(), self.reset_mode == "reset"
+        pre = self.preroll if reset else int(self.flush_s * SAMPLE_RATE)
+        padded = np.concatenate([np.zeros(pre, np.float32), x, np.zeros(lat, np.float32)])
+        y = self._raw_render(padded, reset=reset)[pre + lat:pre + lat + len(x)]
         if not np.all(np.isfinite(y)):
             raise EngineError("Native returned NaN or inf")
         if _rms_db(x) > self.SILENT_IN_DB and _rms_db(y) < self.SILENT_OUT_DB:
@@ -397,12 +451,13 @@ class NativeEngine:
             models = ()  # no catalog import yet: models stays empty and engine-smoke says so
         return Capabilities(
             engine="native",
-            firmware_version=str(info.get("version") or ""),
+            firmware_version=plugin_version(self.plugin) or str(info.get("version") or ""),
             models=models,
             snapshots=3,
             extras={"route": self.route, "plugin": self.plugin, "host": "pedalboard",
                     "host_params": len(self._params), "latency_samples": self._latency.get(self.current_chain),
-                    "templates": len(self.templates), "calibration_db": self.calibration_db},
+                    "templates": len(self.templates), "calibration_db": self.calibration_db,
+                    "reset_mode": self.reset_mode},
         )
 
     def close(self) -> None:
@@ -416,8 +471,8 @@ class NativeEngine:
 
     # --- internals ------------------------------------------------------------------------
 
-    def _raw_render(self, x: np.ndarray) -> np.ndarray:
-        _, data = self.host.call("render", x.astype("<f4").tobytes(), reset=True)
+    def _raw_render(self, x: np.ndarray, reset: bool = True) -> np.ndarray:
+        _, data = self.host.call("render", x.astype("<f4").tobytes(), reset=reset)
         return np.frombuffer(data, dtype="<f4").astype(np.float32)
 
     def _get_state(self) -> bytes:
@@ -436,14 +491,17 @@ class NativeEngine:
         """Samples of latency beyond what the host compensates, measured once per chain with an impulse."""
         key = self.current_chain
         if key not in self._latency:
-            imp = np.zeros(SAMPLE_RATE // 4, np.float32)
-            imp[0] = 0.5
-            self._latency[key] = onset_latency(self._raw_render(imp))
+            imp = np.zeros(self.preroll + SAMPLE_RATE // 4, np.float32)
+            imp[self.preroll] = 0.5  # after the post-reset fade-in, which would swallow a sample-0 impulse
+            self._latency[key] = onset_latency(self._raw_render(imp)[self.preroll:])
         return self._latency[key]
 
     def measure_cost(self, max_workers: int | None = None, clip_s: float = 2.0, repeats: int = 3) -> Cost:
         """Measure seconds per 2 s render, parallel throughput and model-change settling. Cached to disk."""
-        key = f"{self.plugin}|{self.host.info.get('version')}|{platform.node()}|{os.cpu_count()}"
+        state = self._get_state()
+        sh = hashlib.sha1(state).hexdigest()[:12] if state else "nostate"  # cost depends on the chain
+        key = (f"{self.plugin}|{self.host.info.get('version')}|{platform.node()}|{os.cpu_count()}|{sh}"
+               f"|{self.reset_mode}")
         f = cache_dir() / "cost.json"
         cached = json.loads(f.read_text()) if f.is_file() else {}
         if key in cached:
@@ -456,46 +514,59 @@ class NativeEngine:
             self.render(clip)
             times.append(time.perf_counter() - t0)
         spr = statistics.median(times)
-        par, scan = measure_parallelism(self.plugin, self.plugin_name, self._get_state(), clip, max_workers)
-        pen = self.measure_load_penalty(clip)
+        reset = self.reset_mode == "reset"
+        pre = self.preroll if reset else int(self.flush_s * SAMPLE_RATE)
+        par, scan = measure_parallelism(self.plugin, self.plugin_name, state, clip, max_workers, pre, reset=reset)
+        pen, pair = self.measure_load_penalty(clip)
         cost = Cost(seconds_per_render=spr, parallelism=par, load_penalty_s=pen)
         cached[key] = {"cost": cost.__dict__, "throughput_by_workers": scan, "render_times": times,
+                       "load_penalty_pair": pair, "preroll": self.preroll,
                        "measured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps(cached, indent=1))
         return cost
 
-    def measure_load_penalty(self, clip: np.ndarray, tol_db: float = -60.0, timeout_s: float = 10.0) -> float:
-        """Time from a state load until two consecutive renders null below tol_db (async IR/model loading)."""
-        blobs = [t.state for t in self.templates.values()][:2] or [self._get_state()]
-        target = blobs[-1]
+    def measure_load_penalty(self, clip: np.ndarray, tol_db: float = -60.0,
+                             timeout_s: float = 10.0) -> tuple[float, str]:
+        """Seconds for a chain change: load another state, then poll until two consecutive renders
+        null below tol_db (async model/IR loading). Returns (seconds, which pair was measured).
+
+        The pair is from the state the engine opened with (Native's empty default) to the current
+        one; with only one distinct state it measures a reload, and says so.
+        """
+        current = self._get_state()
+        source = next((t.state for t in self.templates.values() if t.state != current), self._initial_state)
+        pair = "other->current" if source and source != current else "reload(current)"
+        if source and source != current:
+            self._set_state(source)
+            self._raw_render(clip[:SAMPLE_RATE // 10])
+        pclip = np.concatenate([np.zeros(self.preroll, np.float32), clip])
         t0 = time.perf_counter()
-        if target:
-            self._set_state(target)
+        if current:
+            self._set_state(current)
         pen = time.perf_counter() - t0          # the state load itself
-        prev = self._raw_render(clip)
+        prev = self._raw_render(pclip)
         while pen < timeout_s:                  # plus every extra poll until renders stop changing
             t1 = time.perf_counter()
             time.sleep(0.05)
-            cur = self._raw_render(clip)
+            cur = self._raw_render(pclip)
             if null_db(cur, prev) < tol_db:
                 break
             pen += time.perf_counter() - t1
             prev = cur
-        if self.current_template is not None:
-            self._set_state(self.current_template.state)
-        return float(pen)
+        return float(pen), pair
 
 
 def measure_parallelism(plugin: str, plugin_name: str | None, state: bytes, clip: np.ndarray,
-                        max_workers: int | None = None, rounds: int = 3) -> tuple[int, dict[int, float]]:
+                        max_workers: int | None = None, preroll: int = 0,
+                        rounds: int = 3, reset: bool = True) -> tuple[int, dict[int, float]]:
     """Renders/s for k host processes rendering at once; picks the k past which gains drop under 15%."""
     cpu = os.cpu_count() or 2
     max_workers = max_workers or max(1, cpu - 1)
     ks = sorted({k for k in (1, 2, 4, 6, 8, 12, 16, 24, 32) if k <= max_workers} | {max_workers})
     hosts: list[HostProcess] = []
     scan: dict[int, float] = {}
-    payload = clip.astype("<f4").tobytes()
+    payload = np.concatenate([np.zeros(preroll, np.float32), clip]).astype("<f4").tobytes()
     try:
         for k in ks:
             while len(hosts) < k:
@@ -506,7 +577,7 @@ def measure_parallelism(plugin: str, plugin_name: str | None, state: bytes, clip
                 hosts.append(h)
             with cf.ThreadPoolExecutor(k) as ex:
                 t0 = time.perf_counter()
-                list(ex.map(lambda h: [h.call("render", payload, reset=True) for _ in range(rounds)], hosts[:k]))
+                list(ex.map(lambda h: [h.call("render", payload, reset=reset) for _ in range(rounds)], hosts[:k]))
                 scan[k] = k * rounds / (time.perf_counter() - t0)
     finally:
         for h in hosts:

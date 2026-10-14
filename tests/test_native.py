@@ -81,6 +81,45 @@ def test_opaque_blob_has_no_candidate():
     assert ns.best_preset_candidate(ns.scan(rng.bytes(4096))) is None
 
 
+def _fake_container(record: bytes) -> bytes:
+    """Synthetic bytes in the container layout observed on Native 3.82 (no Line 6 data)."""
+    def chunk(tag: bytes, payload: bytes, ver: int = 1) -> bytes:
+        return tag + struct.pack("<3I", ver, len(payload), 0) + payload
+    body = chunk(b"AAAP", b"\x00" * 4) + chunk(b"DPCP", record, 2) + chunk(b"IUCP", b"\x01" * 9, 2)
+    return ns.CONTAINER_MAGIC + struct.pack("<I", len(body)) + body + b"\0\0\0"
+
+
+def test_container_chunks_and_same_size_replacement():
+    rng = np.random.default_rng(2)
+    rec = struct.pack("<2I", 4 + 32, 5) + rng.bytes(32)
+    comp = _fake_container(rec)
+    tags = [c["tag"] for c in ns.container_chunks(comp)]
+    assert tags == ["AAAP", "DPCP", "IUCP"]
+    d = ns.describe_container(comp)
+    dp = next(c for c in d["chunks"] if c["tag"] == "DPCP")
+    assert dp["record_version"] == 5 and dp["body_multiple_of_16"] and d["trailing_bytes"] == 3
+    rec2 = rec[:8] + rng.bytes(32)
+    comp2 = ns.replace_chunk_payloads(comp, {"DPCP": rec2})
+    assert ns.chunk_payload(comp2, "DPCP") == rec2 and len(comp2) == len(comp)
+    with pytest.raises(ValueError):
+        ns.replace_chunk_payloads(comp, {"DPCP": rec2 + b"x"})
+    assert ns.container_chunks(b"not a container") == []
+
+
+def test_plugin_component_vst3_and_au_wrappers():
+    import plistlib
+
+    comp = _fake_container(b"\x00" * 16)
+    xml = (f'<?xml version="1.0" encoding="UTF-8"?> <VST3PluginState><IComponent>{ns.juce_b64_encode(comp)}'
+           "</IComponent></VST3PluginState>")
+    vst3 = ns.wrap_vc2(xml)
+    au = plistlib.dumps({"name": "x", ns.AU_STATE_KEY: comp, "data": b"\0" * 8}, fmt=plistlib.FMT_BINARY)
+    for raw, fmt in ((vst3, "vst3"), (au, "au")):
+        assert ns.plugin_component(raw) == (fmt, comp)
+        new = _fake_container(b"\x01" * 16)
+        assert ns.plugin_component(ns.replace_component(raw, new)) == (fmt, new)
+
+
 # --------------------------------------------------------------------------- availability
 
 
@@ -90,6 +129,30 @@ def test_stadium_refused_and_builtin_not_available(monkeypatch):
         nat.NativeEngine("/x/Helix Stadium Native.vst3")
     monkeypatch.setenv("TONEMATCH_NATIVE_PLUGIN", "builtin:Gain")
     assert nat.NativeEngine.is_available() is False
+
+
+def test_bundle_plist_refuses_renamed_bundle(tmp_path):  # name must not contain the refused word
+    import plistlib
+
+    def bundle(name: str, info: dict):
+        b = tmp_path / name
+        (b / "Contents").mkdir(parents=True)
+        (b / "Contents" / "Info.plist").write_bytes(plistlib.dumps(info))
+        return b
+
+    renamed = bundle("Helix Native.vst3", {"CFBundleName": "Helix Stadium Native",
+                                           "CFBundleShortVersionString": "1.0"})
+    assert nat.is_stadium(renamed)
+    ok = bundle("Helix Native.component", {"CFBundleName": "Helix Native", "CFBundleShortVersionString": "3.82",
+                                           "AudioComponents": [{"name": "Line 6: Helix Native"}]})
+    assert not nat.is_stadium(ok) and nat.plugin_version(ok) == "3.82"
+    assert nat.bundle_info(tmp_path / "missing.vst3") == {}
+
+
+def test_mac_candidates_include_vst3_before_au():
+    names = [p.suffix for p in nat.candidate_paths("darwin")]
+    assert ".vst3" in names and ".component" in names
+    assert names.index(".vst3") < names.index(".component")
 
 
 # --------------------------------------------------------------------------- host boundary
@@ -110,6 +173,23 @@ def test_render_trims_latency_and_is_deterministic(delay_engine):
     assert 470 <= delay_engine.latency() <= 490  # 10 ms at 48 kHz, measured by impulse
     assert nat.null_db(x, y1) < -60               # wet-only delay, trimmed, equals the input
     assert nat.null_db(y1, y2) < -120
+
+
+@needs_host
+def test_flush_mode_matches_reset_mode_for_a_decaying_chain():
+    x = nat.test_signal(0.3)
+    a = nat.NativeEngine("builtin:Delay?delay_seconds=0.01&mix=0.5&feedback=0.3")
+    b = nat.NativeEngine("builtin:Delay?delay_seconds=0.01&mix=0.5&feedback=0.3", reset_mode="flush", flush_s=1.0)
+    try:
+        ya, yb1, yb2 = a.render(x), b.render(x), b.render(x)
+        assert ya.shape == yb1.shape == x.shape
+        assert nat.null_db(yb1, yb2) < -100 and nat.null_db(ya, yb1) < -100
+        assert b.capabilities().extras["reset_mode"] == "flush"
+    finally:
+        a.close()
+        b.close()
+    with pytest.raises(EngineError):
+        nat.NativeEngine("builtin:Gain", reset_mode="nope")
 
 
 @needs_host

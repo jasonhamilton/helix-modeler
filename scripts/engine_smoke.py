@@ -82,6 +82,7 @@ def check(engine) -> tuple[list[str], dict]:
 
 def main() -> int:
     from tonematch.engines import registry
+    from tonematch.engines.base import UnsupportedModelChange
 
     found = registry.detect()
     want = os.environ.get("TONEMATCH_ENGINE", "auto").lower()
@@ -96,18 +97,26 @@ def main() -> int:
     for name in names:
         engine = None
         try:
-            from tonematch.preset import load_hlx  # type: ignore[attr-defined]  # preset agent, T006
+            from tonematch.preset import read_hlx
 
             if not PRESET.exists():
                 raise FileNotFoundError(f"{PRESET} missing (needs golden templates, T010)")
             engine = found[name]()
-            engine.load(load_hlx(PRESET))
+            engine.load(read_hlx(PRESET))
             fails, m = check(engine)
+        except UnsupportedModelChange as e:
+            print(f"{name}: UNSUPPORTED load of {PRESET.name} ({e}); no ledger row written")
+            rc = 1
+            continue
         except Exception as e:  # noqa: BLE001
             fails, m = [f"{type(e).__name__}: {e}"], {}
         finally:
             if engine is not None:
                 engine.close()  # Stomp restores original preset; read-back check is the stomp engine's to expose
+        # Skill step 4: on the Stomp, close() must have restored the original preset (read back).
+        report = getattr(engine, "restore_report", None)
+        if report is not None and not report.get("match"):
+            fails.append(f"close() did not restore the original preset: {report}")
         if fails:
             print(f"{name}: FAIL " + "; ".join(fails))
             rc = 1

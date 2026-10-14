@@ -320,7 +320,7 @@ The first risk below decides the architecture, so its spike runs first; the rest
 
 | Risk | Impact | Spike or mitigation | Fallback |
 |---|---|---|---|
-| Native cannot be loaded with arbitrary presets from code | High: blocks the fast loop | Inspect Native's saved state from pedalboard; check whether preset JSON sits inside it | 16+16 automation slots per fixed chain; MIDI CC; hardware loop |
+| Native cannot be loaded with arbitrary presets from code | High: blocks the fast loop | Inspect Native's saved state from pedalboard; check whether preset JSON sits inside it | 16+16 automation slots per fixed chain; MIDI CC; hardware loop | Resolved at Gate 1: whole-preset write rejected (opaque state); chain-template replay + 16+16 automation works (replay null -72.9 dB); one GUI capture per chain structure remains the limit; next spike T018.
 | Separation artifacts mislead the loss | High | Separation-consistent comparison; artifact-robust embeddings | Ask the user for a cleaner source or a section with exposed guitar |
 | DI mismatch biases EQ and gain | Medium | Content-invariant losses; several reference DIs per tone | Accuracy mode with the user's own DI |
 | Search space too large for the budget | Medium | Fixed template, measured starting values, predictor seeding | Fewer tuned parameters; user picks the amp family |
@@ -330,7 +330,7 @@ The first risk below decides the architecture, so its spike runs first; the rest
 | Native on Linux | Low | Wine + yabridge test | Develop on Windows or macOS |
 | Studio processing on the record (doubling, mix-bus compression, room mics) | Medium: limits how close any preset can get | Add an optional output EQ block; report the residual honestly | Document as a known limit |
 | Several guitars in one stem | Medium | Pan and register heuristics; user picks the part | Instrument-wise embeddings later |
-| Pedal control unavailable on Windows and macOS | High for hardware-only users on those systems | Week-1 spike: build fretwire's protocol crates there; check coexistence with the Line 6 driver. Cycle 1: crates build on macOS and tests pass; macOS control plausible, Windows likely MIDI CC; hardware batch pending (ledger line 3 is build-only) | MIDI CC sweeps on template presets |
+| Pedal control unavailable on Windows and macOS | High for hardware-only users on those systems | Week-1 spike: build fretwire's protocol crates there; check coexistence with the Line 6 driver. Cycle 1: crates build on macOS and tests pass; macOS control plausible, Windows likely MIDI CC; macOS USB control confirmed on hardware, firmware 3.50 (2026-10-14); Linux and Windows unverified | MIDI CC sweeps on template presets |
 | Hardware budget too small for a close match | Medium | Short excerpts, successive halving, Bayesian optimization, strong predictor seeding | Neural proxies for a fast inner loop; longer unattended runs |
 | Predictor training depends on Native renders | Medium | Maintainers train it and publish the model, if the Native licence allows | Train from overnight hardware renders |
 

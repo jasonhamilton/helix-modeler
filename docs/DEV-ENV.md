@@ -26,7 +26,7 @@ Backend check: `python -c "from tonematch.gpu import detect_backend as d; print(
 4. Expect: higher latency, possible UI/licence-activation quirks, no guarantees. Offline rendering is the supported path; verify with `engine-smoke`.
 
 ## Pedal control and versions
-- Pedal control (per `docs/notes/T003-stomp-control-spike.md`): USB control via fretwire is proposed to work on Linux and macOS. The macOS claim is unverified on hardware and pending the hardware batch. On Windows, MIDI CC is the likely route. MIDI CC is the fallback everywhere.
+- Pedal control: on macOS this was confirmed on hardware on 2026-10-14 (firmware 3.50; `docs/notes/T003-stomp-control-spike.md`). It goes through USB interface 0 via the `stompd` helper, a small original wrapper over tonepush's crates. The helper is built outside this repo and found through `TONEMATCH_STOMPD`; for what it is, how to build it and the reproducibility limitation, see `docs/notes/stompd.md`. Linux is proposed, not yet run. On Windows, MIDI CC is the likely route. MIDI CC is the fallback everywhere. Install the extras with `pip install -e .[stomp]` (and `.[spike]` for the probe script's MIDI).
 - Quit HX Edit during Stomp runs, since it competes for the device.
-- Target versions: HX Edit 3.82, Helix Native 3.8x, Stomp firmware 3.80. This Mac currently has HX Edit 3.51, so it needs an update before hardware runs.
+- Target versions: HX Edit 3.82, Helix Native 3.8x, Stomp firmware 3.80. The pedal on this Mac reports firmware 3.50 (read over USB on 2026-10-14).
 - python-rtmidi on Python 3.14 needs JACK disabled when building: `pip install python-rtmidi --config-settings=setup-args="-Djack=false"`.
