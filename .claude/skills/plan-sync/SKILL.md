@@ -16,3 +16,4 @@ Run as `tone-matcher-lead` at the end of every cycle, or after any decision.
 7. **Living doc.** If the Claude Docs tools are available in this session, mirror the changes to the living plan (link in `docs/PLAN.md`); otherwise note "living doc not synced" in the cycle entry.
 
 Never delete history: the decision log and ledger are append-only; the cycle notes are the archive.
+8. **Tone comparison doc.** If this cycle changed a comparison term or its weights, a trust-check result, how the search iterates, the hardware null test or parity findings, or a listening verdict contradicted the score, update `docs/TONE-COMPARISON.md` in the same change (and its "Last updated" date). If nothing relevant changed, leave it.

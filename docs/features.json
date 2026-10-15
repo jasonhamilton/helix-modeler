@@ -1,16 +1,6 @@
 {
-  "headline": "Both render engines are now driven from code with no human in the loop, and one real song has been matched end to end on this machine. Helix Native 3.82 loads a new chain by an in-process file drop (about 66 s once per chain structure, macOS VST3, optional and off by default), renders in about 0.28 s per 2 s clip with flat memory (the host used to grow 4 to 11 GB and be killed), and block-serial rendering (one block per Native instance, chained) matches a single instance to -67 dB above 20 Hz on an 8-block chain. The HX Stomp (firmware 3.50) takes a whole generated preset into the edit buffer, is read back parameter by parameter after every write, and a snapshot-value bug that made a live delay run too wet is fixed. Stomp-versus-Native parity is -30 to -37 dB on clean and crunch presets, but the cab Early Reflections parameter does not match between the two engines (-3.6 dB at the value the search chose, -31 dB at 0), so anything meant for the pedal fixes it at 0 for now. The first real-song run (DS-Sample) produced a preset the human informally preferred over the loss's own first choice, which shows the loss is not trustworthy yet: no loss term is admitted, Gates 2 and 3 have no evidence, and no blind listening has happened. There is still no one-command song-to-preset tool, no Helix known-answer benchmark run, and the block-probe kit (offline, validated only on non-Helix blocks) has not yet been run through any engine. The human's next actions: run a guitar play-along capture on the pedal (user-DI path, hardware run pending), check the delay Mix and Time readback on the pedal after the fix, rule on the open proposals (Native 0.0 handling, snapshot-sync helpers in the preset writer, loudness term in the objective), and decide whether to start the overnight single-block capture once the stereo limit of the Native host is addressed.",
   "cycle": "Cycle 4 (mode 2), end-of-cycle refresh after the 2026-10-15 work",
-  "generated_for": "tone-matcher-lead (end-of-cycle refresh, third run of the status-report skill)",
-  "human_priority": [
-    "play-along",
-    "readback",
-    "rule on",
-    "decide whether",
-    "firmware",
-    "EULA",
-    "confirm"
-  ],
+  "generated_for": "tone-matcher-lead",
   "discrepancies": [
     "T018 (the original 'spike awaiting go') is still an open line on the board but was superseded by T018n (Native, done) and T018s (Stomp, in progress): its scope is built, so the line is stale. Registry feature task lists use T018n and T018s.",
     "T044 is marked done 'as T043' and T043 is also marked done; both describe the same Native memory fix. The registry counts T043 and T044 once each, so the Native task count is inflated by one.",
@@ -28,8 +18,7 @@
       "purpose": "Render a DI clip through a candidate preset offline in Helix Native, fast enough to be the searching engine.",
       "done_when": "A NativeEngine behind the frozen interface renders any chain structure the search needs at a measured cost, loads candidates without a GUI step per candidate, agrees with the Stomp within a measured null residual, and has run a full synthetic recovery pass.",
       "status": "working",
-      "completion": 72,
-      "completion_reason": "Hands-off loading (file drop plus MIDI-CC map), state-based reset renders (0.28 s, bit-identical to dedicated captures at -317 dB, flat 3.0 GB), stale-template protection and a memory watchdog are built, hardware-measured on one Mac, and exercised by a 449-render real-song search. Block-serial rendering is shown to equal one instance above 20 Hz (-67 to -79 dB). Still missing: Windows and Linux (the drop route is macOS VST3 only), stereo and dual-cab paths in the host, a block-bypass CC encoding Native honours, the single-block library, and any full synthetic recovery pass. Quality of what Native renders versus the pedal is only partly in parity (see evaluation), and nothing it renders has been blind-tested by ear.",
+      "progress_note": "Hands-off loading (file drop plus MIDI-CC map), state-based reset renders (0.28 s, bit-identical to dedicated captures at -317 dB, flat 3.0 GB), stale-template protection and a memory watchdog are built, hardware-measured on one Mac, and exercised by a 449-render real-song search. Block-serial rendering is shown to equal one instance above 20 Hz (-67 to -79 dB). Still missing: Windows and Linux (the drop route is macOS VST3 only), stereo and dual-cab paths in the host, a block-bypass CC encoding Native honours, the single-block library, and any full synthetic recovery pass. Quality of what Native renders versus the pedal is only partly in parity (see evaluation), and nothing it renders has been blind-tested by ear.",
       "functionality": "Loads an arbitrary generated .hlx into Native with no human (in-process file drop, about 66 s per new chain structure, once per machine; needs TONEMATCH_NATIVE_AUTOCAPTURE=1 and a logged-in GUI session), drives parameters through a MIDI-CC map, and renders a 2 s clip in about 0.28 s with memory flat near 3.0 GB. Renders are history-independent and match each file's own capture at -317 dB. Mono in and out only; chains with an enabled delay or reverb need a 3 s pre-roll; Windows and Linux are untested.",
       "health": "partial",
       "evidence": [
@@ -196,8 +185,7 @@
       "purpose": "Drive the real pedal from code and capture its USB audio, so the final check is the actual hardware and hardware-only users have an engine.",
       "done_when": "A StompEngine renders any candidate within the pedal's capabilities on macOS, Windows and Linux, with edit-buffer-only control, a calibrated reamp path, parity to Native measured, and a user-DI accuracy mode used on real songs.",
       "status": "working",
-      "completion": 70,
-      "completion_reason": "Control, reamp, latency, restore, and now whole-preset injection into the edit buffer with a parameter-by-parameter readback on every load are verified on one pedal, one firmware (3.50) and one OS (macOS). A compile bug that let the pedal's snapshot values override the delay block was found and fixed. Still missing: Windows and Linux, the play-along user-DI path on hardware (built and tested offline only), the whole_preset default is still off, parity with Native has a known cab Early Reflections mismatch, and an unexplained delay Mix 0.72 and Time 0.47 readback has not been re-checked on the pedal after the fix.",
+      "progress_note": "Control, reamp, latency, restore, and now whole-preset injection into the edit buffer with a parameter-by-parameter readback on every load are verified on one pedal, one firmware (3.50) and one OS (macOS). A compile bug that let the pedal's snapshot values override the delay block was found and fixed. Still missing: Windows and Linux, the play-along user-DI path on hardware (built and tested offline only), the whole_preset default is still off, parity with Native has a known cab Early Reflections mismatch, and an unexplained delay Mix 0.72 and Time 0.47 readback has not been re-checked on the pedal after the fix.",
       "functionality": "Writes a whole generated preset into the pedal's edit buffer (about 0.3 s), reads back every parameter and refuses to render a mismatch, reamps a DI over USB 5/6 to 1/2 at about 2.7 s per render, and restores the original preset byte for byte. Verified on firmware 3.50 and macOS only; whole_preset is off by default; layout changes in place are unsupported; the play-along capture of the user's own guitar has not been run against a song with the fixed code.",
       "health": "partial",
       "evidence": [
@@ -353,8 +341,7 @@
       "purpose": "One interface (load, set_params, render, cost, capabilities, close) so every other step is engine-agnostic, plus the rule for which engine runs.",
       "done_when": "The interface is frozen, both engines implement it, and the auto selection (Native searches, Stomp verifies) runs a real search and verification pass in one session.",
       "status": "working",
-      "completion": 65,
-      "completion_reason": "The contract is frozen (2026-10-14) and implemented twice, with a registry and a smoke script. render_many is deferred, and the auto role split has not been exercised by a search-then-verify run.",
+      "progress_note": "The contract is frozen (2026-10-14) and implemented twice, with a registry and a smoke script. render_many is deferred, and the auto role split has not been exercised by a search-then-verify run.",
       "functionality": "Both engines implement the frozen interface; TONEMATCH_ENGINE=native|stomp|auto selects one; engine-smoke detects an engine, renders a clip and checks level, silence, NaN and length.",
       "health": "ok",
       "evidence": [
@@ -460,8 +447,7 @@
       "purpose": "Represent, write and validate a Line 6 .hlx preset that HX Edit accepts and the pedal loads, using a model catalog read at runtime from the user's own install.",
       "done_when": "Search results become a valid .hlx (full-rig and effects-only, up to three snapshots, DSP budget and amp/cab pairing respected) that imports into HX Edit and loads on the pedal, for every block the search can choose.",
       "status": "working",
-      "completion": 55,
-      "completion_reason": "Parse, byte-equal round trip, catalog import, validation and both export modes exist and one generated file was accepted by HX Edit and the pedal. Snapshot generation from a search result, the schema extensions, and the DSP unit and budget semantics are unverified or not built.",
+      "progress_note": "Parse, byte-equal round trip, catalog import, validation and both export modes exist and one generated file was accepted by HX Edit and the pedal. Snapshot generation from a search result, the schema extensions, and the DSP unit and budget semantics are unverified or not built.",
       "functionality": "Reads and writes .hlx byte-equal for both golden templates, imports the 677-model catalog from HX Edit 3.82, validates blocks, DSP cost, pairing and device version, and exports full-rig or effects-only; does not yet build snapshots from a match. Generated files are not yet forced to carry snapshot values equal to their blocks (the check lives in the parity script and the engines).",
       "health": "partial",
       "evidence": [
@@ -574,8 +560,7 @@
       "purpose": "Isolate the guitar from a mix, say how reliable the isolation is, and cluster the song into at most three tone groups for snapshots.",
       "done_when": "On a stress set of real songs the separator's guitar stem is good enough that the loss still ranks the true tone first (a curve of match quality against separation quality), the confidence estimate is calibrated, and segmentation agrees with a human's section labels.",
       "status": "prototype",
-      "completion": 35,
-      "completion_reason": "htdemucs_6s runs on MPS and CPU and the pieces exist, but the only quality number is an SDR of 0.002 dB on a synthetic Karplus-Strong mix where the guitar went to the wrong stem, so real-song quality is unmeasured. Confidence is an uncalibrated heuristic, segmentation is unvalidated, and the RoFormer path was never run. On the first real song the htdemucs_6s guitar stem and its per-sample confidence (0.994 on the chosen window) were used for the target; no ground truth exists, so quality remains unmeasured.",
+      "progress_note": "htdemucs_6s runs on MPS and CPU and the pieces exist, but the only quality number is an SDR of 0.002 dB on a synthetic Karplus-Strong mix where the guitar went to the wrong stem, so real-song quality is unmeasured. Confidence is an uncalibrated heuristic, segmentation is unvalidated, and the RoFormer path was never run. On the first real song the htdemucs_6s guitar stem and its per-sample confidence (0.994 on the chosen window) were used for the target; no ground truth exists, so quality remains unmeasured.",
       "functionality": "Separates a song with htdemucs_6s (7.8 s warm on MPS, 13.1 s on CPU for 32 s), accepts user-supplied stems, segments into sections and at most three tone groups, and computes a heuristic confidence mask; nothing here is shown to work on a real recording.",
       "health": "partial",
       "evidence": [
@@ -688,8 +673,7 @@
       "purpose": "Supply a clean DI clip that matches a tone's register and style, because the engines need dry input and the song has none.",
       "done_when": "A licence-clean DI library is indexed locally, the picker returns clips that make the loss rank the true preset first more often than a single fixed clip does, and the user's own DI is a working accuracy mode.",
       "status": "prototype",
-      "completion": 40,
-      "completion_reason": "The indexer and picker exist and the Guitar-TECHS DI subset (104 clips, about 5 h) is downloaded, indexed and was used by the first real-song match. The play-along capture of the user's own DI is built and tested offline. Still unmeasured: whether the picker beats a fixed clip, and the finding that preset loss depends strongly on the DI (7.7 versus 11.0 and 22.7 on two other DIs).",
+      "progress_note": "The indexer and picker exist and the Guitar-TECHS DI subset (104 clips, about 5 h) is downloaded, indexed and was used by the first real-song match. The play-along capture of the user's own DI is built and tested offline. Still unmeasured: whether the picker beats a fixed clip, and the finding that preset loss depends strongly on the DI (7.7 versus 11.0 and 22.7 on two other DIs).",
       "functionality": "Indexes a folder of DI clips by register and style and picks one; the local Guitar-TECHS set is indexed and the picker chose the DI for the DS-Sample match. The user-DI play-along capture (reamp-capture) records the user's own guitar dry and through the pedal in one stream; a hardware take of it appears to exist (see discrepancies).",
       "health": "partial",
       "evidence": [
@@ -778,8 +762,7 @@
       "purpose": "Score how close a candidate render is to the target tone, with terms that are trustworthy despite separation artifacts and DI mismatch.",
       "done_when": "At least one loss term, or a combination, passes the loss-trust-check threshold on the Helix synthetic set (true preset ranked first against distractors), so it has non-zero default weights, and the ear agrees with the metric on real songs.",
       "status": "prototype",
-      "completion": 32,
-      "completion_reason": "Four no-DI terms and a LossKit exist, but none is admitted (all default weights 0) and the only trust measurement is on non-Helix proxy signals. Envelope v1 (T025) improved the weakest term but held-out rank-1 on fresh seeds is only 0.117 against chance 0.0625 and 15 distractors; learned embeddings were researched, not run. AFx-Rep (ST-ITO) was wired in as an unadmitted embedding term and was worse than the DSP terms on proxy signals. On the first real song the loss ranked chain K first by 0.015 over H, while the human informally preferred H; the three level-invariant terms also accepted an output 52 dB too quiet until a guard was added in match_song.py.",
+      "progress_note": "Four no-DI terms and a LossKit exist, but none is admitted (all default weights 0) and the only trust measurement is on non-Helix proxy signals. Envelope v1 (T025) improved the weakest term but held-out rank-1 on fresh seeds is only 0.117 against chance 0.0625 and 15 distractors; learned embeddings were researched, not run. AFx-Rep (ST-ITO) was wired in as an unadmitted embedding term and was worse than the DSP terms on proxy signals. On the first real song the loss ranked chain K first by 0.015 over H, while the human informally preferred H; the three level-invariant terms also accepted an output 52 dB too quiet until a guard was added in match_song.py.",
       "functionality": "LossKit.score() returns per-term scores (LTAS tilt, crest/flatness/HNR, envelope, multi-resolution STFT) but with default weights 0 its objective is flat; the search must pass provisional weights explicitly and label results unadmitted.",
       "health": "partial",
       "evidence": [
@@ -902,8 +885,7 @@
       "purpose": "Characterise each Helix block on its own (frequency response, harmonic and clipping curve, intermodulation, dynamics, delay, reverb and modulation) with a fixed probe signal, so search can choose models per slot from a fingerprint library and the Native-versus-Stomp audit can find mismatches like Early Reflections block by block.",
       "done_when": "The probe signal is rendered through any single block at a grid of settings in Native (and optionally the Stomp), fingerprints are stored locally, compare tolerances are set from measured repeat spread and parity blocks, the per-block parity audit has run, and search uses the fingerprints to seed model choice.",
       "status": "prototype",
-      "completion": 25,
-      "completion_reason": "The offline half is done and validated: the probe set, analysis and fingerprint format exist and 63 of 63 checks pass against known numpy and scipy blocks. Nothing has been run through Native or the Stomp, so no Helix block has a fingerprint, the compare tolerances are provisional, and the probe is 47 s against a roughly 30 s per model budget.",
+      "progress_note": "The offline half is done and validated: the probe set, analysis and fingerprint format exist and 63 of 63 checks pass against known numpy and scipy blocks. Nothing has been run through Native or the Stomp, so no Helix block has a fingerprint, the compare tolerances are provisional, and the probe is 47 s against a roughly 30 s per model budget.",
       "functionality": "Builds the probe signal and layout, analyses a recorded response into a fingerprint and compares two fingerprints. Works on synthetic blocks only (non-Helix stand-ins); no Helix block has been probed.",
       "health": "partial",
       "evidence": [
@@ -1005,8 +987,7 @@
       "purpose": "Find the preset whose render best matches the target section within a render budget set by the engine's cost.",
       "done_when": "On the Helix synthetic-v1 set the search recovers known presets at the thresholds benchmark set (block-type F1, model accuracy, parameter MAE), then beats the nearest community preset on real songs, with the final candidate verified on the pedal.",
       "status": "prototype",
-      "completion": 40,
-      "completion_reason": "CMA-ES over a captured template, beam over chains, budget planning, a level guard and a report writer are built, and one real-song run completed end to end on Native (449 renders, 1506 s; provisional loss 13.79 to 7.71, unadmitted). But the loss it optimises is not trusted (the human preferred the runner-up), recovery of known answers is shown only on a fake engine, there is no Helix known-answer run, no predictor or retrieval seeds, no model choice per slot, and no successive halving on hardware.",
+      "progress_note": "CMA-ES over a captured template, beam over chains, budget planning, a level guard and a report writer are built, and one real-song run completed end to end on Native (449 renders, 1506 s; provisional loss 13.79 to 7.71, unadmitted). But the loss it optimises is not trusted (the human preferred the runner-up), recovery of known answers is shown only on a fake engine, there is no Helix known-answer run, no predictor or retrieval seeds, no model choice per slot, and no successive halving on hardware.",
       "functionality": "match() plans a render budget, searches a chain and its parameters with CMA-ES against an unadmitted loss, applies a level guard and a weak prior, and writes a report and listening pack. match_song.py ran it on one real song: best provisional loss 7.71 (raw DI 24.93). Renders now cost about 0.28 s, so earlier budgets were over-planned. Recovery of known answers is unproven on real engine renders.",
       "health": "partial",
       "evidence": [
@@ -1154,8 +1135,7 @@
       "purpose": "Measure progress with known answers, record every run in an append-only ledger, and decide when a gate is passed.",
       "done_when": "The synthetic-v1 recovery set is captured and rendered, thresholds are agreed, CI runs the smoke recovery on every change, the separation stress curve and parity null are recorded, and Gates 2 and 3 are evidenced and signed.",
       "status": "prototype",
-      "completion": 40,
-      "completion_reason": "The ledger, Gate 1, the synthetic-benchmark design and labels generator, and now a parity-null tool with a measured Stomp-versus-Native table exist. No Helix known-answer set has been rendered, no recovery has run, thresholds are approved as working targets but not frozen, no separation stress curve exists, there is no blind-ab script, and CI still skips the benchmark.",
+      "progress_note": "The ledger, Gate 1, the synthetic-benchmark design and labels generator, and now a parity-null tool with a measured Stomp-versus-Native table exist. No Helix known-answer set has been rendered, no recovery has run, thresholds are approved as working targets but not frozen, no separation stress curve exists, there is no blind-ab script, and CI still skips the benchmark.",
       "functionality": "Appends and reads the ledger, runs engine-smoke, generates 180 labelled synthetic items (labels, no audio), and measures Stomp-versus-Native parity on six presets with a restore check. Cannot yet render the known-answer set, run a recovery, or run a blind listen.",
       "health": "partial",
       "evidence": [
@@ -1311,8 +1291,7 @@
       "purpose": "Learn from rendered pairs to seed the search with a blind predictor and, later, to speed the inner loop with neural block proxies and a learned similarity metric.",
       "done_when": "A predictor trained on Helix-rendered pairs improves the search's start (measurably fewer renders to the same loss), its weights have a model card and a licence that allows publishing, and the flywheel adds verified matches as training data.",
       "status": "not-started",
-      "completion": 0,
-      "completion_reason": "No code, data or model; only the task T030 exists and the plan defers neural proxies until after week 6.",
+      "progress_note": "No code, data or model; only the task T030 exists and the plan defers neural proxies until after week 6.",
       "functionality": "Nothing. There is no data generator, predictor or proxy.",
       "health": "unknown",
       "evidence": [
@@ -1363,8 +1342,7 @@
       "purpose": "Prepare level-matched, randomised blind A/B or MUSHRA sessions so the human, who is the final judge, can rate matches against references and baselines.",
       "done_when": "A blind-ab-session script builds a session folder with the answer key kept out, the human has rated the 20-song set, results are ingested as ledger rows, and Gate 3 has the human's sign-off.",
       "status": "designing",
-      "completion": 10,
-      "completion_reason": "Two informal human listening sessions exist as ledger rows (not blind, one song, not scored by any agent) and the ear has already disagreed with the loss once. The blind-ab-session script, a 20-song set, baselines and the Gate 3 session do not exist.",
+      "progress_note": "Two informal human listening sessions exist as ledger rows (not blind, one song, not scored by any agent) and the ear has already disagreed with the loss once. The blind-ab-session script, a 20-song set, baselines and the Gate 3 session do not exist.",
       "functionality": "No blind session can be prepared yet. Informal listening happened outside the tool: the human compared the target stem, two matches, the start chain and the raw DI for one section of one song, and played one preset live on the Stomp.",
       "health": "partial",
       "evidence": [
@@ -1431,8 +1409,7 @@
       "purpose": "Give it a song, get back an HX Stomp .hlx with up to three snapshots, verified on the pedal.",
       "done_when": "One command takes a song (and optional stems), runs separation, segmentation, DI choice, search and export, and returns a validated .hlx whose result is verified on the engine of the user's choice.",
       "status": "prototype",
-      "completion": 25,
-      "completion_reason": "A script runs the chain on a real song locally (separation cache, section choice, DI pick, search on Native, .hlx export); one song has been taken through it and the result was loaded onto the pedal by hand with the whole-preset injection tool. There is still no CLI entry point, no pipeline module, no automatic Stomp verification step, no snapshot assignment from section groups and only one song.",
+      "progress_note": "A script runs the chain on a real song locally (separation cache, section choice, DI pick, search on Native, .hlx export); one song has been taken through it and the result was loaded onto the pedal by hand with the whole-preset injection tool. There is still no CLI entry point, no pipeline module, no automatic Stomp verification step, no snapshot assignment from section groups and only one song.",
       "functionality": "scripts/match_song.py takes one prepared song section to an exported .hlx and a listening pack on one machine; the human then loaded the preset on the pedal and listened. Not a product command: one song (DS-Sample), unadmitted loss, hand-run steps, and nothing for the other sections.",
       "health": "partial",
       "evidence": [
@@ -1524,8 +1501,7 @@
       "purpose": "Install and run on Windows, macOS and Linux with whichever GPU backend is present, and ship releases others can use.",
       "done_when": "A clean install works on all three OSes in CI, GPU backends are packaged, Native on Linux works through Wine and yabridge or is documented as unsupported, and a release package exists.",
       "status": "prototype",
-      "completion": 15,
-      "completion_reason": "Dev-environment notes, a GPU backend detector and a Linux-only CI for tests and lint exist; the backend is verified only as CPU and MPS on one arm64 Mac. No Windows or Linux run, no packaging, and the pyproject has no entry points. The project licence is now MIT.",
+      "progress_note": "Dev-environment notes, a GPU backend detector and a Linux-only CI for tests and lint exist; the backend is verified only as CPU and MPS on one arm64 Mac. No Windows or Linux run, no packaging, and the pyproject has no entry points. The project licence is now MIT.",
       "functionality": "pip install -e .[dev] works on this Mac; detect_backend picks cpu or mps; CI runs ruff and pytest on Ubuntu with Python 3.11 only.",
       "health": "partial",
       "evidence": [
@@ -1605,8 +1581,7 @@
       "purpose": "Keep Line 6 assets out of the repo, respect the GPLv3 boundary and dependency licences, and flag EULA and model-weight questions before they bite.",
       "done_when": "licence-check passes on every dependency change with every WARN justified, the EULAs have been read, the project licence is chosen, and no release ships a non-commercial or unlicensed component.",
       "status": "working",
-      "completion": 75,
-      "completion_reason": "licence_check.py runs and passes with documented WARN rulings, the pedalboard boundary is enforced by a test, no Line 6 asset is in the repo, and the project licence is MIT (LICENSE present, THIRD-PARTY-NOTICES updated; the copyright line is derived from the GitHub name and awaits the human's confirmation). Not done: the human marked the installer EULAs as read but recorded no finding, diffq is non-commercial (private research only), the guitar-capable RoFormer checkpoint has no stated licence, and the WARN dependencies need re-review before any bundled release.",
+      "progress_note": "licence_check.py runs and passes with documented WARN rulings, the pedalboard boundary is enforced by a test, no Line 6 asset is in the repo, and the project licence is MIT (LICENSE present, THIRD-PARTY-NOTICES updated; the copyright line is derived from the GitHub name and awaits the human's confirmation). Not done: the human marked the installer EULAs as read but recorded no finding, diffq is non-commercial (private research only), the guitar-capable RoFormer checkpoint has no stated licence, and the WARN dependencies need re-review before any bundled release.",
       "functionality": "licence_check.py scans dependency licences, the pedalboard import boundary, Line 6 assets and committed golden presets and writes a review; it passes today. The project is MIT; third-party components keep their own licences.",
       "health": "partial",
       "evidence": [
@@ -1707,8 +1682,7 @@
       "purpose": "Coordinate the agents through contracts, a task board, gates, an append-only ledger, a decision log and cycle notes so work is honest and traceable.",
       "done_when": "Every cycle ends with synced docs, a current board, a cycle entry and a status page, contracts are current, and the board matches the code.",
       "status": "working",
-      "completion": 60,
-      "completion_reason": "Four cycles of work sit on a maintained board with gates, a decision log, a ledger and cycle entries; the lead restated the append-only ledger rule after an in-place deletion. Remaining drift: several board lines lag the ledger (see discrepancies), and the page is now produced as both HTML and Markdown so GitHub readers see it.",
+      "progress_note": "Four cycles of work sit on a maintained board with gates, a decision log, a ledger and cycle entries; the lead restated the append-only ledger rule after an in-place deletion. Remaining drift: several board lines lag the ledger (see discrepancies), and the page is now produced as both HTML and Markdown so GitHub readers see it.",
       "functionality": "The lead runs cycles from the board, ledger and gates; agents hand off by file and ledger row; this status report is produced each cycle as reports/status/index.html and reports/status/README.md (the GitHub-readable copy).",
       "health": "partial",
       "evidence": [

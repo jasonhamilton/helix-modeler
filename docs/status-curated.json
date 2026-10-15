@@ -1,0 +1,521 @@
+{
+  "_about": "Curated judgements for the status report (owner: status-reporter). Read by scripts/status_report.py together with docs/features.json and the live board, gates and ledger. Everything here is a judgement that must be traceable to evidence ids listed under 'evidence'; the script refuses to render if the judgements contradict the gate checklists. Written for a technically capable reader who does not know the repo: spell out abbreviations, no file names or task ids in the executive fields.",
+  "project": {
+    "name": "HX Stomp Tone Matcher",
+    "goal": "Give the tool a song and get back a preset for the Line 6 HX Stomp guitar pedal that sounds like the guitar on the recording, checked on the real pedal. It works by trying candidate presets, comparing the sound with the recording, and adjusting until they match."
+  },
+  "period_start": "2026-10-14",
+  "assessments": {
+    "health": {
+      "value": "At Risk",
+      "rationale": "The method that decides whether a preset sounds like the target has not been validated, so the next milestone (recovering presets whose answer is known) has no evidence yet. The first milestone is signed off and there is no hard blocker on the human today, so the project is not Blocked."
+    },
+    "technical": {
+      "value": "Advancing",
+      "rationale": "In the last two days both sound engines became fully scriptable, a rendering speed and memory problem was fixed, presets are now verified after every write, and a first real song was matched by hand. Engineering is moving quickly even though the main user-facing question is still open.",
+      "breakdown": {
+        "implemented": "Control of both sound engines, preset reading and writing, guitar separation, a reference clean-guitar picker, four tone-comparison measures, an optimiser, a block-by-block rendering method and a block measuring kit.",
+        "integrated": "A hand-run script takes one prepared song section through separation, clean-guitar choice, search and preset export on one machine. Nothing runs from a single command and the pedal check is manual.",
+        "tested": "Automated tests cover all of the above, mostly with fake engines or non-Helix stand-in signals.",
+        "verified": "Engine control and preset checking were verified on real hardware (macOS, pedal firmware 3.50). Matching quality is verified only by one informal listen, not by a blind test.",
+        "unfinished": "Trusting the tone comparison, the known-answer benchmark on Helix, the library of measured blocks, a one-command song-to-preset tool, blind listening and anything beyond macOS."
+      }
+    },
+    "readiness": {
+      "stage": "Prototype",
+      "rationale": "Important pieces have been demonstrated working: a real song was matched by a script, the preset loaded on the pedal and the owner listened to it.",
+      "blocker_to_next": "Integrated needs the pieces to run together without hand-holding: one command from song to a pedal-checked preset, using a tone comparison that has been shown to pick correctly. Neither exists yet."
+    }
+  },
+  "summary": "The goal is a tool that listens to a recorded guitar tone and builds a matching preset for the HX Stomp pedal. The building blocks now work: the software can run both of its sound engines by itself, write preset files the pedal accepts, and check what it wrote. One real song has been taken through the whole chain by hand, and the owner found the result promising in an informal listen. What is missing is proof that the tool's own sense of what sounds similar can be trusted. On that song it could not tell its top two candidates apart, while the listener clearly preferred one. Until that judgement is validated, automatic matching cannot be relied on, and no blind listening test has been run. The next step is to test that judgement against presets whose correct answer is known.",
+  "biggest_problem": {
+    "issue": "tone-comparison-unvalidated",
+    "why": "Every automatic decision the tool makes (which preset is better, when to stop searching) depends on this comparison."
+  },
+  "ear_qualifier": "informal, not blind",
+  "milestones": {
+    "Gate 1": {
+      "tier": "Foundational",
+      "goal": "Prove both sound engines can be driven by code, and that a generated preset loads on the pedal.",
+      "criteria_plain": [
+        "Helix Native renders a test clip from code (smoke test passes).",
+        "The HX Stomp renders the same test clip from code on at least one operating system.",
+        "A generated preset file is accepted by HX Edit and loads on the pedal.",
+        "The shared engine interface is frozen and the control routes are documented."
+      ],
+      "demonstrated": "All four criteria are evidenced and the owner signed off on 2026-10-14. Caveats the owner accepted: the pedal result rests on one operating system and firmware 3.50; the pedal-load result was reported by the owner, not observed by an automated test.",
+      "remaining": "Nothing for the gate itself. Windows and Linux pedal control remain unverified.",
+      "blocking": "",
+      "next_action": "None. Re-check on firmware 3.80 only if the owner decides to update the pedal.",
+      "evidence": ["ev-gate1", "ev-smoke-native", "ev-smoke-stomp", "ev-pedal-load"]
+    },
+    "Gate 2": {
+      "tier": "Core method",
+      "state": "At Risk",
+      "goal": "Show the tool can recover a known answer: given audio made from a preset we already know, its comparison measure picks the true preset and its search finds the right blocks and settings, at thresholds agreed in advance.",
+      "criteria_plain": [
+        "On the known-answer set, the tone-comparison measure ranks the true preset first at the agreed threshold.",
+        "Block types, amp and effect models, and parameter values are identified within the agreed accuracy.",
+        "A curve showing how accuracy falls as guitar separation gets worse has been recorded."
+      ],
+      "demonstrated": "Working targets were approved by the owner (not frozen). The labelled test items exist but have not been rendered through Helix. On stand-in signals, the best single comparison term put the true preset first in roughly 1 of 8 held-out cases, against a working target of 19 of 20 on the real set; stand-in results are not admission evidence.",
+      "remaining": "Render the known-answer set through Helix Native, run the real trust check, measure baselines and freeze the thresholds, run the recovery test, and record the separation stress curve.",
+      "blocking": "The comparison measure has not passed validation on Helix audio, and the known-answer set has not been rendered.",
+      "next_action": "Render the known-answer set through Native (now possible without a person) and run the trust check on it.",
+      "evidence": ["ev-loss-proxy", "ev-synth-design"]
+    },
+    "Gate 3": {
+      "tier": "Product-level",
+      "goal": "Show that, for real songs, the tool's preset beats the nearest ready-made community preset in blind listening.",
+      "criteria_plain": [
+        "In blind listening on a 20-song set, the matched preset is preferred over the nearest community preset on most songs.",
+        "The difference between the pedal and Native on firmware 3.80 has been recorded.",
+        "Native-mode and pedal-mode matching have been compared on the same songs."
+      ],
+      "demonstrated": "One song section was matched and listened to informally (not blind). Pedal versus Native agreement was measured on firmware 3.50 for a few presets.",
+      "remaining": "Gate 2, the 20-song set, a blind listening tool and sessions, and the firmware 3.80 and engine comparison measurements.",
+      "blocking": "Depends on Gate 2, on song selection, and on a blind listening tool that does not exist yet.",
+      "next_action": "Wait for Gate 2. The owner can start choosing songs now.",
+      "evidence": ["ev-ab-informal", "ev-parity"]
+    }
+  },
+  "issues": [
+    {
+      "id": "tone-comparison-unvalidated",
+      "title": "The tone comparison is not validated",
+      "priority": "Critical",
+      "classification": "Active Blocker",
+      "executive": true,
+      "problem": "The tool scores how close two guitar sounds are with several measures, and none has passed the required accuracy test on audio from the real Helix engines.",
+      "impact": "The optimiser cannot be trusted to pick a genuinely matching preset, so Gate 2 cannot be passed and automatic matching cannot be offered. On the one real song, the top two candidates scored 6.935 and 6.950 (lower is better), a gap too small to mean anything, while the listener clearly preferred one; the best score also swung from 7.7 to 22.7 depending on which clean guitar recording was used.",
+      "cause": "Measures were built and checked on non-Helix stand-in signals, where the best one chose the right answer first only about 1 time in 8. Real Helix audio has not yet been tried because the known-answer set has not been rendered. The score also ignores loudness.",
+      "resolution": "Render the known-answer set through Native, run the trust check on each measure, and combine or replace measures until the agreed accuracy is reached.",
+      "owner": "benchmark and tone-metrics, with the lead freezing the thresholds",
+      "next_step": "Render the known-answer set through Native and run the trust check on it.",
+      "components": ["judging"],
+      "evidence": ["ev-loss-proxy", "ev-ab-informal", "ev-synth-design"]
+    },
+    {
+      "id": "cab-reflections-mismatch",
+      "title": "The pedal and Native disagree on one cabinet setting",
+      "priority": "High",
+      "classification": "Confirmed Problem",
+      "executive": true,
+      "problem": "The cabinet's Early Reflections setting does not sound the same on the pedal and in Native.",
+      "impact": "A preset found on the fast Native engine can sound different on the real pedal. At the value the search chose, the two engines' recordings cancel by only 3.6 dB (poor agreement); with the setting at 0 they cancel by 31 dB (close agreement).",
+      "cause": "Not yet known. Candidates are an older algorithm in the pedal, a different parameter scale, or a delay-structure difference. Other parameters tested at their extremes agreed.",
+      "resolution": "Find the cause, or measure every searchable parameter on both engines and let the search free only the parameters that agree.",
+      "owner": "native-engine and stomp-engine; benchmark for the per-parameter audit",
+      "next_step": "Run the per-parameter agreement audit; until then any preset meant for the pedal keeps this setting at 0.",
+      "components": ["engines"],
+      "evidence": ["ev-parity", "ev-decisions"]
+    },
+    {
+      "id": "separation-unmeasured",
+      "title": "Guitar separation quality on real songs is unknown",
+      "priority": "High",
+      "classification": "Unknown/Unverified",
+      "executive": true,
+      "problem": "The step that isolates the guitar from a full mix has only been scored on an artificial mix. One real song was processed without a quality score.",
+      "impact": "If the isolated guitar contains drums, vocals or artifacts, the tone comparison will chase those instead of the guitar and Gate 3 results will be unreliable.",
+      "cause": "No real-song stress set exists, and the only separation model aimed at guitar has no stated licence so it was not used.",
+      "resolution": "Run the separation stress test on a few real songs, locally, and record how accuracy falls as the mix gets denser.",
+      "owner": "separation, after the owner supplies songs",
+      "next_step": "Owner chooses the first songs (one action covers this and the Gate 3 song set).",
+      "components": ["prep"],
+      "evidence": ["ev-sep"]
+    },
+    {
+      "id": "no-blind-listening",
+      "title": "No blind listening has happened, and the tool for it does not exist",
+      "priority": "Medium",
+      "classification": "Unknown/Unverified",
+      "executive": true,
+      "problem": "The only listening so far was informal and unblinded. The tool that prepares blind A/B sessions is not built.",
+      "impact": "Whether matches actually sound better than a ready-made preset is unknown, and Gate 3 cannot start.",
+      "cause": "Blind sessions need matched presets from the whole pipeline, which does not exist yet.",
+      "resolution": "Build the session tool once the pipeline produces candidates, then run sessions on the chosen songs.",
+      "owner": "benchmark builds the tool; the owner listens",
+      "next_step": "Nothing until Gate 2 produces trustworthy candidates; avoid asking the owner to listen earlier.",
+      "components": ["testing"],
+      "evidence": ["ev-ab-informal"]
+    },
+    {
+      "id": "block-library-pending",
+      "title": "The library of measured blocks does not exist yet",
+      "priority": "Medium",
+      "classification": "Risk",
+      "executive": true,
+      "problem": "The per-block approach needs every effect block measured through Native, and the measuring kit has never been run on Helix.",
+      "impact": "Choosing amp and effect models from measurements (instead of trying them blindly) is not possible, which makes the search space larger than it needs to be.",
+      "cause": "The measuring kit was only finished offline on stand-in blocks. Native's current host is mono, so stereo blocks and dual cabinets cannot be measured; one unexplained accuracy floor remains when an amp follows other blocks.",
+      "resolution": "Render the measuring signal through Native for a few blocks first, set tolerances from repeat-render spread, then capture the library overnight for mono blocks.",
+      "owner": "native-engine, then benchmark and search",
+      "next_step": "Build the Native rendering of the measuring signal.",
+      "components": ["judging", "engines"],
+      "evidence": ["ev-blockserial", "ev-probe-synth"]
+    },
+    {
+      "id": "single-platform-unpublished-helper",
+      "title": "Everything is verified on one computer, one pedal firmware, with a private helper",
+      "priority": "Medium",
+      "classification": "Risk",
+      "executive": false,
+      "problem": "Pedal control is verified on macOS and firmware 3.50 only, and the small helper program that talks to the pedal is intentionally not published.",
+      "impact": "Other users on Windows or Linux may not be able to use pedal mode, and others cannot reproduce the pedal measurements.",
+      "cause": "Only one machine is available, and the helper's source is withheld on the owner's decision.",
+      "resolution": "Publish a wrapper or rewrite the helper to the documented protocol; test on other systems when machines exist.",
+      "owner": "stomp-engine",
+      "next_step": "None needed before Gate 2.",
+      "components": ["engines"],
+      "evidence": ["ev-stomp-notes"]
+    },
+    {
+      "id": "eula-findings-unrecorded",
+      "title": "What the Line 6 licence agreements allow for training is not recorded",
+      "priority": "Low",
+      "classification": "Unknown/Unverified",
+      "executive": false,
+      "problem": "The owner read the licence agreements but the findings are not in the repository.",
+      "impact": "It decides whether models trained on Native renders may be published; it blocks nothing until the learning stage.",
+      "cause": "Recording the finding was left to the owner.",
+      "resolution": "Write the relevant clauses' conclusions into the licence notes.",
+      "owner": "owner, then reviewer",
+      "next_step": "Covered by the owner action about the licence agreements.",
+      "components": ["foundations"],
+      "evidence": ["ev-licence-notes"]
+    },
+    {
+      "id": "board-hygiene",
+      "title": "A few task-board lines are stale",
+      "priority": "Low",
+      "classification": "Confirmed Problem",
+      "executive": false,
+      "problem": "Several task lines say less or more than the ledger shows (see the technical details for the list).",
+      "impact": "Anyone reading only the board will misjudge progress; no product impact.",
+      "cause": "Work moved faster than board edits.",
+      "resolution": "The lead updates the lines at the next planning step.",
+      "owner": "tone-matcher-lead",
+      "next_step": "Update the board at the next planning step.",
+      "components": ["foundations"],
+      "evidence": ["ev-board"]
+    }
+  ],
+  "actions": [
+    {
+      "id": "choose-songs",
+      "group": "soon",
+      "priority": "High",
+      "title": "Choose the first real songs for local testing",
+      "why": "Separation quality is unmeasured and the final test needs 20 songs. Pick a few now, spanning clean to high-gain tones; the full 20 can follow.",
+      "unblocks": "The separation stress test and the song set for Gate 3.",
+      "recommended": "Three to five songs now, local only; audio never leaves the machine.",
+      "defer": "Separation risk stays unmeasured and Gate 3 cannot be scheduled.",
+      "covers": ["Supply a few real songs", "Choose the next songs"]
+    },
+    {
+      "id": "play-along",
+      "group": "soon",
+      "priority": "Medium",
+      "title": "Record the play-along takes and report what happened",
+      "why": "The tool can record your own clean guitar alongside the song. The first takes exist, but the board does not say which commands ran on the pedal or whether the count-in and alignment were right. The clean guitar used strongly changes the score (7.7 to 22.7, lower is better), so this is the cleanest way to remove that variable.",
+      "unblocks": "Measuring the effect of the clean-guitar choice and the accuracy mode that uses your own recording.",
+      "recommended": "Record the DS-Sample section again with a guitar in the pedal's Main L/Mono input and note whether the click and alignment were right.",
+      "defer": "The clean-guitar effect stays unmeasured; the search keeps using a library recording.",
+      "covers": ["Run the play-along capture"]
+    },
+    {
+      "id": "pedal-delay-check",
+      "group": "soon",
+      "priority": "Medium",
+      "title": "Check the delay settings on the pedal after loading a regenerated preset",
+      "why": "A bug that made the delay too wet was fixed. Two of the three wrong values (Mix, Time) were never explained, so only a look at the pedal can confirm the fix covers them.",
+      "unblocks": "Trust in the pedal read-back step that the final check depends on.",
+      "recommended": "Load the regenerated high-gain test preset and read the delay Time, Feedback and Mix on the pedal screen.",
+      "defer": "The final pedal check stays partly unexplained.",
+      "covers": ["Check the delay Mix and Time"]
+    },
+    {
+      "id": "firmware-decision",
+      "group": "later",
+      "priority": "Low",
+      "title": "Decide whether to update the pedal from firmware 3.50 to 3.80",
+      "why": "Presets are generated for 3.50 today. The owner ruled this waits until the pipeline works end to end.",
+      "unblocks": "The Gate 3 measurement of pedal versus Native on firmware 3.80.",
+      "recommended": "Wait, as already ruled.",
+      "defer": "Nothing breaks; Gate 3 needs the 3.80 measurement eventually.",
+      "covers": ["Decide whether to update the pedal"]
+    },
+    {
+      "id": "other-os",
+      "group": "later",
+      "priority": "Low",
+      "title": "Provide a Windows and a Linux machine, or accept macOS only",
+      "why": "Pedal control is verified on macOS only.",
+      "unblocks": "Cross-platform claims.",
+      "recommended": "Decide when the pipeline works; macOS-only is acceptable until then.",
+      "defer": "The tool is documented as macOS-only for pedal mode.",
+      "covers": ["Provide a Linux and a Windows machine"]
+    },
+    {
+      "id": "licence-agreements",
+      "group": "later",
+      "priority": "Low",
+      "title": "Record what the Line 6 licence agreements say about training and automation",
+      "why": "The reading was done but the findings are not written down; they decide whether models trained on Native renders can be published.",
+      "unblocks": "The learning stage, which is not near.",
+      "recommended": "Add the findings to the licence notes in a few lines.",
+      "defer": "Learning cannot start safely, but nothing earlier depends on it.",
+      "covers": ["Read the Native and HX Edit installer EULAs", "Record what the installer EULAs say"]
+    },
+    {
+      "id": "licence-copyright",
+      "group": "later",
+      "priority": "Low",
+      "title": "Confirm the copyright line in the project licence",
+      "why": "The project is MIT licensed but the copyright holder line is unconfirmed.",
+      "unblocks": "A clean public release.",
+      "recommended": "Confirm or edit the name.",
+      "defer": "None before release.",
+      "covers": ["Confirm or edit the copyright line"]
+    },
+    {
+      "id": "hx-edit-import",
+      "group": "later",
+      "priority": "Low",
+      "title": "Open newly generated presets in HX Edit and report errors",
+      "why": "Only HX Edit can confirm the file is accepted; an error code -8309 means the wrong device.",
+      "unblocks": "Confidence that generated files import cleanly.",
+      "recommended": "Do it for the final candidate presets only, not every experiment.",
+      "defer": "Import problems would be found later.",
+      "covers": ["Import every new generated preset in HX Edit"]
+    },
+    {
+      "id": "overnight-capture-go",
+      "group": "later",
+      "priority": "Low",
+      "title": "Give the go for the overnight capture of all blocks",
+      "why": "The overnight run would measure every Stomp-compatible block. It must wait for the Native rendering of the measuring signal and a stereo path.",
+      "unblocks": "The block library.",
+      "recommended": "Do not decide yet.",
+      "defer": "No consequence now; asking earlier would be premature.",
+      "covers": ["Confirm that overnight single-block capture"]
+    },
+    {
+      "id": "early-reflections-ruling",
+      "group": "later",
+      "priority": "Low",
+      "title": "Rule on how to treat the cab Early Reflections setting if it cannot be matched",
+      "why": "Only needed if the agents cannot find a cause for the mismatch.",
+      "unblocks": "Whether that setting is fixed at 0 permanently.",
+      "recommended": "Wait for the agents' per-parameter audit.",
+      "defer": "The rule 'keep it at 0 for the pedal' already applies.",
+      "covers": ["Decide how Early Reflections should be handled"]
+    },
+    {
+      "id": "blind-listening-and-signoff",
+      "group": "later",
+      "priority": "Medium",
+      "title": "Rate the blind sessions and sign off Gates 2 and 3 when evidence exists",
+      "why": "Only the owner can listen and sign. No session or evidence exists yet.",
+      "unblocks": "Gate 2 and Gate 3 sign-off.",
+      "recommended": "Wait to be asked.",
+      "defer": "Not applicable yet.",
+      "covers": ["Listen blind to the DS-Sample candidates", "Rate blind sessions when they exist", "Sign off Gates 2 and 3"]
+    }
+  ],
+  "agent_owned": [
+    "Rule on the open Native proposals",
+    "Decide the trust threshold",
+    "Rule on adding the ledger kind",
+    "Rule on the proposals open in DECISIONS"
+  ],
+  "capabilities": {
+    "verified": [
+      {"capability": "Control Helix Native from code", "reality": "Working on macOS with Native 3.82; a 2-second clip renders in about 0.28 s with memory steady.", "evidence": ["ev-memfix", "ev-smoke-native"]},
+      {"capability": "Control the HX Stomp from code and restore it", "reality": "Working on macOS, firmware 3.50; a whole preset is written, read back and checked, and the pedal is restored exactly.", "evidence": ["ev-smoke-stomp", "ev-readback"]},
+      {"capability": "Read, write and check preset files", "reality": "Byte-for-byte round trip on both reference files; a smoke-test preset loaded on the pedal (reported by the owner).", "evidence": ["ev-pedal-load"]},
+      {"capability": "Catch a mismatch between what was written and what the pedal holds", "reality": "Every parameter is compared after each write; this found a delay bug that is now fixed.", "evidence": ["ev-readback"]},
+      {"capability": "Native and the pedal agree on simple presets", "reality": "Three of four tested presets agree closely; the fourth, with an added effect, differs more. Breaks for one cabinet setting.", "evidence": ["ev-parity"]}
+    ],
+    "unproven": [
+      {"capability": "Pick a preset that matches a recorded tone", "reality": "One song section tried; the score could not separate the top two choices; the listener's preference was informal.", "evidence": ["ev-ab-informal"]},
+      {"capability": "Judge tone similarity reliably", "reality": "Tested on stand-in signals only, where the best measure picked correctly about 1 time in 8; no measure is admitted.", "evidence": ["ev-loss-proxy"]},
+      {"capability": "Isolate the guitar from a full mix", "reality": "Runs; quality scored only on an artificial mix.", "evidence": ["ev-sep"]},
+      {"capability": "Choose a clean reference guitar recording", "reality": "Picks from a library of 104 recordings; the benefit is unmeasured and the score varies a lot with the clip.", "evidence": ["ev-ab-informal"]},
+      {"capability": "Search for blocks and settings", "reality": "Ran on one real song; recovery of known answers shown only with a fake engine.", "evidence": ["ev-synth-design"]},
+      {"capability": "Render a chain one block at a time", "reality": "One 8-block mono test chain agreed to within 67 dB above 20 Hz; dual cabinets and stereo untested.", "evidence": ["ev-blockserial"]},
+      {"capability": "Measure each block's behaviour with a test signal", "reality": "Validated on 14 non-Helix test blocks; never run through Helix.", "evidence": ["ev-probe-synth"]},
+      {"capability": "Record the player's own guitar alongside the song", "reality": "Built and tested with fake devices; some takes exist; accuracy not measured.", "evidence": ["ev-ab-informal"]}
+    ],
+    "missing": [
+      {"capability": "Turn a song into a pedal-verified preset with one command", "reality": "Not implemented; the steps are run by hand."},
+      {"capability": "Produce up to three tone snapshots from one song", "reality": "Not implemented end to end."},
+      {"capability": "Run blind listening sessions", "reality": "The session tool is not built."},
+      {"capability": "Run the known-answer benchmark on Helix audio", "reality": "Not run; the set has not been rendered."},
+      {"capability": "Library of measured blocks", "reality": "Not started."},
+      {"capability": "Learned predictor for good starting points", "reality": "Not started."},
+      {"capability": "Pedal control on Windows or Linux", "reality": "Unverified; no machine available."},
+      {"capability": "Stereo blocks and dual cabinets in Native", "reality": "The Native host is mono only."}
+    ]
+  },
+  "recent_changes": [
+    {"date": "2026-10-14", "kind": "milestone", "text": "Gate 1 was signed off: both engines are driven by code and a generated preset loads on the pedal.", "evidence": ["ev-gate1"]},
+    {"date": "2026-10-15", "kind": "improvement", "text": "Helix Native now loads new sounds without a person at the keyboard and renders about seven times faster, and it stopped running out of memory.", "evidence": ["ev-memfix"]},
+    {"date": "2026-10-15", "kind": "improvement", "text": "The pedal write is now checked parameter by parameter. This traced and fixed a bug that made a delay run far too wet when the owner played a preset live on the pedal.", "evidence": ["ev-readback", "ev-live-delay"]},
+    {"date": "2026-10-15", "kind": "improvement", "text": "A first real song section was matched end to end and loaded on the pedal. The result was informal progress, not a validation.", "evidence": ["ev-ab-informal"]},
+    {"date": "2026-10-15", "kind": "improvement", "text": "Rendering a chain one block at a time matched rendering it whole on a test chain, which opens the way to measuring blocks individually.", "evidence": ["ev-blockserial"]},
+    {"date": "2026-10-15", "kind": "problem", "text": "A new problem was found: one cabinet setting sounds different on the pedal and in Native. Presets for the pedal keep it at 0 for now.", "evidence": ["ev-parity", "ev-decisions"]},
+    {"date": "2026-10-15", "kind": "problem", "text": "The first real-song run showed the tone score is not reliable: its top two candidates were almost tied and the listener preferred one clearly.", "evidence": ["ev-ab-informal"]},
+    {"date": "2026-10-15", "kind": "resolved", "text": "A silent bug that could reuse an outdated Native setup (and made one measurement look much worse than it was) was found and fixed; the false result was voided.", "evidence": ["ev-decisions"]},
+    {"date": "2026-10-14", "kind": "activity", "text": "Two extra tone-comparison measures were added (a sharper loudness-shape measure and a learned audio embedding). Neither came close to the target on stand-in signals, so they did not move Gate 2 forward.", "evidence": ["ev-loss-proxy"]},
+    {"date": "2026-10-15", "kind": "activity", "text": "The block measuring kit was finished offline. It has not touched Helix yet, so it does not advance readiness until it is run.", "evidence": ["ev-probe-synth"]},
+    {"date": "2026-10-15", "kind": "decision", "text": "The owner approved the per-block approach (measure and search block by block). It adds work before Gate 2 but shrinks the search space.", "evidence": ["ev-decisions"]}
+  ],
+  "components": [
+    {
+      "id": "engines",
+      "name": "Sound engines: Helix Native and the HX Stomp pedal",
+      "features": ["native-engine", "stomp-engine", "engine-interface"],
+      "purpose": "Turn a candidate preset and a clean guitar clip into sound, so candidates can be compared. Native is fast and offline; the pedal is the real thing.",
+      "status": "Working",
+      "works": "Both engines are driven from code on macOS and give back audio; the pedal is written, read back and restored exactly.",
+      "missing": "Windows and Linux pedal control, stereo blocks, and full agreement between the two engines.",
+      "problem": "One cabinet setting sounds different on the pedal and in Native.",
+      "next": "Run the per-parameter agreement audit.",
+      "confidence": "Hardware-measured for specific operations on one computer and one firmware; engine agreement tested on four presets."
+    },
+    {
+      "id": "presets",
+      "name": "Preset files and the block catalog",
+      "features": ["preset"],
+      "purpose": "Read, write and validate the preset files the pedal and Native load.",
+      "status": "Partially Working",
+      "works": "Reference files round-trip exactly, models are read from the owner's own HX Edit install, and generated files load.",
+      "missing": "Building up to three snapshots from a match, and forcing snapshot values to equal block values inside the writer.",
+      "problem": "A stale snapshot value can silently change the sound; the rule 'block values win' is applied in scripts but not yet in the writer.",
+      "next": "Move the snapshot synchronisation into the preset writer.",
+      "confidence": "Round trip tested on two reference files; one generated preset loaded on the pedal."
+    },
+    {
+      "id": "prep",
+      "name": "Preparing the song: guitar isolation and a clean reference guitar",
+      "features": ["separation", "dry-signal"],
+      "purpose": "Extract the guitar from the recording and supply a clean guitar recording to compare against.",
+      "status": "Partially Working",
+      "works": "Separation runs in seconds and sections are found; a library of clean guitar clips is indexed and picked from.",
+      "missing": "Any quality score on real songs and any measurement of the clean-guitar choice's benefit.",
+      "problem": "Separation quality on real songs is unknown.",
+      "next": "Stress-test on a few real songs once the owner chooses them.",
+      "confidence": "Synthetic mix and one real song without a quality score."
+    },
+    {
+      "id": "judging",
+      "name": "Judging tone similarity: comparison measures and block measuring",
+      "features": ["loss-kit", "block-probe"],
+      "purpose": "Say how close two guitar sounds are, and describe how each block behaves.",
+      "status": "Partially Working",
+      "works": "Four comparison measures and a block measuring kit run and are tested.",
+      "missing": "Evidence that any measure picks correctly on Helix audio; any Helix block measured.",
+      "problem": "The tone comparison is not validated.",
+      "next": "Render the known-answer set and run the trust check.",
+      "confidence": "Stand-in (non-Helix) signals only."
+    },
+    {
+      "id": "searching",
+      "name": "Searching for the preset and the song-to-preset pipeline",
+      "features": ["search", "pipeline"],
+      "purpose": "Try candidate presets, score them against the target and return the best preset.",
+      "status": "Partially Working",
+      "works": "The optimiser ran end to end on one real song section by script and produced a preset the owner loaded and listened to.",
+      "missing": "A one-command tool, snapshots for several sections, automatic pedal verification, and any recovery test on Helix.",
+      "problem": "It optimises against a comparison measure that is not validated.",
+      "next": "Wait for the comparison to be validated; the block library will then seed the search.",
+      "confidence": "One song, informal listening only."
+    },
+    {
+      "id": "testing",
+      "name": "Testing, benchmarks and listening",
+      "features": ["evaluation", "listening"],
+      "purpose": "Provide the measurements and listening tests that decide whether the product works.",
+      "status": "Partially Working",
+      "works": "The evidence ledger, smoke tests and the engine agreement test work.",
+      "missing": "The Helix known-answer benchmark, frozen thresholds and blind listening tools.",
+      "problem": "No benchmark can yet say whether matching works.",
+      "next": "Render the known-answer set; later build the blind session tool.",
+      "confidence": "Hardware measurements of engine agreement; listening informal only."
+    },
+    {
+      "id": "learning",
+      "name": "Learning from data",
+      "features": ["learning"],
+      "purpose": "Learn good starting points so the search needs fewer renders.",
+      "status": "Not Started",
+      "works": "Nothing.",
+      "missing": "Everything; it depends on a trusted comparison and on the licence findings.",
+      "problem": "Not applicable yet.",
+      "next": "None until Gate 2.",
+      "confidence": "None."
+    },
+    {
+      "id": "foundations",
+      "name": "Foundations: installation, licensing and the working process",
+      "features": ["platform", "licensing", "process"],
+      "purpose": "Make the project installable, legally clean and organised.",
+      "status": "Working",
+      "works": "Installs on this Mac, licence checks pass, and the board, evidence ledger and gates are in use.",
+      "missing": "Windows and Linux checks, recorded licence-agreement findings, and tidier board lines.",
+      "problem": "Licence-agreement findings are unrecorded; some board lines are stale.",
+      "next": "Update the board; owner records the licence findings.",
+      "confidence": "Tests and a licence scan; one operating system."
+    }
+  ],
+  "glossary": [
+    {"term": "DI", "definition": "Direct Input: a clean, unprocessed guitar recording, before any amp or effects."},
+    {"term": "DSP", "definition": "Digital Signal Processing: the audio calculations inside amps and effects."},
+    {"term": "EULA", "definition": "The software licence agreement shown when installing a product."},
+    {"term": "CMA-ES", "definition": "An optimisation algorithm used to search for suitable settings."},
+    {"term": "HX Stomp", "definition": "The Line 6 guitar-effects pedal this project targets."},
+    {"term": "Helix Native", "definition": "Line 6's software version of the Helix sounds; it runs as a plugin and renders audio offline."},
+    {"term": "HX Edit", "definition": "Line 6's editing program for the pedal; it also imports preset files."},
+    {"term": "preset", "definition": "A saved sound: a chain of amp, cabinet and effect blocks with their settings (an .hlx file)."},
+    {"term": "snapshot", "definition": "One of up to three stored variations of a preset that the pedal can switch between."},
+    {"term": "firmware", "definition": "The software running inside the pedal."},
+    {"term": "loss", "definition": "The score the optimiser tries to lower: how different two sounds are. Lower is a closer match."},
+    {"term": "tone comparison", "definition": "The loss: the combined measures of how similar two guitar sounds are."},
+    {"term": "stand-in signals", "definition": "Test audio made by ordinary software effects instead of Helix. Useful for early checks; not proof the method works on Helix."},
+    {"term": "known-answer set", "definition": "A test set made by rendering presets we already know through Helix, so we can check whether the tool recovers them."},
+    {"term": "held-out", "definition": "Test items not used when tuning, so the result is not flattered by tuning."},
+    {"term": "trust check", "definition": "A test of whether a measure puts the true preset first among many candidates."},
+    {"term": "null residual", "definition": "What is left when one recording is subtracted from another that should match. Reported in decibels below the signal; the more negative, the closer."},
+    {"term": "dB", "definition": "Decibel, a logarithmic loudness or level-difference scale."},
+    {"term": "Early Reflections", "definition": "A cabinet setting that adds the first short echoes of the room."},
+    {"term": "separation", "definition": "Splitting a full mix into instruments so the guitar can be analysed alone."},
+    {"term": "block", "definition": "One element in a preset's chain: an amp, cabinet, drive pedal, delay and so on."},
+    {"term": "ledger", "definition": "The project's append-only record of measured runs; a claim without a row did not happen."},
+    {"term": "gate", "definition": "A milestone with a written checklist and a human sign-off."},
+    {"term": "blind A/B", "definition": "A listening test where the listener does not know which option is which."},
+    {"term": "readback", "definition": "Reading the pedal's settings back after writing them to confirm they match."},
+    {"term": "MIDI CC", "definition": "A control message that moves one knob or switch from software."}
+  ],
+  "evidence": [
+    {"id": "ev-gate1", "label": "Gate 1 sign-off record", "kind": "ledger", "ref": "2026-10-14T18:04:42+00:00"},
+    {"id": "ev-smoke-native", "label": "Native smoke test", "kind": "ledger", "ref": "2026-10-14T17:33:57+00:00"},
+    {"id": "ev-smoke-stomp", "label": "Pedal smoke test, independent re-run", "kind": "ledger", "ref": "2026-10-14T18:09:13+00:00"},
+    {"id": "ev-pedal-load", "label": "Generated preset loaded on the pedal (owner-reported)", "kind": "ledger", "ref": "2026-10-14T17:51:18+00:00"},
+    {"id": "ev-loss-proxy", "label": "Tone-comparison trust check on stand-in signals", "kind": "ledger", "ref": "2026-10-14T23:14:41+00:00"},
+    {"id": "ev-synth-design", "label": "Known-answer set design and working targets", "kind": "file", "ref": "docs/notes/synthetic-benchmark-design.md"},
+    {"id": "ev-ab-informal", "label": "Informal listening to the first real-song matches", "kind": "ledger", "ref": "2026-10-15T19:10:17+00:00"},
+    {"id": "ev-live-delay", "label": "Live check of the delay fix", "kind": "ledger", "ref": "2026-10-15T19:20:34+00:00"},
+    {"id": "ev-parity", "label": "Pedal versus Native agreement on four presets", "kind": "ledger", "ref": "2026-10-15T00:25:36+00:00"},
+    {"id": "ev-decisions", "label": "Decision log", "kind": "file", "ref": "docs/DECISIONS.md"},
+    {"id": "ev-memfix", "label": "Native memory and speed fix", "kind": "ledger", "ref": "2026-10-15T18:54:10+00:00"},
+    {"id": "ev-readback", "label": "Pedal write read-back check", "kind": "ledger", "ref": "2026-10-15T19:36:29+00:00"},
+    {"id": "ev-blockserial", "label": "Block-by-block rendering test", "kind": "ledger", "ref": "2026-10-15T19:21:10+00:00"},
+    {"id": "ev-probe-synth", "label": "Block measuring kit on non-Helix blocks", "kind": "ledger", "ref": "2026-10-15T19:31:39+00:00"},
+    {"id": "ev-sep", "label": "Separation run on the real song (no quality score)", "kind": "ledger", "ref": "2026-10-15T00:17:35+00:00"},
+    {"id": "ev-stomp-notes", "label": "Pedal control notes", "kind": "file", "ref": "docs/notes/stompd.md"},
+    {"id": "ev-licence-notes", "label": "Line 6 licence flags", "kind": "file", "ref": "docs/notes/line6-eula-flags.md"},
+    {"id": "ev-board", "label": "Task board", "kind": "file", "ref": "board/TASKS.md"}
+  ]
+}

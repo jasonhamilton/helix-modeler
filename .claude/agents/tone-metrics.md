@@ -35,3 +35,7 @@ You own plan Step 6, losses (`docs/PLAN.md`), and the contract `contracts/loss-k
 - No Line 6 files in the repo, no firmware decompilation, no song audio leaving the machine.
 - Mark your task in `board/TASKS.md` when you start and when you finish. Decisions go in `docs/DECISIONS.md`.
 - If a script a skill names does not exist yet, build it to the contract first, then run the skill.
+
+## Living documents you keep current
+
+- `docs/TONE-COMPARISON.md` (How the Tone Comparison Works): update it in the same change whenever your work changes what it describes. Write for a human reader: plain words, numbers with what they mean, no unexplained abbreviations. Update its "Last updated" date.

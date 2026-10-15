@@ -1,0 +1,200 @@
+{
+ "actions": {
+  "blind-listening-and-signoff": {
+   "group": "later",
+   "title": "Rate the blind sessions and sign off Gates 2 and 3 when evidence exists"
+  },
+  "choose-songs": {
+   "group": "soon",
+   "title": "Choose the first real songs for local testing"
+  },
+  "early-reflections-ruling": {
+   "group": "later",
+   "title": "Rule on how to treat the cab Early Reflections setting if it cannot be matched"
+  },
+  "firmware-decision": {
+   "group": "later",
+   "title": "Decide whether to update the pedal from firmware 3.50 to 3.80"
+  },
+  "hx-edit-import": {
+   "group": "later",
+   "title": "Open newly generated presets in HX Edit and report errors"
+  },
+  "licence-agreements": {
+   "group": "later",
+   "title": "Record what the Line 6 licence agreements say about training and automation"
+  },
+  "licence-copyright": {
+   "group": "later",
+   "title": "Confirm the copyright line in the project licence"
+  },
+  "other-os": {
+   "group": "later",
+   "title": "Provide a Windows and a Linux machine, or accept macOS only"
+  },
+  "overnight-capture-go": {
+   "group": "later",
+   "title": "Give the go for the overnight capture of all blocks"
+  },
+  "pedal-delay-check": {
+   "group": "soon",
+   "title": "Check the delay settings on the pedal after loading a regenerated preset"
+  },
+  "play-along": {
+   "group": "soon",
+   "title": "Record the play-along takes and report what happened"
+  }
+ },
+ "biggest_problem": "The tone comparison is not validated",
+ "capabilities": {
+  "missing": [
+   "Learned predictor for good starting points",
+   "Library of measured blocks",
+   "Pedal control on Windows or Linux",
+   "Produce up to three tone snapshots from one song",
+   "Run blind listening sessions",
+   "Run the known-answer benchmark on Helix audio",
+   "Stereo blocks and dual cabinets in Native",
+   "Turn a song into a pedal-verified preset with one command"
+  ],
+  "unproven": [
+   "Choose a clean reference guitar recording",
+   "Isolate the guitar from a full mix",
+   "Judge tone similarity reliably",
+   "Measure each block's behaviour with a test signal",
+   "Pick a preset that matches a recorded tone",
+   "Record the player's own guitar alongside the song",
+   "Render a chain one block at a time",
+   "Search for blocks and settings"
+  ],
+  "verified": [
+   "Catch a mismatch between what was written and what the pedal holds",
+   "Control Helix Native from code",
+   "Control the HX Stomp from code and restore it",
+   "Native and the pedal agree on simple presets",
+   "Read, write and check preset files"
+  ]
+ },
+ "components": {
+  "engines": {
+   "name": "Sound engines: Helix Native and the HX Stomp pedal",
+   "status": "Working"
+  },
+  "foundations": {
+   "name": "Foundations: installation, licensing and the working process",
+   "status": "Working"
+  },
+  "judging": {
+   "name": "Judging tone similarity: comparison measures and block measuring",
+   "status": "Partially Working"
+  },
+  "learning": {
+   "name": "Learning from data",
+   "status": "Not Started"
+  },
+  "prep": {
+   "name": "Preparing the song: guitar isolation and a clean reference guitar",
+   "status": "Partially Working"
+  },
+  "presets": {
+   "name": "Preset files and the block catalog",
+   "status": "Partially Working"
+  },
+  "searching": {
+   "name": "Searching for the preset and the song-to-preset pipeline",
+   "status": "Partially Working"
+  },
+  "testing": {
+   "name": "Testing, benchmarks and listening",
+   "status": "Partially Working"
+  }
+ },
+ "date": "2026-10-15",
+ "features": {
+  "block-probe": "prototype",
+  "dry-signal": "prototype",
+  "engine-interface": "working",
+  "evaluation": "prototype",
+  "learning": "not-started",
+  "licensing": "working",
+  "listening": "designing",
+  "loss-kit": "prototype",
+  "native-engine": "working",
+  "pipeline": "prototype",
+  "platform": "prototype",
+  "preset": "working",
+  "process": "working",
+  "search": "prototype",
+  "separation": "prototype",
+  "stomp-engine": "working"
+ },
+ "health": "At Risk",
+ "issues": {
+  "block-library-pending": {
+   "classification": "Risk",
+   "priority": "Medium",
+   "title": "The library of measured blocks does not exist yet"
+  },
+  "board-hygiene": {
+   "classification": "Confirmed Problem",
+   "priority": "Low",
+   "title": "A few task-board lines are stale"
+  },
+  "cab-reflections-mismatch": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "The pedal and Native disagree on one cabinet setting"
+  },
+  "eula-findings-unrecorded": {
+   "classification": "Unknown/Unverified",
+   "priority": "Low",
+   "title": "What the Line 6 licence agreements allow for training is not recorded"
+  },
+  "no-blind-listening": {
+   "classification": "Unknown/Unverified",
+   "priority": "Medium",
+   "title": "No blind listening has happened, and the tool for it does not exist"
+  },
+  "separation-unmeasured": {
+   "classification": "Unknown/Unverified",
+   "priority": "High",
+   "title": "Guitar separation quality on real songs is unknown"
+  },
+  "single-platform-unpublished-helper": {
+   "classification": "Risk",
+   "priority": "Medium",
+   "title": "Everything is verified on one computer, one pedal firmware, with a private helper"
+  },
+  "tone-comparison-unvalidated": {
+   "classification": "Active Blocker",
+   "priority": "Critical",
+   "title": "The tone comparison is not validated"
+  }
+ },
+ "ledger_rows": 145,
+ "milestones": {
+  "Gate 1": {
+   "done": 4,
+   "signed": true,
+   "state": "Complete",
+   "total": 4
+  },
+  "Gate 2": {
+   "done": 0,
+   "signed": false,
+   "state": "At Risk",
+   "total": 3
+  },
+  "Gate 3": {
+   "done": 0,
+   "signed": false,
+   "state": "Not Started",
+   "total": 3
+  }
+ },
+ "readiness": "Prototype",
+ "schema": "tonematch.status-snapshot",
+ "tasks_done": 40,
+ "technical": "Advancing",
+ "version": 1
+}
