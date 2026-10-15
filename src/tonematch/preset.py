@@ -63,8 +63,14 @@ class Preset:
     raw: dict = field(default_factory=dict)
     path: Path | None = None
 
-    def to_hlx_dict(self) -> dict:
-        return _apply(self)
+    def to_hlx_dict(self, sync_snapshots: bool = True) -> dict:
+        """The preset as an .hlx dict. Snapshot controller values are set to the block values
+        (lead ruling 2026-10-15: block values win) unless ``sync_snapshots`` is False, which exists
+        only so an engine can report what a foreign file's snapshots disagreed on."""
+        d = _apply(self)
+        if sync_snapshots:
+            sync_snapshot_controllers(d)
+        return d
 
     def blocks(self) -> list[Slot]:
         return [s for s in self.slots if s.model_id is not None]
@@ -227,6 +233,91 @@ def _apply(pre: Preset) -> dict:
     if pre.export_mode == "effects_only":
         data["meta"].setdefault("tonematch", {})["export_mode"] = "effects_only"
     return out
+
+
+# ----------------------------------------------------------------------------- snapshot sync
+# Canonical implementation (T051). The pedal applies the current snapshot's controller values over
+# the block values on load, so a stale snapshot silently changes the sound. Block values win.
+
+def _num(v):
+    return None if isinstance(v, bool) or not isinstance(v, (int, float)) else float(v)
+
+
+def _snapshot_entries(hlx: dict):
+    """Yield (snapshot index, dsp name, block key, param, controller entry, block dict)."""
+    tone = hlx.get("data", {}).get("tone", {})
+    for n in range(8):
+        sn = tone.get(f"snapshot{n}")
+        if not isinstance(sn, dict):
+            continue
+        for dsp, blocks in (sn.get("controllers") or {}).items():
+            for bkey, ps in (blocks or {}).items():
+                blk = (tone.get(dsp) or {}).get(bkey) or {}
+                for name, ent in (ps or {}).items():
+                    if isinstance(ent, dict) and "@value" in ent:
+                        yield n, dsp, bkey, name, ent, blk
+
+
+def snapshot_conflicts(hlx: dict) -> list[str]:
+    """Snapshot controller values that differ from the block's own value (the file says two things)."""
+    out = []
+    for n, dsp, bkey, name, ent, blk in _snapshot_entries(hlx):
+        b, v = _num(blk.get(name)), _num(ent["@value"])
+        if b is not None and v is not None and abs(b - v) > 1e-6 * max(1.0, abs(b)):
+            out.append(f"snapshot{n}.controllers.{bkey}.{name} = {v} but the block says {b}")
+        elif (b is None) != (v is None) and name in blk and blk[name] != ent["@value"]:
+            out.append(f"snapshot{n}.controllers.{bkey}.{name} = {ent['@value']!r} "
+                       f"but the block says {blk[name]!r}")
+    return out
+
+
+def sync_snapshot_controllers(hlx: dict) -> list[str]:
+    """Set every snapshot controller ``@value`` in an .hlx dict to its block's value, in place.
+    Works on the document, so stale entries left in ``Preset.raw`` are fixed too. Returns what
+    changed (``snapshot_conflicts`` before the sync)."""
+    changed = snapshot_conflicts(hlx)
+    for _n, _dsp, _bkey, name, ent, blk in _snapshot_entries(hlx):
+        if name in blk:
+            ent["@value"] = copy.deepcopy(blk[name])
+    return changed
+
+
+def sync_hlx_snapshots(hlx: dict) -> dict:
+    """``sync_snapshot_controllers`` returning the same dict (call-chain form)."""
+    sync_snapshot_controllers(hlx)
+    return hlx
+
+
+def snapshot_mismatches(preset: Preset, tol: float = 1e-6) -> list[str]:
+    """``"snapshot<i>:<block>:<param> snap=<v> block=<v>"`` for every ``Preset.snapshots`` value
+    that differs from its block's value."""
+    by_key = {s.key: s for s in preset.slots if s.key}
+    out = []
+    for i, sn in enumerate(preset.snapshots or []):
+        for bkey, ps in (sn.params or {}).items():
+            blk = by_key.get(bkey)
+            for name, v in (ps or {}).items():
+                b = (blk.params or {}).get(name) if blk else None
+                if b is None:
+                    continue
+                fv, fb = _num(v), _num(b)
+                differs = abs(fv - fb) > tol if fv is not None and fb is not None else v != b
+                if differs:
+                    out.append(f"snapshot{i}:{bkey}:{name} snap={v} block={b}")
+    return out
+
+
+def sync_snapshots_to_blocks(preset: Preset) -> Preset:
+    """A copy of ``preset`` whose ``snapshots`` params equal the block values."""
+    p = copy.deepcopy(preset)
+    by_key = {s.key: s for s in p.slots if s.key}
+    for sn in p.snapshots or []:
+        for bkey, ps in (sn.params or {}).items():
+            blk = by_key.get(bkey)
+            for name in list(ps or {}):
+                if blk is not None and name in (blk.params or {}):
+                    ps[name] = blk.params[name]
+    return p
 
 
 def _prune(tone: dict, live: set[str]) -> None:
@@ -400,6 +491,9 @@ def validate(preset: Preset, catalog: dict | None, costs: dict | None = None,
             W("snapshots", f"snapshot{i} has no bypass state for {sorted(keys - set(sn.enabled))}")
     if len({tuple(sorted(sn.enabled)) for sn in valid}) > 1:
         F("snapshots", "valid snapshots do not cover the same block set")
+    # block values win: a document whose snapshots disagree with its blocks is refused
+    for msg in snapshot_conflicts(preset.to_hlx_dict(sync_snapshots=False)):
+        F("snapshot_values", msg)
     # amp/cab pairing
     amps = [s for s in blocks if s.category == "amp"]
     cabs = [s for s in blocks if s.category == "cab"]

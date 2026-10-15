@@ -28,6 +28,13 @@ table, settings, junctions, assignments, snapshots), and written into the EDIT B
 whole-document write (op 21). Never a flash write. The compile refuses what it cannot build (a
 model change or emptied slot that carries controller assignments, Send/Return blocks, a block
 outside the template's rows); that is raised as ``UnsupportedModelChange``.
+
+Whole loads are checked twice, parameter by parameter (T051, ``stomp_readback``): the compiled
+document is decoded offline (``stompd decode``) and compared with the .hlx, including the
+snapshot controller values the pedal recalls over the block values, before anything is written;
+after the write the pedal's chain is read back and compared again. Either mismatch raises
+``ReadbackMismatch``. Snapshot controller values in the written .hlx are set to the slot values
+first, so a preset whose snapshot section disagrees with its blocks renders its block values.
 """
 from __future__ import annotations
 
@@ -56,6 +63,9 @@ from .base import (
     UnsupportedModelChange,
 )
 from .stomp_bridge import BridgeError, StompBridge, helper_path, stomp_on_bus
+from .stomp_readback import ReadbackMismatch, check, snapshot_conflicts, sync_snapshot_controllers
+
+__all__ = ["ReadbackMismatch", "StompEngine", "compile_document", "decode_document", "reamp_hlx_dict"]
 
 ROOT = Path(__file__).resolve().parents[3]
 SESSION_DIR = ROOT / "cache" / "stomp" / "session"
@@ -81,14 +91,33 @@ ENV_COMPILER = "TONEMATCH_STOMPD_COMPILE"           # a stompd build with the of
 WHOLE_MODES = ("off", "fallback", "always")
 
 
+def supports(exe: Path, mode: str) -> bool:
+    """Whether a stompd build has an offline mode (``compile``, ``decode``), by its usage text.
+
+    Checked without running it: a build without the mode ignores its arguments and opens a USB
+    session, which must never happen as a side effect of an offline step."""
+    try:
+        return f"usage: stompd {mode} ".encode() in Path(exe).read_bytes()
+    except OSError:
+        return False
+
+
+def _offline_exe(mode: str, exe: Path | None) -> Path:
+    exe = exe or (Path(os.environ[ENV_COMPILER]) if os.environ.get(ENV_COMPILER) else helper_path())
+    if exe is None:
+        raise EngineError(f"no stompd compiler: set {ENV_COMPILER} to a stompd build with `{mode}`")
+    if not supports(exe, mode):
+        raise EngineError(f"{exe} has no offline `{mode}` mode (it would open USB instead): set {ENV_COMPILER} "
+                          "to the stompd-compile build")
+    return Path(exe)
+
+
 def compile_document(hlx: Path, base: Path, out: Path, compiler: Path | None = None) -> dict:
     """Compile a .hlx onto a base device document with ``stompd compile`` (offline, no USB).
 
     Returns the compiler's report. A refusal raises UnsupportedModelChange (what the compiler
     cannot build is a layout this engine cannot load)."""
-    exe = compiler or (Path(os.environ[ENV_COMPILER]) if os.environ.get(ENV_COMPILER) else helper_path())
-    if exe is None:
-        raise EngineError(f"no stompd compiler: set {ENV_COMPILER} to a stompd build with `compile`")
+    exe = _offline_exe("compile", compiler)
     r = subprocess.run([str(exe), "compile", str(hlx), str(base), str(out)], capture_output=True, text=True,
                        timeout=60, check=False)
     try:
@@ -100,9 +129,27 @@ def compile_document(hlx: Path, base: Path, out: Path, compiler: Path | None = N
     return msg["report"]
 
 
-def reamp_hlx_dict(preset, input_value: int) -> dict:
-    """The preset as .hlx JSON with Path A's input on the reamp source (USB 5/6)."""
-    d = preset.to_hlx_dict()
+def decode_document(doc: Path, compiler: Path | None = None) -> dict:
+    """A device document as the `chain` command shows it, plus its snapshot controller values
+    (``stompd decode``, offline, no USB)."""
+    exe = _offline_exe("decode", compiler)
+    r = subprocess.run([str(exe), "decode", str(doc)], capture_output=True, text=True, timeout=60, check=False)
+    try:
+        msg = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError) as e:
+        raise EngineError(f"stompd decode gave no JSON (exit {r.returncode}): {r.stdout[-500:]} {r.stderr[-500:]}") from e
+    if not msg.get("ok"):
+        raise EngineError(f"stompd decode failed: {msg.get('error')}")
+    return msg["chain"]
+
+
+def reamp_hlx_dict(preset, input_value: int, sync_snapshots: bool = True) -> dict:
+    """The preset as .hlx JSON with Path A's input on the reamp source (USB 5/6).
+
+    With ``sync_snapshots`` (the engine's default) every snapshot controller value is set to the
+    block's own value: the pedal recalls those over the block values on load (T051), and the
+    engine renders the slot values it was given."""
+    d = preset.to_hlx_dict(sync_snapshots=sync_snapshots)
     d["data"]["tone"].setdefault("dsp0", {}).setdefault("inputA", {})["@input"] = int(input_value)
     return d
 
@@ -223,12 +270,16 @@ class StompEngine:
 
     def __init__(self, bridge: StompBridge | None = None, calibration: reamp.Calibration | None = None,
                  session_dir: Path | None = None, whole_preset: str | None = None,
-                 compiler=None):
+                 compiler=None, decoder=None):
         mode = whole_preset if whole_preset is not None else os.environ.get(ENV_WHOLE_PRESET, "off")
         if mode not in WHOLE_MODES:
             raise EngineError(f"whole_preset must be one of {WHOLE_MODES}, got {mode!r}")
         self.whole_preset = mode
         self._compiler = compiler or compile_document
+        # The compiled document is decoded and checked before it is written (T051). With the real
+        # compiler the decoder is the same stompd-compile build; a custom compiler (tests) brings
+        # its own decoder or skips this pre-write check (the post-write readback still runs).
+        self._decoder = decoder or (decode_document if compiler is None else None)
         self.cal = calibration or reamp.Calibration.load()
         self.bridge = bridge or StompBridge(allow_document_write=mode != "off")
         if mode != "off" and getattr(self.bridge, "allow_document_write", True) is False:
@@ -257,7 +308,8 @@ class StompEngine:
         self.model_change_s: list[float] = []   # model commands alone
         self.model_load_s: list[float] = []     # whole load() calls that changed a model
         self.restore_report: dict = {}
-        self.whole_writes: list[dict] = []      # one entry per whole-document load (timings, report)
+        self.whole_writes: list[dict] = []      # one entry per whole-document load (timings, report, checks)
+        self.last_readback: dict = {}           # the last load()'s full-parameter readback (stomp_readback)
         self.keep_documents: Path | None = None  # if set, each whole load's .hlx/base/document is copied here
         self.session_dir = session_dir or SESSION_DIR
         self.last_offset = 0
@@ -320,6 +372,10 @@ class StompEngine:
         self._refresh()
         if changed_model:
             self.model_load_s.append(time.perf_counter() - t_start)
+        # Same full-parameter readback as a whole load (T051); the slots follow the Stomp layout.
+        self.preset = None
+        self.last_readback = check(self.chain, reamp_hlx_dict(preset, self.cal.input_usb56), None,
+                                   "the pedal's read-back chain").as_dict()
         self.preset = preset
         self.slot_map = {}
         for pos, t in plan["targets"].items():
@@ -331,17 +387,25 @@ class StompEngine:
         """Compile the preset onto a backup of the current edit buffer and write it whole (op 21,
         edit buffer only). See the module docstring."""
         before = _block_slots(self.chain)
+        hlx_dict = reamp_hlx_dict(preset, self.cal.input_usb56, sync_snapshots=False)
+        synced = snapshot_conflicts(hlx_dict)
+        sync_snapshot_controllers(hlx_dict)
+        checks: dict = {"snapshot_sync": synced}
         with tempfile.TemporaryDirectory(dir=self.session_dir) as td:
             tdp = Path(td)
             hlx, base, out = tdp / "candidate.hlx", tdp / "base.bin", tdp / "candidate.bin"
             from tonematch.preset import dumps_hlx
 
-            hlx.write_text(dumps_hlx(reamp_hlx_dict(preset, self.cal.input_usb56)), encoding="utf-8")
+            hlx.write_text(dumps_hlx(hlx_dict), encoding="utf-8")
             t0 = time.perf_counter()
             self.bridge.call("backup", path=str(base))
             t1 = time.perf_counter()
             report = self._compiler(hlx, base, out)
             t2 = time.perf_counter()
+            if self._decoder is not None:
+                # Offline, before anything is written: every block value and every snapshot
+                # controller value of the compiled document against the .hlx.
+                checks["document"] = check(self._decoder(out), hlx_dict, report, "the compiled document").as_dict()
             self.bridge.call("restore", path=str(out), timeout_s=30)
             t3 = time.perf_counter()
             if self.keep_documents is not None:  # evidence for spikes: what was compiled and written
@@ -385,8 +449,20 @@ class StompEngine:
         self._route_input(force=self.REASSERT_INPUT_AFTER_WHOLE)
         if changed_model or set(before) != set(dev):
             self.model_load_s.append(time.perf_counter() - t_start)
-        self.whole_writes.append({"backup_s": t1 - t0, "compile_s": t2 - t1, "write_s": t3 - t2,
-                                  "load_s": time.perf_counter() - t_start, "report": report})
+        entry = {"backup_s": t1 - t0, "compile_s": t2 - t1, "write_s": t3 - t2,
+                 "load_s": time.perf_counter() - t_start, "report": report, "checks": checks}
+        self.whole_writes.append(entry)
+        # Full-parameter readback of what the pedal now runs (T051): every parameter of every
+        # block, enabled, models and the input routing against the .hlx. The input is checked
+        # after _route_input, so the chain is read again first.
+        self._refresh()
+        try:
+            checks["readback"] = check(self.chain, hlx_dict, report, "the pedal's read-back chain").as_dict()
+        except ReadbackMismatch as e:
+            checks["readback"] = e.diff.as_dict()
+            self.preset = None   # never render or tweak a preset that did not land
+            raise
+        self.last_readback = checks["readback"]
         self.preset = preset
 
     def set_params(self, changes: dict[ParamRef, float]) -> None:

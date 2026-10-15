@@ -31,6 +31,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import soundfile as sf
@@ -179,6 +180,54 @@ def pick_window(fc: np.ndarray, fp: np.ndarray, sections: dict, snapshot: int, d
             "exposed_overlap_s": _union_overlap(start, start + dur_s, exposed)}
 
 
+def manual_window(fc, fp, sections, start_s: float, end_s: float, total_s: float) -> dict:
+    """A user-chosen window (song seconds) in the same dict form as pick_window."""
+    if not 0 <= start_s < end_s <= total_s:
+        raise ValueError(f"--target {start_s}:{end_s} outside the song (0..{total_s:.1f} s)")
+    i, j = int(start_s * SR / HOP), int(end_s * SR / HOP)
+    w = fp[i:j]
+    active = fp > np.percentile(fp, 95) * 10 ** (-35 / 10)
+    exposed = [tuple(x) for x in sections.get("exposed_windows", [])]
+    bars = sections["bar_starts"]
+    k = max((n for n, b in enumerate(bars) if b <= start_s), default=0)
+    return {"snapshot": sections["bar_snapshot"][min(k, len(sections["bar_snapshot"]) - 1)],
+            "start_s": float(start_s), "end_s": float(end_s), "dur_s": float(end_s - start_s),
+            "mean_confidence": float((fc[i:j] * w).sum() / (w.sum() + 1e-20)),
+            "active_fraction": float(active[i:j].mean()), "best_confidence_any_window": float("nan"),
+            "span_s": [float(start_s), float(end_s)], "manual": True,
+            "exposed_overlap_s": _union_overlap(start_s, end_s, exposed)}
+
+
+def parse_target(text: str) -> tuple[float, float]:
+    a, _, b = text.partition(":")
+    return float(a), float(b)
+
+
+def user_di_clip(wav: str | Path, take_json: str | Path | None, win: dict):
+    """The user's DI cut to the target window. Returns (DIClip-like record, audio at true level).
+    take_sample0_song_s places sample 0 of the take in song time; with no JSON the file is taken to
+    start at the window start. The user's timing is loose, so no alignment is attempted."""
+    x = _mono(Path(wav))
+    if take_json:
+        t0 = float(json.loads(Path(take_json).read_text())["alignment"]["take_sample0_song_s"])
+    else:
+        t0 = win["start_s"]
+    a = round((win["start_s"] - t0) * SR)
+    n = round(win["dur_s"] * SR)
+    if a < 0 or a + n > len(x):
+        raise ValueError(f"user DI covers song {t0:.1f}-{t0 + len(x) / SR:.1f} s; target "
+                         f"{win['start_s']:.1f}-{win['end_s']:.1f} s is outside it")
+    from tonematch import dry as _dry
+
+    seg = np.ascontiguousarray(x[a:a + n])
+    d = _dry.analyse(seg)
+    clip = _dry.DIClip(path=str(wav), start_s=a / SR, dur_s=n / SR, pitch_lo=d["pitch_lo"],
+                       pitch_hi=d["pitch_hi"], pitch_med=d["pitch_med"], density=d["density"],
+                       style=d["style"], clarity=d["clarity"], rms_dbfs=d["rms_dbfs"],
+                       source="user take", licence="user's own recording")
+    return clip, seg
+
+
 def build_section(song: Song, win: dict, fc: np.ndarray, name: str, dry: np.ndarray,
                   song_id: str):
     from tonematch.search import Section
@@ -246,6 +295,9 @@ def derive_free(preset, template, catalog, frozen=None) -> list:
                 continue
             if template is not None and f"{i}:{name}" not in template.map:
                 continue
+            ver = getattr(template, "verified", None)
+            if ver and f"{i}:{name}" not in ver:   # CC not verified to move the render: baked into the state
+                continue
             pd = models.get(s.model_id, {}).get("params", {}).get(name) if catalog else None
             if pd is not None and (pd.get("min"), pd.get("max")) != (0.0, 1.0):
                 continue
@@ -253,6 +305,19 @@ def derive_free(preset, template, catalog, frozen=None) -> list:
                 continue
             out.append((i, name))
     return out
+
+
+def pick_template(variants: list, preset):
+    """The fingerprinted template whose baked values equal the preset's (native-engine's stale-template
+    rule); None when there is none. Falls back to an unfingerprinted one only for engines without the rule."""
+    try:
+        from tonematch.engines.native import baked_fingerprint
+    except ImportError:
+        return variants[0] if variants else None
+    for t in variants:
+        if getattr(t, "baked_hash", "") and baked_fingerprint(preset, t.map, t.verified)[1] == t.baked_hash:
+            return t
+    return None
 
 
 def build_candidates(root: Path, catalog, only: list[str] | None = None, frozen=None) -> tuple[list[Cand], list[str]]:
@@ -269,7 +334,7 @@ def build_candidates(root: Path, catalog, only: list[str] | None = None, frozen=
             notes.append(f"{name}: no template ({d.relative_to(root)} or {hlx} missing), not searched")
             continue
         preset = read_hlx(f, catalog)
-        tpl = ChainTemplate.load_all(d).get(chain_key(preset))
+        tpl = pick_template(ChainTemplate.load_variants(d).get(chain_key(preset), []), preset)
         if tpl is None:
             notes.append(f"{name}: {tdir} holds no template for this chain, not searched")
             continue
@@ -384,6 +449,8 @@ def load_candidate(engine, cand: Cand, preset=None) -> None:
     inner = getattr(engine, "inner", engine)
     if cand.template is not None and hasattr(inner, "templates"):
         inner.templates[cand.template.chain] = cand.template
+        if hasattr(inner, "_variants"):
+            inner._variants[cand.template.chain] = [cand.template]
         inner.current_chain = None
         inner.current_template = None
     engine.load(preset if preset is not None else cand.preset)
@@ -722,6 +789,34 @@ def write_best_hlx(cand: Cand, space, values, path: Path, name: str, ndigits: in
     return write_hlx(p, path)
 
 
+def write_top_hlx(finals: list[dict], out: Path, name: str) -> list[tuple[Path, int]]:
+    """rank<k>_<chain>.hlx for every final-check preset, each validated. Returns [(path, exit code)]."""
+    res = []
+    for k, d in enumerate(finals, 1):
+        r = d["result"]
+        path = out / f"rank{k}_{r.cand.name}.hlx"
+        write_best_hlx(r.cand, r.space, d["values"], path, f"{name} r{k} {r.cand.name}"[:32])
+        res.append((path, validate_hlx(path)[0]))
+    return res
+
+
+def hlx_from_result(out: Path, root: Path = ROOT, only: list[str] | None = None) -> list[tuple[Path, int]]:
+    """Rewrite the top-3 .hlx files of an existing run from its result.json (chains rebuilt from
+    the template sets, Stomp-frozen parameters applied, values from the run)."""
+    from tonematch.catalog import load_catalog
+
+    res = json.loads((out / "result.json").read_text())
+    cands, _ = build_candidates(root, load_catalog(), only, STOMP_FROZEN)
+    by = {c.name: c for c in cands}
+    finals = []
+    for f in res["finals"]:
+        c = by[f["chain"]]
+        sp = make_space(c)
+        vals = np.array([f["values"][f"{i}:{k}"] for i, k in sp.refs])
+        finals.append({"result": SimpleNamespace(cand=c, space=sp), "values": vals})
+    return write_top_hlx(finals, out, "DS-Sample")
+
+
 def validate_hlx(path: Path) -> tuple[int, str]:
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "hlx_validate.py"), str(path)],
                        check=False, capture_output=True, text=True, cwd=ROOT)
@@ -765,8 +860,11 @@ def write_report(path: Path, ctx: dict) -> None:
         c = d["clip"]
         L.append(f"- {'**used**' if i == 0 else 'sensitivity check'}: `{c['path']}` from {c['start_s']:.1f} s "
                  f"({c['style']}, pitch {c['pitch_lo']:.0f}-{c['pitch_hi']:.0f}, {c['density']:.2f} onsets/s, "
-                 f"{c['source']}, {c['licence']}); 10 s read contiguously from the clip start, peak "
-                 f"normalised to {DI_PEAK_DBFS} dBFS")
+                 f"{c['source']}, {c['licence']}); " + (
+                     "the user's own take cut to the target window by take_sample0_song_s, true level "
+                     "(not normalised), timing loose and NOT sample-aligned"
+                     if c["source"] == "user take" else
+                     f"10 s read contiguously from the clip start, peak normalised to {DI_PEAK_DBFS} dBFS"))
     L += [("- why: `dry.pick_di` ranks indexed Guitar-TECHS clips by distance to the target's register, "
           "style and onset density; distinct source files are preferred so the picks differ in playing."), "",
           "## Engine and budget", "",
@@ -839,6 +937,9 @@ def write_report(path: Path, ctx: dict) -> None:
                   f"{d['di']}: {d['loss']:.4f}" for d in fin["di_sensitivity"]) +
               ". The spread is the part of the loss that is the DI, not the preset.", ""]
     L += ["## Files", "", f"- preset: `{ctx['hlx']}` (fw 3.50, HX Stomp, validate: {ctx['validate_text']})"]
+    L += ["- top-3 presets: " + ", ".join(f"`{Path(p).name}` (validate exit {c})" for p, c in ctx["top_hlx"])]
+    if ctx.get("note"):
+        L += [f"- NOTE: {ctx['note']}"]
     if ctx.get("hlx0"):
         L.append(f"- snapshot 0 variant: `{ctx['hlx0']}`")
     L += [(f"- listening pack: `{ctx['listen']}/` ({ctx['pack']['samples'] / SR:.1f} s each, RMS-matched to the "
@@ -906,11 +1007,23 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
     total_s = len(song.guitar) / SR
     log(f"loaded stems: {total_s:.1f} s, mask {song.mask_tf.shape}")
     fc, fp = frame_confidence(song.mask_tf, song.guitar)
-    win = pick_window(fc, fp, song.sections, args.snapshot, args.dur, total_s)
+    if args.target:
+        win = manual_window(fc, fp, song.sections, *parse_target(args.target), total_s)
+    else:
+        win = pick_window(fc, fp, song.sections, args.snapshot, args.dur, total_s)
     log(f"target window snapshot {win['snapshot']}: {win['start_s']:.2f}-{win['end_s']:.2f} s, "
         f"confidence {win['mean_confidence']:.3f}, exposed overlap {win['exposed_overlap_s']:.1f} s")
     a, b = int(win["start_s"] * SR), int(win["end_s"] * SR)
-    picks, desc = choose_di(song.guitar[a:b], win["dur_s"], n=3, library=args.di_library)
+    if args.user_di:
+        c0, d0 = user_di_clip(args.user_di, args.user_di_json, win)
+        picks = [(c0, d0)]
+        for extra in args.user_di_extra or []:
+            ej = str(extra).replace("_dry.wav", ".json")
+            picks.append(user_di_clip(extra, ej if Path(ej).is_file() else None, win))
+        desc = {k: getattr(c0, k) for k in ("pitch_lo", "pitch_hi", "pitch_med", "density", "style",
+                                            "clarity")}
+    else:
+        picks, desc = choose_di(song.guitar[a:b], win["dur_s"], n=3, library=args.di_library)
     for i, (c, _) in enumerate(picks):
         log(f"DI {i}: {c.path} @ {c.start_s:.1f}s style {c.style} pitch {c.pitch_lo:.0f}-{c.pitch_hi:.0f}")
     dry = picks[0][1]
@@ -952,6 +1065,7 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
         best = fin["finals"][0]
         hlx = out / "best_snapshot1.hlx"
         write_best_hlx(best["result"].cand, best["result"].space, best["values"], hlx, args.preset_name)
+        top_hlx = write_top_hlx(fin["finals"], out, args.preset_name)
         code, vtext = validate_hlx(hlx)
         log(f"hlx_validate exit {code}: {vtext.splitlines()[-1] if vtext else ''}")
         extras = {}
@@ -987,7 +1101,7 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
                "renders": eng.renders, "restarts": eng.restarts, "proactive": eng.proactive,
                "args": vars(args),
                "hlx": str(hlx.relative_to(ROOT)) if hlx.is_relative_to(ROOT) else str(hlx),
-               "hlx0": str(hlx0) if hlx0 else None, "validate_text": f"exit {code}, see {hlx.stem}.validate.md",
+               "hlx0": str(hlx0) if hlx0 else None, "top_hlx": top_hlx, "note": args.note, "validate_text": f"exit {code}, see {hlx.stem}.validate.md",
                "listen": str(out / "listen"), "pack": pack, "snap0_text": snap0_text,
                "mask_mean": float(np.mean(section.mask)), "mask_min": float(np.min(section.mask)),
                "native_version": getattr(getattr(engine, "capabilities", lambda: None)(), "firmware_version", "")}
@@ -1032,6 +1146,14 @@ def parse(argv=None):
                     help="weak neutral Gaussian prior on the knobs (0 = off)")
     ap.add_argument("--rss-limit-mb", type=float, default=9000.0,
                     help="restart the Native host when it grows past this (it leaks per render)")
+    ap.add_argument("--target", help="START:END in song seconds; overrides the automatic section pick")
+    ap.add_argument("--user-di", help="dry wav used instead of pick_di (true level, not normalised)")
+    ap.add_argument("--user-di-json", help="take json; alignment.take_sample0_song_s places the take in song time")
+    ap.add_argument("--user-di-extra", action="append",
+                    help="more user dry wavs (same song window) for the DI-sensitivity check; repeatable")
+    ap.add_argument("--note", help="free text appended to report.md (e.g. which rank the human preferred)")
+    ap.add_argument("--rewrite-hlx", metavar="RUN_DIR",
+                    help="only rewrite the top-3 .hlx files of an existing run from its result.json")
     ap.add_argument("--native-only", action="store_true",
                     help="leave Stomp-parity-frozen parameters free; report.md says 'Stomp will differ'")
     ap.add_argument("--dry-run", action="store_true", help="pick target, DI and chains; render nothing")
@@ -1039,4 +1161,9 @@ def parse(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(run(parse()))
+    _a = parse()
+    if _a.rewrite_hlx:
+        for _p, _c in hlx_from_result(Path(_a.rewrite_hlx)):
+            print(f"{_p} validate exit {_c}")
+        sys.exit(0)
+    sys.exit(run(_a))

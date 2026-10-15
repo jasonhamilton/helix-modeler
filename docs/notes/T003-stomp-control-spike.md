@@ -74,6 +74,31 @@ Ledger 2026-10-14T23:47Z (11 rows): `whole_preset_rendered` 4, `whole_preset_wri
 - Repeat K's first-render outlier.
 - Then the lead decides on the `whole_preset` default, which stays `off`.
 
+## T051: wrong delay values after a whole write (2026-10-15, offline only; the pedal was in live use)
+
+**Report (lead).** rank2_H_live.hlx was compiled onto the 04C backup and written with `restore`. The pedal then read back delay Mix 0.72, Feedback 0.52 and Time 0.47. The .hlx says 0.25, 0.40 and 0.375 (TempoSync off).
+
+**Decoded offline (`stompd decode`).**
+- The compiled document's delay block is right: Time 0.375, Feedback 0.40, Mix 0.25, TempoSync off. The amp and cab are right too.
+- Its snapshot section is wrong. In all 3 snapshots, `tone[10][10][n][2]` still holds the base's controller values: Feedback 0.52 and Mix 0.23. In 04C both are assigned to MIDI CC 110.
+- The device recalls the current snapshot's controller values over the block values on load, so the delay ran Feedback 0.52. That is the value read back. The compiler never compiled `snapshotN.controllers`.
+- **Mix 0.72 and Time 0.47 appear in neither document** and are not explained offline. With CC 110 at any value, Mix would be at most 0.54. Possible causes are a knob turned on the pedal during the live session or the lead's own edits, but neither is known. The hardware check below decides it.
+
+**Fixes.**
+1. Compiler: snapshot controller values and tempo now come from the file (`docs/notes/stompd.md`).
+2. `tonematch.engines.stomp_readback`: a full-parameter diff that covers every parameter of every block, enabled state, models, stray enabled blocks, the input routing, and on a decoded document every snapshot controller value. Tolerances: exact for switches, menus and extras; 1e-5 of the range for knobs. `StompEngine` runs it twice and raises `ReadbackMismatch` on a failure. The first run is on the compiled document before the write (nothing is written on a mismatch). The second is on the read-back chain after the write; in-place loads get this one too.
+3. The engine sets snapshot controller values to the slot values in the .hlx it writes, so it renders what `set_params` set.
+4. `parity_null.extra_variants` H now keeps its snapshot values equal to the block. The old H.hlx said Mix/Feedback 0.25/0.40 in the block and 0.23/0.52 in every snapshot. H.hlx has been regenerated.
+
+**Results that could be affected.** Offline audit: each preset compiled with the old compiler onto 04C, decoded, snapshot recall applied.
+- Unaffected, because their delay Mix/Feedback equal 04C's 0.23/0.52 and their files agree with themselves: K, A, B0, B, C, all best_snapshot1, er025/050/100, v_*. This covers parity-v0 rows 2026-10-15T00:25 (K A B0 B), 02:32, 02:48, 03:18, 03:20 and 18:21, and the T018s renders. Every amp and cab value would have landed.
+- Affected:
+  - The live session (ledger 19:20:34 `live_pref_delay_mix`): the delay was not the .hlx's.
+  - H parity: never run on the Stomp. With the old compiler and the old H.hlx the Stomp would have run 0.23/0.52. With the old H.hlx even the fixed compiler follows the file's own snapshot values.
+  - How Native treats a block-vs-snapshot conflict is unverified. Native-side results on the old H.hlx, if any, should be checked by native-engine.
+
+**Hardware check for the lead (after the human is done).** Run `parity_null.py check --base <fresh 04C backup> --presets cache/stomp/live/rank2_H_live.hlx` (offline). Then write the newly compiled document with nobody touching the pedal and read back `chain` at once. Expect Time 0.375, Feedback 0.40, Mix 0.25. If Mix or Time still differ, the cause is outside the document.
+
 ## Hardware batch results (2026-10-14, macOS 27 arm64, HX Edit closed)
 
 **Firmware: 3.50** (build `v3.15-207-g09aad57`, device id `0x00210006`, serial 3554786), read over USB in H2. Not 3.80: generated `.hlx` files for this pedal must carry device_version for 3.50 (the HX Edit golden says 3.50, consistent; the Native golden's 3.80 is not this pedal).

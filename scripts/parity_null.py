@@ -5,7 +5,9 @@ level-matched and nulled. Owner: benchmark. Skill: .claude/skills/parity-null.
   gen   offline: write the two extra presets (C clean, H high gain) next to the four T018s variants
         in cache/stomp/inject/, validate all six for firmware 3.50, and cut the DI
         (cache/parity/di_10s_tail.wav: 10 s of Guitar-TECHS + 2 s of silence for delay tails)
-  check offline: parse and validate the presets, print the plan; touches no engine
+  check offline: parse and validate the presets, print the plan; touches no engine. Warns when a file's
+        snapshot controller values differ from its blocks; --base <04C backup> also compiles each preset
+        and checks every parameter of the result (stompd decode, T051)
   run   hardware: for each preset write it whole into the Stomp's edit buffer and render, restore the
         pedal (04C) and byte-diff it, then load the SAME file into Helix Native and render; analyse
 
@@ -252,6 +254,11 @@ def extra_variants(cat: dict) -> dict:
     h.slots[dly].params.update(TempoSync1=False, Time=0.375, Feedback=0.4, Mix=0.25)   # fixed seconds, no tempo
     for sn in h.snapshots:
         sn.enabled[h.slots[dly].key] = True
+        # known.hlx assigns Mix and Feedback to MIDI CC 110, so every snapshot stores their values
+        # and the pedal recalls those over the block's (T051). Keep them equal to the block.
+        for pn in sn.params.get(h.slots[dly].key, {}):
+            if pn in h.slots[dly].params:
+                sn.params[h.slots[dly].key][pn] = h.slots[dly].params[pn]
     out = {"C": c, "H": h}
     for p in out.values():
         for s in p.blocks():
@@ -369,7 +376,13 @@ def render_all(factory, presets: dict[str, Path], dry: np.ndarray, raw_dir: Path
             for name in names:
                 t0 = time.perf_counter()
                 try:
-                    eng.load(P.read_hlx(presets[name], catalog))
+                    try:
+                        eng.load(P.read_hlx(presets[name], catalog))
+                    finally:
+                        # Full-parameter readback (T051): a Stomp load that did not land as the .hlx
+                        # says raises ReadbackMismatch, so this preset is never rendered or scored.
+                        if engine == "stomp" and getattr(eng, "whole_writes", None):
+                            info.setdefault("readback", {})[name] = eng.whole_writes[-1].get("checks", {})
                     t1 = time.perf_counter()
                     y = np.asarray(eng.render(dry), np.float32)
                     info.setdefault("timing_s", {})[name] = {"load": t1 - t0, "render": time.perf_counter() - t1}
@@ -378,6 +391,8 @@ def render_all(factory, presets: dict[str, Path], dry: np.ndarray, raw_dir: Path
                     print(f"{engine} {name}: ok load {t1 - t0:.1f}s rms {rms_db(y):.1f} dB", flush=True)
                 except Exception as e:  # one preset failing must not stop the others
                     summary["errors"].append(f"{engine} {name}: {type(e).__name__}: {e}")
+                    if type(e).__name__ == "ReadbackMismatch":
+                        print(f"\n*** {engine} {name}: THE PEDAL DOES NOT HOLD THIS PRESET; not rendered ***", flush=True)
                     print(f"{engine} {name}: ERROR {e}", flush=True)
                     if type(e).__name__ == "BridgeError":
                         raise
@@ -494,6 +509,19 @@ def cmd_check(a) -> int:
         ok = all(SI._fw_ok(cat["models"][s.model_id]) for s in p.blocks())
         print(f"{name}: {f.name} fw {p.device_version:#x} blocks {[s.model_id for s in p.blocks()]} stomp-3.50-ok={ok}")
         rc = max(rc, 0 if ok else 1)
+        from tonematch.engines.stomp_readback import snapshot_conflicts
+
+        conflicts = snapshot_conflicts(json.loads(f.read_text()))
+        if conflicts:
+            # The Stomp engine renders the block values (it syncs the snapshots); a host that
+            # honours snapshot recall would render the snapshot values: the two would differ.
+            print(f"   WARNING the file's snapshot controller values differ from its blocks: {conflicts}")
+        if a.base:
+            doc = SI.document_check(f, Path(a.base))
+            print(f"   offline document check on {Path(a.base).name}: "
+                  f"{'OK' if doc['ok'] else 'MISMATCH'} ({doc['checked']} checks) {doc['mismatches'] + doc['missing']}"
+                  f"{' warnings ' + str(doc['warnings']) if doc.get('warnings') else ''}")
+            rc = max(rc, 0 if doc["ok"] else 1)
     print("DI:", a.di, "exists" if Path(a.di).exists() else "MISSING (run gen)")
     return rc
 
@@ -521,6 +549,10 @@ def main(argv=None) -> int:
         p.add_argument("--presets", nargs="+", default=list(DEFAULT_PRESETS),
                        help="names in cache/stomp/inject/ or paths to .hlx (the same file goes to both engines)")
         p.add_argument("--di", default=str(DI_DEFAULT), help=f"default {DI_DEFAULT}; short option {DI_SHORT}")
+        if nm == "check":
+            p.add_argument("--base", help="a device document (an edit-buffer backup of 04C): compile each preset onto "
+                                          "it offline and check every parameter of the result (needs "
+                                          "TONEMATCH_STOMPD_COMPILE; no USB)")
         if nm == "run":
             p.add_argument("--out-dir", help="default cache/parity/<stamp>; reuse a dir with --reuse to resume")
             p.add_argument("--engines", nargs="+", choices=["stomp", "native"], default=["stomp", "native"])

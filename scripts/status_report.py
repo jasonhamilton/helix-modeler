@@ -3,8 +3,11 @@
 Reads docs/features.json (the curated registry) plus live facts: task counts from
 board/TASKS.md, ledger rows from ledger/runs.csv, gate checkboxes from board/GATES.md, the
 git commit count, and (with --run-checks) pytest, ruff and scripts/licence_check.py.
-Writes one self-contained HTML file, reports/status/index.html (inline CSS, no external
-requests). Standard library only. Exits 2 with a message if the registry is invalid.
+Writes, from the same registry and facts, one self-contained HTML file
+(reports/status/index.html: inline CSS, no external requests) and a GitHub-flavoured Markdown
+page (reports/status/README.md, which GitHub renders when browsing the folder). Choose with
+--format html,md (default both). Standard library only. Exits 2 with a message if the registry
+is invalid.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ import json
 import re
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -212,6 +216,7 @@ def collect_facts(root: Path, checks: bool) -> dict:
         "git": git_info(root),
         "checks": run_checks(root) if checks else None,
         "now": dt.datetime.now(dt.UTC),
+        "root": root,
     }
 
 
@@ -531,6 +536,247 @@ def render(reg: dict, facts: dict) -> str:
     return "\n".join(p)
 
 
+# --------------------------------------------------------------------------- markdown
+
+MD_UNLINKED_PREFIXES = ("cache/", "data/", "fixtures/golden/")
+BAR_CELLS = 10
+
+
+def mde(x: object) -> str:
+    """Escape text for Markdown prose or a table cell (no raw HTML, no pipes, one line)."""
+    t = " ".join(str(x).split())
+    t = t.replace("\\", "\\\\").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    for ch in ("|", "`", "*", "[", "]"):
+        t = t.replace(ch, "\\" + ch)
+    return t
+
+
+def md_code(x: object) -> str:
+    """Inline code span that survives pipes and backticks."""
+    t = " ".join(str(x).split()).replace("|", "&#124;")
+    if "`" in t:
+        return "`` " + t + " ``"
+    return f"`{t}`"
+
+
+def text_bar(pct: int) -> str:
+    n = max(0, min(BAR_CELLS, round(pct * BAR_CELLS / 100)))
+    return "█" * n + "░" * (BAR_CELLS - n) + f" {pct}%"
+
+
+def gh_slug(heading: str, used: dict[str, int]) -> str:
+    """The anchor GitHub gives a heading (lowercase, punctuation dropped, spaces to hyphens)."""
+    base = re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
+    n = used.get(base, 0)
+    used[base] = n + 1
+    return base if n == 0 else f"{base}-{n}"
+
+
+def git_ignored(root: Path, paths: list[str]) -> set[str]:
+    if not paths:
+        return set()
+    try:
+        p = subprocess.run(["git", "check-ignore", "--stdin"], cwd=root, input="\n".join(paths),
+                           capture_output=True, text=True, timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return set(p.stdout.split("\n")) if p.returncode in (0, 1) else set()
+
+
+def md_path(path: str, root: Path | None, ignored: set[str]) -> str:
+    """A repo path as a relative link from reports/status/ when the file is in the repo."""
+    clean = path.strip()
+    if (root is not None and clean and not clean.startswith(MD_UNLINKED_PREFIXES)
+            and clean not in ignored and (root / clean).exists()):
+        return f"[{md_code(clean)}](../../{urllib.parse.quote(clean)})"
+    return md_code(clean)
+
+
+def md_list(items: list, empty: str) -> list[str]:
+    return [f"- {mde(i)}" for i in items] if items else [f"_{mde(empty)}_"]
+
+
+def md_evidence(f: dict) -> str:
+    levels = sorted({x["level"] for x in f.get("evidence", []) if x["level"] != "none"},
+                    key=EVIDENCE.index)
+    if not levels:
+        return "none"
+    return ", ".join(levels[:-1] + [f"**{levels[-1]}**"]) if len(levels) > 1 else levels[0]
+
+
+def render_markdown(reg: dict, facts: dict) -> str:
+    """Render the same content as `render` as GitHub-flavoured Markdown (a string)."""
+    feats = [f for f in reg["features"] if not f.get("retired")]
+    now: dt.datetime = facts["now"]
+    root: Path | None = facts.get("root")
+    all_paths = sorted({p for f in feats for i in f.get("implemented", [])
+                        for p in i.get("paths", [])} | {p for f in feats
+                                                         for p in f.get("key_files", [])})
+    ignored = git_ignored(root, all_paths) if root is not None else set()
+    used: dict[str, int] = {}
+    anchors: dict[str, str] = {}
+    for h in ("HX Stomp Tone Matcher: project status", "Gates", "Overview"):
+        gh_slug(h, used)
+    for f in feats:
+        anchors[f["id"]] = gh_slug(f["name"], used)
+    overview_anchor = "overview"
+    counts = {s: sum(1 for f in feats if f["status"] == s) for s in STATUSES}
+
+    o: list[str] = []
+    o.append("# HX Stomp Tone Matcher: project status\n")
+    o.append(f"Generated {now.strftime('%Y-%m-%d %H:%M UTC')} · {mde(reg['cycle'])} · "
+             f"for {mde(reg['generated_for'])}\n")
+    o.append("_Generated by `scripts/status_report.py` from `docs/features.json` and the live "
+             "board, ledger and gates; do not edit by hand. The same content as "
+             "[index.html](index.html), which has colours and a status filter when opened "
+             "locally._\n")
+    o.append(f"> {mde(reg['headline'])}\n")
+
+    o.append("## Gates\n")
+    if facts["gates"]:
+        for g in facts["gates"]:
+            state = "signed off" if g["signed"] else "not signed off"
+            o.append(f"- **{mde(g['name'])}: {mde(g['title'])}**: {state}, {g['done']} of "
+                     f"{g['total']} checklist lines ticked")
+    else:
+        o.append("_board/GATES.md not found._")
+    o.append("")
+
+    summary = ", ".join(f"{counts[s]} {s}" for s in STATUSES if counts[s])
+    o.append("## Overview\n")
+    o.append(f"{len(feats)} features: {summary}. Completion is a judgement against each "
+             "feature's own definition of done; task counts are shown beside it for "
+             "comparison. Evidence is separate from status: nothing here has been judged by ear "
+             "unless the evidence says `ear`.\n")
+    o.append("| Feature | Status | Health | Completion | Evidence | Owners | Tasks | "
+             "Top blocker |")
+    o.append("|---|---|---|---|---|---|---|---|")
+    for f in feats:
+        done, total, wip, _ = task_progress(f, facts["tasks"])
+        blockers = f.get("blockers") or f.get("needs_human") or []
+        tasks_txt = f"{done}/{total}" + (f" (+{wip} in progress)" if wip else "")
+        cells = [f"[{mde(f['name'])}](#{anchors[f['id']]})", f["status"], f["health"],
+                 text_bar(f["completion"]), md_evidence(f),
+                 mde(", ".join(f.get("owners", [])) or "none"), mde(tasks_txt),
+                 mde(blockers[0] if blockers else "none recorded")]
+        o.append("| " + " | ".join(cells) + " |")
+    o.append("")
+
+    for f in feats:
+        done, total, wip, missing = task_progress(f, facts["tasks"])
+        hits = ledger_for(f, facts["ledger"])
+        o.append(f"## {mde(f['name'])}\n")
+        o.append(f"**Status:** {f['status']} · **Health:** {f['health']} · "
+                 f"**Completion:** {text_bar(f['completion'])} · "
+                 f"**Evidence:** {md_evidence(f)}\n")
+        o.append(f"**Purpose.** {mde(f['purpose'])}\n")
+        o.append(f"**Done when.** {mde(f['done_when'])}\n")
+        o.append(f"**Why {f['completion']}%.** {mde(f['completion_reason'])}\n")
+        extra = f", {wip} in progress" if wip else ""
+        unknown = f" (ids not on the board: {mde(', '.join(missing))})" if missing else ""
+        o.append(f"**Tasks.** {done} of {total} done{extra}{unknown}"
+                 + (f": {mde(', '.join(f.get('tasks', [])))}" if f.get("tasks") else "") + "  ")
+        o.append(f"**Owners.** {mde(', '.join(f.get('owners', [])) or 'none')}\n")
+        o.append(f"**Functionality today ({f['health']}).** {mde(f['functionality'])}\n")
+
+        o.append("### What is implemented\n")
+        impl = f.get("implemented", [])
+        if impl:
+            for i in impl:
+                links = " ".join(md_path(p, root, ignored) for p in i.get("paths", []))
+                o.append(f"- {mde(i.get('item', ''))} {links}".rstrip())
+        else:
+            o.append("_Nothing implemented yet._")
+        o.append("")
+
+        o.append("### Evidence\n")
+        ev = [x for x in f.get("evidence", []) if x["level"] != "none" or x.get("refs")]
+        if ev:
+            for x in ev:
+                refs = "; ".join(x.get("refs", [])) or "no reference"
+                o.append(f"- **{x['level']}**: {mde(refs)}")
+        else:
+            o.append("- **none**: no evidence recorded")
+        if f.get("ledger"):
+            flt = "; ".join(" ".join(f"{k}={v}" for k, v in d.items()) for d in f["ledger"])
+            o.append(f"\n**Live ledger rows:** {len(hits)} match ({md_code(flt)})")
+            if hits:
+                o.append("\n| timestamp | agent | kind | dataset | metric | value |")
+                o.append("|---|---|---|---|---|---|")
+                for r in hits[-3:][::-1]:
+                    o.append("| " + " | ".join(mde(r.get(c, "")) for c in (
+                        "timestamp", "agent", "kind", "dataset", "metric", "value")) + " |")
+        else:
+            o.append("\n_No ledger filter: no ledger rows apply to this feature._")
+        o.append("")
+
+        o.append("### Challenges and findings\n")
+        ch = f.get("challenges", [])
+        o.extend([f"- {mde(c.get('finding', ''))} _[{mde(c.get('source', ''))}]_" for c in ch]
+                 or ["_None recorded._"])
+        o.append("\n### Still to do\n")
+        o.extend(md_list(f.get("todo", []), "None recorded."))
+        o.append("\n### Needs the human\n")
+        o.extend(md_list(f.get("needs_human", []), "Nothing needed."))
+        o.append("\n### Decisions and risks\n")
+        o.append("**Decisions**\n")
+        o.extend(md_list(f.get("decisions", []), "None recorded."))
+        o.append("\n**Risks**\n")
+        o.extend(md_list(f.get("risks", []), "None recorded."))
+        o.append("\n### Key files\n")
+        kf = f.get("key_files", [])
+        o.append(" · ".join(md_path(p, root, ignored) for p in kf) if kf else "None.")
+        o.append(f"\n[Back to the overview](#{overview_anchor})\n")
+
+    o.append("## Discrepancies\n")
+    disc = list(reg.get("discrepancies", []))
+    for f in feats:
+        _, _, _, missing = task_progress(f, facts["tasks"])
+        if missing:
+            disc.append(f"Registry feature '{f['id']}' lists task ids not on the board: "
+                        f"{', '.join(missing)}.")
+    o.extend(md_list(disc, "None recorded."))
+    o.append("")
+
+    o.append("## Needs from the human (all features, in priority order)\n")
+    prio = [str(x) for x in reg.get("human_priority", [])]
+    by_text: dict[str, list[str]] = {}
+    for f in feats:
+        for n in f.get("needs_human", []):
+            by_text.setdefault(n, []).append(f["name"])
+    order = [(", ".join(names), n) for n, names in by_text.items()]
+    if prio:
+        def rank(item: tuple[str, str]) -> int:
+            for i, key in enumerate(prio):
+                if key.lower() in item[1].lower():
+                    return i
+            return len(prio)
+        order.sort(key=rank)
+    if order:
+        o.extend(f"{k}. {mde(n)} _({mde(name)})_" for k, (name, n) in enumerate(order, 1))
+    else:
+        o.append("_Nothing needed._")
+    o.append("")
+
+    g = facts["git"]
+    o.append("## Footer\n")
+    git_txt = (f"Git commits: {mde(g['count'] or 'unknown')}"
+               + (f", last: {mde(g['last'])}" if g.get("last") else "")
+               + (f", {g['dirty']} uncommitted paths" if g.get("dirty") else ""))
+    o.append(f"Generated {now.strftime('%Y-%m-%d %H:%M:%S UTC')} for {mde(reg['cycle'])}. "
+             f"Ledger rows: {len(facts['ledger'])}. {git_txt}.\n")
+    if facts["checks"] is None:
+        o.append("_Checks were not run for this page (use --run-checks)._\n")
+    else:
+        o.extend(f"- **{'PASS' if c['ok'] else 'FAIL'}** {mde(c['name'])}: {mde(c['detail'])}"
+                 for c in facts["checks"])
+        o.append("")
+    gates = "; ".join(f"{x['name']} {'signed' if x['signed'] else 'not signed'}"
+                      for x in facts["gates"]) or "unknown"
+    o.append(f"Gates: {mde(gates)}.")
+    return "\n".join(o) + "\n"
+
+
 # --------------------------------------------------------------------------- main
 
 
@@ -538,9 +784,18 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", type=Path, default=ROOT)
     ap.add_argument("--registry", type=Path, default=None)
-    ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--out", type=Path, default=None,
+                    help="HTML output path (default reports/status/index.html)")
+    ap.add_argument("--md-out", type=Path, default=None,
+                    help="Markdown output path (default reports/status/README.md)")
+    ap.add_argument("--format", default="html,md",
+                    help="comma list of html, md (default: both)")
     ap.add_argument("--run-checks", action="store_true", help="run pytest, ruff, licence_check")
     a = ap.parse_args(argv)
+    formats = [x.strip() for x in a.format.split(",") if x.strip()]
+    bad = [x for x in formats if x not in ("html", "md")]
+    if bad or not formats:
+        ap.error(f"--format takes html, md or html,md (got {a.format!r})")
     root: Path = a.root
     reg = load_registry(a.registry or root / "docs" / "features.json")
     errs = validate(reg)
@@ -550,10 +805,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {m}", file=sys.stderr)
         return 2
     facts = collect_facts(root, a.run_checks)
-    out = a.out or root / "reports" / "status" / "index.html"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(reg, facts), encoding="utf-8")
-    print(out)
+    if "html" in formats:
+        out = a.out or root / "reports" / "status" / "index.html"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(render(reg, facts), encoding="utf-8")
+        print(out)
+    if "md" in formats:
+        mout = a.md_out or root / "reports" / "status" / "README.md"
+        mout.parent.mkdir(parents=True, exist_ok=True)
+        mout.write_text(render_markdown(reg, facts), encoding="utf-8")
+        print(mout)
     return 0
 
 

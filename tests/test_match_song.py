@@ -289,3 +289,48 @@ def test_frozen_params_excluded_and_pack_writes_true_level_di(tmp_path):
     info = MS.write_pack(tmp_path, di * 0.1, di * 3, di, di)
     back, _ = sf.read(str(tmp_path / "di_search.wav"), dtype="float32")
     assert np.array_equal(back, di) and (tmp_path / "gains.json").is_file() and "gains_db" in info
+
+
+def test_target_and_user_di_options(tmp_path):
+    from tonematch.search.stubs import FakeEngine, fake_preset
+
+    song, mask = _song()
+    d = tmp_path / "stems"
+    d.mkdir()
+    sf.write(str(d / "guitar.wav"), song.guitar, SR, subtype="FLOAT")
+    sf.write(str(d / "others.wav"), song.others, SR, subtype="FLOAT")
+    np.save(d / "confidence.npy", mask.astype(np.float16))
+    (d / "sections.json").write_text(json.dumps(song.sections))
+    rng = np.random.default_rng(3)
+    for k, (t0, sc) in enumerate([(5.0, 0.2), (6.0, 0.1)]):       # take covers song t0 .. t0+10 s
+        sf.write(str(tmp_path / f"take{k}_dry.wav"), (sc * rng.standard_normal(10 * SR)).astype(np.float32),
+                 SR, subtype="FLOAT")
+        (tmp_path / f"take{k}.json").write_text(json.dumps({"alignment": {"take_sample0_song_s": t0}}))
+    assert MS.parse_target("34.5:42.0") == (34.5, 42.0)
+    args = _args(tmp_path, target="9:13", user_di=tmp_path / "take0_dry.wav",
+                 user_di_json=tmp_path / "take0.json", user_di_extra=tmp_path / "take1_dry.wav")
+    cands = [MS.Cand("lo", fake_preset(0.3, 0.5, 0.5)), MS.Cand("hi", fake_preset(0.8, 0.4, 0.5))]
+    assert MS.run(args, engine=FakeEngine(engine_name="native"), cands=cands, max_scores_per_chain=20) == 0
+    out = tmp_path / "out"
+    res = json.loads((out / "result.json").read_text())
+    assert (res["window"]["start_s"], res["window"]["end_s"]) == (9.0, 13.0)
+    assert len(res["di_sensitivity"]) == 1
+    di, _ = sf.read(str(out / "listen" / "di_search.wav"), dtype="float32")
+    x, _ = sf.read(str(tmp_path / "take0_dry.wav"), dtype="float32")
+    assert np.array_equal(di, x[4 * SR:8 * SR])                   # song 9 s = take sample (9-5)*48000, true level
+    assert "user take" in (out / "report.md").read_text()
+    with pytest.raises(ValueError):
+        MS.user_di_clip(tmp_path / "take0_dry.wav", tmp_path / "take0.json", {"start_s": 20.0, "end_s": 24.0, "dur_s": 4.0})
+
+
+def test_top3_hlx_written_from_result_json(tmp_path):
+    from tonematch.preset import read_hlx
+
+    pre = read_hlx(ROOT / "fixtures" / "smoke" / "known.hlx")
+    cand = MS.Cand("known", pre, None, [(0, "Drive"), (0, "Treble")])
+    sp = MS.make_space(cand)
+    fins = [{"result": SimpleNamespace(cand=cand, space=sp), "values": np.array([0.2 * k, 0.9])}
+            for k in (1, 2, 3)]
+    out = MS.write_top_hlx(fins, tmp_path, "T")
+    assert [p.name for p, _ in out] == ["rank1_known.hlx", "rank2_known.hlx", "rank3_known.hlx"]
+    assert read_hlx(tmp_path / "rank2_known.hlx").slots[0].params["Drive"] == pytest.approx(0.4)

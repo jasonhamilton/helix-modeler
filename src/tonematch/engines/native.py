@@ -27,10 +27,15 @@ measured with an impulse (once per chain), and level-matched by a fixed calibrat
 Native's digital output *is* the reference level (``calibration_db`` defaults to 0), so a
 silent input stays silent and per-preset loudness differences survive for the loss to judge.
 Each render resets the plugin (deterministic) and pre-rolls ``PREROLL`` samples of silence over
-Native's post-reset fade-in. The reset is most of the cost on 3.82 (~1.6 s fixed on the empty
-preset, ~1.8 s on the known.hlx amp+cab+delay chain, whose DSP adds ~0.045 s per second of
-audio); ``set_params`` only moves automation knobs (~0.5 ms, no state is re-sent). The opt-in
-``reset_mode="flush"`` skips the reset once the spike shows it matches on the chains in use.
+Native's post-reset fade-in. Since 2026-10-15 the host resets by re-applying the loaded state
+and re-sending the knobs set since (``native_host`` docstring): bit-identical to a re-created
+instance and to dedicated per-preset captures, history-independent, ~0.25 s per render instead
+of ~1.9 s, and no memory growth. pedalboard's own reset re-created the Native instance on every
+render and leaked ~355 MB each time (the host reached 7-11 GB and was SIGKILLed);
+``TONEMATCH_NATIVE_HOST_RESET=reinstantiate`` restores it for comparison. A watchdog recycles
+the host above ``mem_limit_mb`` (``TONEMATCH_NATIVE_HOST_MEM_LIMIT_MB``, default 5120) and
+restores chain and knobs. ``set_params`` only moves automation knobs (~0.5 ms). The opt-in
+``reset_mode="flush"`` skips the reset entirely.
 
 ``cost()`` is measured on the loaded chain (or, before any load, on a captured template) and
 cached on disk by chain structure, not by raw state: knob moves change Native's raw state, and
@@ -61,6 +66,11 @@ from pathlib import Path
 
 import numpy as np
 
+from ..preset import (  # noqa: F401  canonical snapshot sync lives in tonematch.preset
+    snapshot_mismatches,
+    sync_hlx_snapshots,
+    sync_snapshots_to_blocks,
+)
 from .base import (
     SAMPLE_RATE,
     Audio,
@@ -168,6 +178,17 @@ def host_available() -> bool:
 # --------------------------------------------------------------------------- worker process
 
 
+def rss_mb(pid: int) -> float | None:
+    """Resident set size of process ``pid`` in MB (``ps``; None if it is gone or ps is missing)."""
+    try:
+        r = subprocess.run(["ps", "-o", "rss=", "-p", str(int(pid))], capture_output=True, text=True,
+                           check=False, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    s = r.stdout.strip()
+    return float(s) / 1024 if s else None
+
+
 class HostProcess:
     """One plugin-host child process. Thread-safe per instance (one request at a time)."""
 
@@ -178,6 +199,7 @@ class HostProcess:
         self._lock = threading.Lock()
         self.plugin, self.plugin_name, self.block_size = plugin, plugin_name, block_size
         self.info: dict = {}
+        self.mem_mb: float | None = None  # host's physical footprint after the last reply
         self._spawn()
 
     def _spawn(self) -> None:
@@ -187,8 +209,13 @@ class HostProcess:
             [host_python(), "-m", "tonematch.engines.native_host"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None, env=env,
         )
-        self.info = self.call("open", path=self.plugin, plugin_name=self.plugin_name,
-                              sample_rate=SAMPLE_RATE, block_size=self.block_size)[0]
+        try:
+            self.info = self.call("open", path=self.plugin, plugin_name=self.plugin_name,
+                                  sample_rate=SAMPLE_RATE, block_size=self.block_size)[0]
+        except EngineError:
+            self.proc.kill()  # never leave a half-open host (each holds GBs) behind
+            self.proc.wait(timeout=10)
+            raise
 
     def call(self, cmd: str, payload: bytes = b"", **kw) -> tuple[dict, bytes]:
         with self._lock:
@@ -200,6 +227,8 @@ class HostProcess:
             except (EOFError, BrokenPipeError, OSError) as e:
                 code = self.proc.poll()
                 raise EngineError(f"Native host died during {cmd!r} (code {code}): {e}") from e
+        if hdr.get("mem_mb") is not None:
+            self.mem_mb = float(hdr["mem_mb"])
         if not hdr.pop("ok", False):
             raise EngineError(f"Native host {cmd!r} failed: {hdr.get('error')}")
         hdr.pop("nbytes", None)
@@ -431,7 +460,7 @@ def capture_chain(preset, plugin: str, *, plugin_name: str | None = None,
 
     key = chain_key(preset)
     cid = chain_id([list(k) for k in key])
-    d = preset.to_hlx_dict()
+    d = sync_hlx_snapshots(preset.to_hlx_dict())  # block values win (lead, 2026-10-15)
     ranges = catalog_ranges(preset, catalog)
     targets = [(i, n) for i, s in enumerate(preset.slots) for n in (s.params or {})
                if ranges is None or f"{i}:{n}" in ranges]
@@ -510,18 +539,23 @@ class NativeEngine:
     # within 0.1% (measured 2026-10-14, VST3 and AU, any block size). Every render is reset for
     # determinism, so each one is prefixed with this much silence, then trimmed off.
     PREROLL = 4800
-    # A host reset costs Native 3.82 about 1.59 s regardless of clip length or block size, while
-    # an empty chain's DSP runs near 0.01x real time (measured 2026-10-14). reset_mode="flush"
-    # skips the reset and pre-rolls flush_s of silence instead: much faster, but deterministic
-    # only if every block's state (delay/reverb tails, LFO phase) is cleared or decays within the
-    # flush. The spike's --gui step measures that on a real chain; "reset" stays the default.
+    # A pedalboard reset (instance re-created) cost Native 3.82 about 1.6-1.9 s and leaked ~355 MB;
+    # the host's state reset costs a state load (~0.05 s) plus the DSP (~0.045 s per second of
+    # audio on an amp+cab+delay chain), measured 2026-10-15. reset_mode="flush" skips the reset
+    # and pre-rolls flush_s of silence instead; it is history-dependent (about -50 dB from a
+    # 16-sample frame FIFO and tails), so "reset" stays the default.
     RESET_MODES = ("reset", "flush")
+    # The host is recycled (new process, chain and knobs restored) when its physical footprint
+    # passes this. Native leaks ~355 MB per plugin instance it ever created (native_host
+    # docstring); with the host's state reset a host holds ~2-3 GB steady, and each
+    # Hardware-Compatibility-mode reload (reload_with_state) adds ~1.6 GB. 0 disables.
+    MEM_LIMIT_MB = 5120.0
 
     def __init__(self, plugin_path: str | Path | None = None, plugin_name: str | None = None,
                  *, calibration_db: float = 0.0, block_size: int = 512,
                  templates_dir: Path | None = None, route: str | None = None,
                  preroll: int | None = None, reset_mode: str | None = None, flush_s: float = 2.0,
-                 autocapture: bool | None = None):
+                 autocapture: bool | None = None, mem_limit_mb: float | None = None):
         p = plugin_path or os.environ.get("TONEMATCH_NATIVE_PLUGIN") or locate_plugin()
         if p is None:
             raise EngineError("Helix Native not found. Install it (your own licence) or set TONEMATCH_NATIVE_PLUGIN.")
@@ -555,6 +589,13 @@ class NativeEngine:
         self.last_gain_db = self.calibration_db
         self._latency: dict[tuple | None, int] = {}
         self._cost: Cost | None = None
+        env_lim = os.environ.get("TONEMATCH_NATIVE_HOST_MEM_LIMIT_MB")
+        self.mem_limit_mb = float(mem_limit_mb if mem_limit_mb is not None else
+                                  env_lim if env_lim else self.MEM_LIMIT_MB)
+        self.recycles = 0
+        self.last_reset_via: str | None = None  # how the host reset the last render
+        self._loaded_state: bytes | None = None  # last state sent to the host (restored on recycle)
+        self._host_params: dict[str, float] = {}  # host params set since that state
 
     # --- availability ---------------------------------------------------------------------
 
@@ -653,6 +694,7 @@ class NativeEngine:
             lo, hi = tpl.ranges.get(k, [0.0, 1.0])
             values[host_name] = float(np.clip((float(v) - lo) / ((hi - lo) or 1.0), 0.0, 1.0))
         self.host.call("set_params", values=values)
+        self._host_params.update(values)
 
     def render(self, dry: Audio) -> Audio:
         x = np.asarray(dry, dtype=np.float32)
@@ -660,6 +702,7 @@ class NativeEngine:
             raise EngineError(f"render() takes mono (n,) float32, got shape {x.shape}")
         if len(x) == 0:
             return x.copy()
+        self.check_memory()
         lat, reset = self.latency(), self.reset_mode == "reset"
         pre = self.preroll if reset else int(self.flush_s * SAMPLE_RATE)
         padded = np.concatenate([np.zeros(pre, np.float32), x, np.zeros(lat, np.float32)])
@@ -695,7 +738,10 @@ class NativeEngine:
             extras={"route": self.route, "control_route": self.route, "plugin": self.plugin, "host": "pedalboard",
                     "host_params": len(self._params), "latency_samples": self._latency.get(self.current_chain),
                     "templates": len(self.templates), "calibration_db": self.calibration_db,
-                    "reset_mode": self.reset_mode},
+                    "reset_mode": self.reset_mode, "host_reset": info.get("reset_strategy"),
+                    "host_mem_mb": self.host.mem_mb, "host_mem_limit_mb": self.mem_limit_mb,
+                    "host_recycles": self.recycles,
+                    "last_reset_via": getattr(self, "last_reset_via", None)},
         )
 
     def close(self) -> None:
@@ -710,7 +756,8 @@ class NativeEngine:
     # --- internals ------------------------------------------------------------------------
 
     def _raw_render(self, x: np.ndarray, reset: bool = True) -> np.ndarray:
-        _, data = self.host.call("render", x.astype("<f4").tobytes(), reset=reset)
+        hdr, data = self.host.call("render", x.astype("<f4").tobytes(), reset=reset)
+        self.last_reset_via = hdr.get("reset_via")
         return np.frombuffer(data, dtype="<f4").astype(np.float32)
 
     def _get_state(self) -> bytes:
@@ -729,10 +776,45 @@ class NativeEngine:
                 self.host.call("set_state", blob)
             if mode is not None:
                 self._hc_mode = mode
+            self._loaded_state, self._host_params = blob, {}
         except EngineError:
             self.host.restart()  # a bad blob may have killed or wedged the host
             self._hc_mode = _hc_mode(self._initial_state) if self._initial_state else None
+            self._loaded_state, self._host_params = None, {}
             raise
+
+    def check_memory(self) -> bool:
+        """Recycle the host if its footprint passed ``mem_limit_mb``; True if it did.
+
+        The new process gets the loaded state and every knob set since, so renders continue
+        unchanged (the state reset makes them history-independent). If a fresh host restored
+        to this chain already sits near the limit, the limit is raised to fresh + 2 GB rather
+        than recycling on every render.
+        """
+        mem = self.host.mem_mb
+        if not self.mem_limit_mb or mem is None or mem <= self.mem_limit_mb:
+            return False
+        self.recycle_host()
+        fresh = self.host.mem_mb
+        if fresh is not None and fresh > 0.8 * self.mem_limit_mb:
+            new = max(self.mem_limit_mb, fresh + 2048)  # only ever raise a limit
+            print(f"NativeEngine: a fresh host on this chain uses {fresh:.0f} MB; raising the "
+                  f"recycle limit from {self.mem_limit_mb:.0f} to {new:.0f} MB", file=sys.stderr)
+            self.mem_limit_mb = new
+        return True
+
+    def recycle_host(self) -> None:
+        """Replace the host process and restore the loaded state and knobs."""
+        state, params = self._loaded_state, dict(self._host_params)
+        self.host.restart()
+        self.recycles += 1
+        self._hc_mode = _hc_mode(self._initial_state) if self._initial_state else None
+        self._loaded_state, self._host_params = None, {}
+        if state is not None:
+            self._set_state(state)
+        if params:
+            self.host.call("set_params", values=params)
+            self._host_params = params
 
     def latency(self) -> int:
         """Samples of latency beyond what the host compensates, measured once per chain with an impulse."""
@@ -756,8 +838,9 @@ class NativeEngine:
         else:
             state = self._get_state()
             sh = "state:" + (hashlib.sha1(state).hexdigest()[:12] if state else "nostate")
+        host_reset = self.host.info.get("reset_strategy") or "reinstantiate"
         return (f"{self.plugin}|{self.host.info.get('version')}|{platform.node()}|{os.cpu_count()}|{sh}"
-                f"|{self.reset_mode}")
+                f"|{self.reset_mode}|host:{host_reset}")
 
     def measure_cost(self, max_workers: int | None = None, clip_s: float = 2.0, repeats: int = 3,
                      force: bool = False) -> Cost:
@@ -842,6 +925,18 @@ class NativeEngine:
         return float(pen), pair
 
 
+def max_hosts_by_memory(per_host_gb: float = 3.0, share: float = 0.5) -> int:
+    """Native hosts that fit in ``share`` of physical memory (``TONEMATCH_NATIVE_MAX_HOSTS`` overrides)."""
+    env = os.environ.get("TONEMATCH_NATIVE_MAX_HOSTS")
+    if env:
+        return max(1, int(env))
+    try:
+        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
+    except (ValueError, OSError, AttributeError):
+        return 4
+    return max(1, int(total * share / per_host_gb))
+
+
 def measure_parallelism(plugin: str, plugin_name: str | None, state: bytes, clip: np.ndarray,
                         max_workers: int | None = None, preroll: int = 0,
                         rounds: int = 3, reset: bool = True) -> tuple[int, dict[int, float]]:
@@ -849,10 +944,11 @@ def measure_parallelism(plugin: str, plugin_name: str | None, state: bytes, clip
 
     The scan stops at the first k that gains under 15% (the choice cannot change after it), and
     new host processes are opened concurrently (each Native open is ~5 s), so a cold scan costs
-    well under a minute instead of ~2.5 minutes.
+    well under a minute instead of ~2.5 minutes. Without ``max_workers`` the scan is capped by
+    memory as well as CPUs (``max_hosts_by_memory``): each Native host holds 2-3 GB.
     """
     cpu = os.cpu_count() or 2
-    max_workers = max_workers or max(1, cpu - 1)
+    max_workers = max_workers or max(1, min(cpu - 1, max_hosts_by_memory()))
     ks = sorted({k for k in (1, 2, 4, 6, 8, 12, 16, 24, 32) if k <= max_workers} | {max_workers})
     hosts: list[HostProcess] = []
     scan: dict[int, float] = {}

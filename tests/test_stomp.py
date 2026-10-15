@@ -30,7 +30,8 @@ def make_chain(model_id="AmpA", cab_id="CabA", drive=0.5, mic=6.0, delay_on=Fals
              "params": [_p(0, "Drive", drive), _p(1, "Bass", 0.5)],
              "paired_params": [_p(0, "Distance", 4.0, 1.0, 12.0), {"i": 1, "extra": 0, "value": mic}]},
             {"pos": 3, "kind": "Block", "enabled": delay_on, "model": 7, "model_id": "DelayA",
-             "params": [_p(0, "Mix", 0.2), _p(1, "Sync", 6.0, 1.0, 19.0, "Enum")]},
+             "params": [_p(0, "Mix", 0.2), _p(1, "Sync", 6.0, 1.0, 19.0, "Enum"),
+                        {"i": 2, "extra": 0, "value": 1.0}]},   # @trails, past the symbol list
             {"pos": 9, "kind": "Output", "enabled": True, "routing": 1},
         ],
     }
@@ -328,6 +329,16 @@ def test_open_engines_are_closed_at_exit(monkeypatch, tmp_path):
 # --------------------------------------------------------------------------- whole-preset load (T018s)
 
 
+def _fake_params(node):
+    """Every value a .hlx block names, as the chain shows it: knobs, then the "@" extra values."""
+    names = [k for k in node if not k.startswith("@")]
+    ps = [_p(i, k, float(node[k]), 0.0, max(1.0, float(node[k]))) for i, k in enumerate(names)]
+    for k in ("@mic", "@trails"):
+        if k in node:
+            ps.append({"i": len(ps), "extra": 0, "value": float(node[k])})
+    return ps
+
+
 def fake_compiler(calls):
     """Stands in for `stompd compile`: turns the .hlx into the chain the pedal would then hold."""
 
@@ -342,10 +353,9 @@ def fake_compiler(calls):
                 continue
             pos = 1 + node["@position"]
             s = {"pos": pos, "kind": "Block", "enabled": node["@enabled"], "model_id": node["@model"],
-                 "params": [_p(0, "Drive", node.get("Drive", 0.5))]}
+                 "params": _fake_params(node)}
             if node.get("@cab"):
-                s.update(paired_id=dsp[node["@cab"]]["@model"],
-                         paired_params=[_p(0, "Distance", 4.0, 1.0, 12.0)])
+                s.update(paired_id=dsp[node["@cab"]]["@model"], paired_params=_fake_params(dsp[node["@cab"]]))
             slots.append(s)
             report.append({"slot": pos, "key": key, "mode": "built"})
         slots.append({"pos": 9, "kind": "Output", "enabled": True, "routing": 1})
@@ -458,7 +468,8 @@ def test_compile_document_refusal_is_unsupported_model_change(tmp_path):
     import sys
 
     exe = tmp_path / "stompd"
-    exe.write_text(f"#!{sys.executable}\nimport json\nprint(json.dumps({{'ok': False, 'error': 'no room'}}))\n")
+    exe.write_text(f"#!{sys.executable}\n# usage: stompd compile <hlx> <base> <out>\n"
+                   f"import json\nprint(json.dumps({{'ok': False, 'error': 'no room'}}))\n")
     exe.chmod(0o755)
     with pytest.raises(UnsupportedModelChange, match="no room"):
         stomp.compile_document(tmp_path / "a.hlx", tmp_path / "b.bin", tmp_path / "c.bin", compiler=exe)

@@ -2,7 +2,8 @@
 """T018s spike: autonomous whole-preset injection on the HX Stomp (stomp-engine).
 
   gen      offline: make the variants of fixtures/smoke/known.hlx for firmware 3.50 and validate them
-  compile  offline: compile every variant onto a device document (stompd compile, no USB)
+  compile  offline: compile every variant onto a device document (stompd compile, no USB) and check
+           every parameter and snapshot controller value of the result (stompd decode, T051)
   run      hardware: back up the edit buffer, write each variant whole into the EDIT BUFFER (op 21),
            read back and diff, render fixtures/smoke/di_2s.wav, time the write and the settling,
            then restore the original preset and diff against the backup
@@ -108,15 +109,46 @@ def compiler() -> Path:
     return Path(exe)
 
 
-def cmd_compile(a) -> int:
-    from tonematch.engines.stomp import compile_document
+def engine_hlx(hlx_path: Path) -> dict:
+    """The .hlx as StompEngine writes it: Path A input on USB 5/6, snapshot controller values
+    equal to the block values (T051)."""
+    from tonematch.engines.stomp_readback import sync_snapshot_controllers
 
+    d = json.loads(Path(hlx_path).read_text())
+    d["data"]["tone"].setdefault("dsp0", {}).setdefault("inputA", {})["@input"] = USB56
+    sync_snapshot_controllers(d)
+    return d
+
+
+def document_check(hlx_path: Path, base: Path, out: Path | None = None, exe: Path | None = None) -> dict:
+    """Offline (no USB): compile the .hlx as the engine would onto `base`, decode the result and
+    compare every parameter of every block, and every snapshot controller value, with the .hlx."""
+    import tempfile
+
+    from tonematch.engines.stomp import compile_document, decode_document
+    from tonematch.engines.stomp_readback import readback_diff
+
+    d = engine_hlx(hlx_path)
+    with tempfile.TemporaryDirectory() as td:
+        h = Path(td) / "candidate.hlx"
+        h.write_text(P.dumps_hlx(d), encoding="utf-8")
+        target = out or Path(td) / "candidate.bin"
+        rep = compile_document(h, base, target, exe or compiler())
+        diff = readback_diff(decode_document(target, exe or compiler()), d, rep)
+    return {**diff.as_dict(), "changed": rep.get("changed"), "warnings": rep.get("warnings", []),
+            "slots": [(s["slot"], s["mode"], s.get("model"), s.get("cab")) for s in rep["slots"]]}
+
+
+def cmd_compile(a) -> int:
     base = Path(a.base)
-    for name in ("K", "A", "B0", "B"):
-        rep = compile_document(OUT / f"{name}.hlx", base, OUT / f"{name}.offline.bin", compiler())
-        print(name, json.dumps({k: rep[k] for k in ("bytes", "changed", "identical_to_base")}))
-        print("   ", [(s["slot"], s["mode"], s.get("model"), s.get("cab")) for s in rep["slots"]])
-    return 0
+    rc = 0
+    for name in a.variants:
+        r = document_check(OUT / f"{name}.hlx", base, OUT / f"{name}.offline.bin")
+        print(name, "document check", "OK" if r["ok"] else "MISMATCH", f"({r['checked']} checks)",
+              json.dumps({k: r[k] for k in ("changed", "warnings", "mismatches", "missing")}))
+        print("   ", r["slots"])
+        rc = max(rc, 0 if r["ok"] else 1)
+    return rc
 
 
 # ----------------------------------------------------------------------------- hardware
@@ -234,45 +266,14 @@ def diagnose(eng, dry: np.ndarray, run_dir: Path) -> list[dict]:
 
 
 def chain_diff(chain: dict, hlx_path: Path, report: dict) -> list[str]:
-    """Where the read-back chain disagrees with the .hlx (models, enabled, every named value)."""
-    doc = json.loads(hlx_path.read_text())
-    dsp = doc["data"]["tone"]["dsp0"]
-    slots = {s["pos"]: s for s in chain["slots"]}
-    out = []
-    for s in report["slots"]:
-        if "key" not in s:
-            continue
-        node, dev = dsp[s["key"]], slots.get(s["slot"], {})
-        if dev.get("model_id") != node["@model"]:
-            out.append(f"{s['key']}: model {dev.get('model_id')} != {node['@model']}")
-        if bool(dev.get("enabled")) != bool(node.get("@enabled", True)):
-            out.append(f"{s['key']}: enabled {dev.get('enabled')} != {node.get('@enabled')}")
-        groups = [(node, dev.get("params", []))]
-        if node.get("@cab"):
-            cn = dsp[node["@cab"]]
-            if dev.get("paired_id") != cn["@model"]:
-                out.append(f"{s['key']}: cab {dev.get('paired_id')} != {cn['@model']}")
-            groups.append((cn, dev.get("paired_params", [])))
-        for n, ps in groups:
-            meta = {}
-            for p in ps:
-                for kk in (p.get("sym"), p.get("id")):
-                    if kk:
-                        meta[kk] = p
-                if p.get("extra") == 0 and n is not node:
-                    meta["@mic"] = p
-            for kk, v in n.items():
-                if kk.startswith("@") and kk != "@mic":
-                    continue
-                m = meta.get(kk)
-                if m is None:
-                    continue
-                if abs(float(m["value"]) - float(v)) > 1e-4 * max(1.0, abs(float(v))):
-                    out.append(f"{s['key']}.{kk}: device {m['value']} != hlx {v}")
-    inp = next(s for s in chain["slots"] if s["kind"] == "Input" and s["pos"] == 0)
-    if inp.get("routing") != dsp["inputA"]["@input"]:
-        out.append(f"inputA routing {inp.get('routing')} != {dsp['inputA']['@input']}")
-    return out
+    """Where the read-back chain disagrees with the .hlx: every parameter of every block (with the
+    snapshot recall the pedal applies), models, enabled, extra blocks, the input routing (T051,
+    tonematch.engines.stomp_readback). Empty when it matches. The engine's load() already raises on
+    any of these; this is the record for summary.json."""
+    from tonematch.engines.stomp_readback import readback_diff
+
+    d = readback_diff(chain, engine_hlx(hlx_path), report)
+    return d.mismatches + d.missing
 
 
 def cmd_run(a) -> int:
@@ -327,6 +328,7 @@ def cmd_run(a) -> int:
                 v["readback_doc_diff"] = doc_diff(written, rb.read_bytes())
                 v["readback_bytes"], v["written_bytes"] = rb.stat().st_size, len(written)
                 v["chain_diff"] = chain_diff(eng.chain, hlx, w["report"])
+                v["checks"] = w.get("checks", {})   # pre-write document check + post-write readback (T051)
                 (run_dir / f"{name}_chain.json").write_text(json.dumps(eng.chain, indent=1))
                 summary["variants"][name] = v
                 if a.no_render:
@@ -391,8 +393,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("gen")
-    c = sub.add_parser("compile")
+    c = sub.add_parser("compile", help="offline: compile each variant and check every parameter of the result")
     c.add_argument("--base", required=True, help="a device document (an edit-buffer backup)")
+    c.add_argument("--variants", nargs="+", default=["K", "A", "B0", "B"])
     r = sub.add_parser("run")
     r.add_argument("--variants", nargs="+", default=["K", "A", "B0", "B"])
     r.add_argument("--no-render", action="store_true", help="control only: write, read back, diff; no audio")

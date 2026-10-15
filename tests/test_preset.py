@@ -144,10 +144,10 @@ def test_effects_only_without_standin_fails():
 def test_edit_applies_to_dict():
     pre = load()
     pre.slots[0].params["Drive"] = 0.9
-    pre.snapshots[1].params["block1"]["Mix"] = 0.4
+    pre.slots[2].params["Mix"] = 0.4
     d = pre.to_hlx_dict()["data"]["tone"]
     assert d["dsp0"]["block0"]["Drive"] == 0.9
-    assert d["snapshot1"]["controllers"]["dsp0"]["block1"]["Mix"]["@value"] == 0.4
+    assert d["snapshot1"]["controllers"]["dsp0"]["block1"]["Mix"]["@value"] == 0.4  # block wins
     assert load().slots[0].params["Drive"] == 0.5  # original untouched
 
 
@@ -167,3 +167,45 @@ def test_golden_roundtrip_byte_equal(name):
     if not f.exists():
         pytest.skip("golden missing")
     assert P.dumps_hlx(P.read_hlx(f).to_hlx_dict()) == f.read_text(encoding="utf-8")
+
+
+def stale_raw() -> dict:
+    raw = synth()
+    raw["data"]["tone"]["snapshot1"]["controllers"]["dsp0"]["block1"]["Mix"]["@value"] = 0.9
+    return raw
+
+
+def test_stale_snapshot_in_raw_is_a_validation_fail_and_writer_fixes_it(tmp_path):
+    pre = load(stale_raw())
+    assert "snapshot_values" in checks(P.validate(pre, CAT))
+    out = P.write_hlx(pre, tmp_path / "x.hlx")
+    fixed = json.loads(out.read_text())
+    assert fixed["data"]["tone"]["snapshot1"]["controllers"]["dsp0"]["block1"]["Mix"]["@value"] \
+        == 0.25
+    assert "snapshot_values" not in checks(P.validate(P.read_hlx(out, CAT), CAT))
+
+
+def test_sync_helpers_and_unsynced_view():
+    pre = load(stale_raw())
+    assert P.snapshot_conflicts(pre.to_hlx_dict(sync_snapshots=False))
+    assert P.snapshot_conflicts(pre.to_hlx_dict()) == []
+    d = stale_raw()
+    changed = P.sync_snapshot_controllers(d)
+    assert len(changed) == 1 and P.snapshot_conflicts(d) == []
+    assert P.sync_hlx_snapshots(stale_raw())["data"]["device"] == P.STOMP_DEVICE_ID
+
+
+def test_snapshot_mismatches_on_objects():
+    pre = load()
+    pre.snapshots[0].params["block1"]["Mix"] = 0.7
+    assert len(P.snapshot_mismatches(pre)) == 1
+    assert P.snapshot_mismatches(P.sync_snapshots_to_blocks(pre)) == []
+    assert pre.snapshots[0].params["block1"]["Mix"] == 0.7  # original untouched
+
+
+def test_engine_modules_use_the_canonical_helpers():
+    from tonematch.engines import native, stomp_readback
+    assert native.sync_hlx_snapshots is P.sync_hlx_snapshots
+    assert native.snapshot_mismatches is P.snapshot_mismatches
+    assert stomp_readback.sync_snapshot_controllers is P.sync_snapshot_controllers
+    assert stomp_readback.snapshot_conflicts is P.snapshot_conflicts

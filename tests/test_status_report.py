@@ -6,6 +6,7 @@ import copy
 import datetime as dt
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -198,3 +199,143 @@ def test_main_missing_registry_exits(tmp_path):
 def test_real_registry_is_valid():
     path = Path(__file__).resolve().parents[1] / "docs" / "features.json"
     assert sr.validate(json.loads(path.read_text(encoding="utf-8"))) == []
+
+
+# --------------------------------------------------------------------------- markdown
+
+
+def md_registry():
+    reg = registry()
+    reg["features"][0]["name"] = "Alpha | engine, v2"
+    reg["features"][0]["todo"] = ["pipe | in text", "star * and `tick`"]
+    reg["features"][0]["blockers"] = ["Blocked by a | pipe"]
+    reg["features"][0]["implemented"] = [{"item": "A thing", "paths": ["src/a.py", "gone/x.py"]}]
+    reg["features"][0]["key_files"] = ["src/a.py", "cache/secret.bin"]
+    return reg
+
+
+def md_facts(tmp_path, checks=None):
+    (tmp_path / "src").mkdir(exist_ok=True)
+    (tmp_path / "src" / "a.py").write_text("x = 1\n")
+    (tmp_path / "cache").mkdir(exist_ok=True)
+    (tmp_path / "cache" / "secret.bin").write_text("x")
+    f = facts(checks)
+    f["root"] = tmp_path
+    return f
+
+
+def table_rows(md):
+    lines = md.splitlines()
+    i = next(k for k, ln in enumerate(lines) if ln.startswith("| Feature |"))
+    rows = []
+    for ln in lines[i:]:
+        if not ln.startswith("|"):
+            break
+        rows.append(ln)
+    return rows
+
+
+def split_row(row):
+    return [c for c in re.split(r"(?<!\\)\|", row.strip())[1:-1]]
+
+
+def test_markdown_structure(tmp_path):
+    md = sr.render_markdown(md_registry(), md_facts(tmp_path))
+    assert md.startswith("# HX Stomp Tone Matcher: project status")
+    heads = [ln for ln in md.splitlines() if ln.startswith("## ")]
+    assert heads[0] == "## Gates" and heads[1] == "## Overview"
+    assert "## Alpha \\| engine, v2" in heads and "## Beta" in heads
+    needs = "## Needs from the human (all features, in priority order)"
+    assert heads[-3:] == ["## Discrepancies", needs, "## Footer"]
+    for sub in ("### What is implemented", "### Evidence", "### Challenges and findings",
+                "### Still to do", "### Needs the human", "### Decisions and risks",
+                "### Key files"):
+        assert md.count(sub) == 2
+    assert "Gate 1: both work**: signed off" in md and "not signed off" in md
+    assert "Generated 2026-01-03 12:00 UTC" in md and "Cycle X" in md
+    assert "<script" not in md and "<b>" not in md
+
+
+def test_markdown_table_escaping_and_columns(tmp_path):
+    md = sr.render_markdown(md_registry(), md_facts(tmp_path))
+    rows = table_rows(md)
+    assert len(rows) == 4  # header, separator, two features
+    for r in rows:
+        assert len(split_row(r)) == 8
+    assert "Blocked by a \\| pipe" in rows[2]
+    assert "Alpha \\| engine, v2" in rows[2]
+    assert "1/3 (+1 in progress)" in rows[2]
+    assert "█" in rows[2] and "40%" in rows[2] and "░" in rows[2]
+
+
+def test_markdown_vocabulary_labels(tmp_path):
+    md = sr.render_markdown(md_registry(), md_facts(tmp_path))
+    rows = table_rows(md)
+    a, b = (split_row(r) for r in rows[2:])
+    assert a[1].strip() == "prototype" and a[2].strip() == "partial"
+    assert b[1].strip() == "not-started" and b[2].strip() == "unknown"
+    assert a[4].strip() == "unit-tests, **synthetic**" and b[4].strip() == "none"
+    assert "**Status:** prototype · **Health:** partial" in md
+    assert sr.text_bar(0) == "░░░░░░░░░░ 0%" and sr.text_bar(100) == "██████████ 100%"
+
+
+def test_markdown_anchor_links_match_headings(tmp_path):
+    md = sr.render_markdown(md_registry(), md_facts(tmp_path))
+    rows = table_rows(md)
+    assert "(#alpha--engine-v2)" in rows[2] and "(#beta)" in rows[3]
+    used: dict[str, int] = {}
+    assert sr.gh_slug("Alpha | engine, v2", used) == "alpha--engine-v2"
+    assert sr.gh_slug("Beta", used) == "beta" and sr.gh_slug("Beta", used) == "beta-1"
+    assert "(#overview)" in md
+
+
+def test_markdown_file_links_are_relative_and_only_for_existing_files(tmp_path):
+    md = sr.render_markdown(md_registry(), md_facts(tmp_path))
+    assert "[`src/a.py`](../../src/a.py)" in md
+    assert "`gone/x.py`" in md and "](../../gone/x.py)" not in md
+    assert "`cache/secret.bin`" in md and "](../../cache/" not in md
+    assert "index.html" in md
+
+
+def test_markdown_prose_escaping_and_footer(tmp_path):
+    md = sr.render_markdown(md_registry(), md_facts(tmp_path))
+    assert "pipe \\| in text" in md and "star \\* and \\`tick\\`" in md
+    assert "Capture &lt;chain&gt;" in md and "Board says &lt;done&gt;" in md
+    assert "not run" in md
+    out = sr.render_markdown(md_registry(), md_facts(tmp_path, [
+        {"name": "pytest", "ok": True, "detail": "9 passed"},
+        {"name": "ruff", "ok": False, "detail": "2 errors"}]))
+    assert "**PASS** pytest: 9 passed" in out and "**FAIL** ruff: 2 errors" in out
+    assert "1. Capture" in out
+
+
+def test_markdown_ledger_table_omits_notes(tmp_path):
+    md = sr.render_markdown(md_registry(), md_facts(tmp_path))
+    assert "**Live ledger rows:** 1 match" in md
+    assert "| 2026-01-01T00:00:00+00:00 | tester | smoke | ds | peak | -13.0 |" in md
+
+
+def test_main_format_option(tmp_path, capsys):
+    root = make_root(tmp_path, registry())
+    assert sr.main(["--root", str(root)]) == 0
+    assert (root / "reports" / "status" / "index.html").exists()
+    md = root / "reports" / "status" / "README.md"
+    assert md.exists() and "## Beta" in md.read_text(encoding="utf-8")
+    md.unlink()
+    (root / "reports" / "status" / "index.html").unlink()
+    assert sr.main(["--root", str(root), "--format", "md"]) == 0
+    assert md.exists() and not (root / "reports" / "status" / "index.html").exists()
+    assert sr.main(["--root", str(root), "--format", "html"]) == 0
+    with pytest.raises(SystemExit):
+        sr.main(["--root", str(root), "--format", "pdf"])
+
+
+def test_real_registry_markdown_has_no_audio_or_catalog_paths():
+    root = Path(__file__).resolve().parents[1]
+    reg = json.loads((root / "docs" / "features.json").read_text(encoding="utf-8"))
+    f = facts()
+    f["root"] = root
+    md = sr.render_markdown(reg, f)
+    assert not re.search(r"\.(wav|mp3|flac|ogg|m4a)\b", md, re.IGNORECASE)
+    assert "](../../cache/" not in md and "](../../data/" not in md
+    assert md.count("\n## ") >= len(reg["features"]) + 3
