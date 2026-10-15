@@ -323,3 +323,200 @@ def test_open_engines_are_closed_at_exit(monkeypatch, tmp_path):
     eng.load(make_preset(drive=0.9))
     stomp._close_live_engines()
     assert b.closed and eng.restore_report["match"] is True
+
+
+# --------------------------------------------------------------------------- whole-preset load (T018s)
+
+
+def fake_compiler(calls):
+    """Stands in for `stompd compile`: turns the .hlx into the chain the pedal would then hold."""
+
+    def comp(hlx, base, out):
+        doc = json.loads(hlx.read_text())
+        dsp = doc["data"]["tone"]["dsp0"]
+        calls.append(doc)
+        slots = [{"pos": 0, "kind": "Input", "enabled": True, "routing": dsp["inputA"]["@input"]}]
+        report = []
+        for key, node in dsp.items():
+            if not key.startswith("block"):
+                continue
+            pos = 1 + node["@position"]
+            s = {"pos": pos, "kind": "Block", "enabled": node["@enabled"], "model_id": node["@model"],
+                 "params": [_p(0, "Drive", node.get("Drive", 0.5))]}
+            if node.get("@cab"):
+                s.update(paired_id=dsp[node["@cab"]]["@model"],
+                         paired_params=[_p(0, "Distance", 4.0, 1.0, 12.0)])
+            slots.append(s)
+            report.append({"slot": pos, "key": key, "mode": "built"})
+        slots.append({"pos": 9, "kind": "Output", "enabled": True, "routing": 1})
+        out.write_text(json.dumps({"slots": slots}))
+        return {"slots": report, "changed": ["x"]}
+
+    return comp
+
+
+def whole_engine(monkeypatch, tmp_path, mode, chain=None):
+    monkeypatch.setattr(reamp, "find_device", lambda *a, **k: 0)
+    cal = reamp.Calibration(latency_samples=10, measurements=[10, 10, 11], level_gain_db=0.0, tone_in_dbfs=-18,
+                            tone_out_dbfs=-18, firmware="3.50", pa_latency=reamp.PA_LATENCY)
+    b = FakeBridge(chain or make_chain())
+    orig = b.call
+
+    def call(cmd, timeout_s=30.0, **a):
+        if cmd == "backup":
+            b.calls.append((cmd, a))
+            from pathlib import Path
+
+            Path(a["path"]).write_text(json.dumps(b.chain))
+            return {"bytes": 1}
+        if cmd == "restore":
+            b.calls.append((cmd, a))
+            from pathlib import Path
+
+            b.chain.update(json.loads(Path(a["path"]).read_text()))
+            return {"restored": a["path"]}
+        return orig(cmd, timeout_s, **a)
+
+    b.call = call
+    compiled: list = []
+    eng = stomp.StompEngine(bridge=b, calibration=cal, session_dir=tmp_path, whole_preset=mode,
+                            compiler=fake_compiler(compiled))
+    return eng, b, compiled
+
+
+def layout_change_preset():
+    pre = make_preset(model_id="AmpB", cab_id="CabB", delay_on=True)
+    pre.slots[2].position = 5  # the pedal has no block at device slot 6
+    return pre
+
+
+def test_whole_preset_off_still_raises_on_layout_change(monkeypatch, tmp_path):
+    eng, b, compiled = whole_engine(monkeypatch, tmp_path, "off")
+    with pytest.raises(UnsupportedModelChange):
+        eng.load(layout_change_preset())
+    assert not compiled and "restore" not in [c for c, _ in b.calls]
+
+
+def test_whole_preset_fallback_writes_one_document_for_a_layout_change(monkeypatch, tmp_path):
+    eng, b, compiled = whole_engine(monkeypatch, tmp_path, "fallback")
+    eng.load(layout_change_preset())
+    cmds = [c for c, _ in b.calls]
+    assert cmds.count("restore") == 1 and "model" not in cmds and "save" not in cmds
+    assert compiled[0]["data"]["tone"]["dsp0"]["inputA"]["@input"] == reamp.STOMP_INPUT_USB56
+    assert eng.slot_map == {0: (2, False), 1: (2, True), 2: (6, False)}
+    assert len(eng.model_load_s) == 1 and len(eng.whole_writes) == 1
+    assert {"backup_s", "compile_s", "write_s", "load_s"} <= set(eng.whole_writes[0])
+    b.calls.clear()
+    eng.set_params({(0, "Drive"): 0.25})            # set_params works on the written chain
+    assert [(c, a["pos"]) for c, a in b.calls if c == "set"] == [("set", 2)]
+
+
+def test_whole_preset_fallback_keeps_in_place_edits_when_the_layout_fits(monkeypatch, tmp_path):
+    eng, b, compiled = whole_engine(monkeypatch, tmp_path, "fallback")
+    eng.load(make_preset(drive=0.9))
+    assert not compiled and "restore" not in [c for c, _ in b.calls]
+
+
+def test_whole_preset_always_and_verification(monkeypatch, tmp_path):
+    eng, b, compiled = whole_engine(monkeypatch, tmp_path, "always")
+    eng.load(make_preset(drive=0.9))
+    assert len(compiled) == 1 and "set" not in [c for c, _ in b.calls]
+    # A write that does not land as compiled is an error, not a silent mismatch.
+    eng._compiler = lambda hlx, base, out: (out.write_text(json.dumps({"slots": []})),
+                                            {"slots": [{"slot": 2, "key": "block3"}]})[1]
+    with pytest.raises(stomp.EngineError, match="whole-preset write"):
+        eng.load(make_preset())
+
+
+def test_whole_preset_needs_a_document_write_bridge(monkeypatch, tmp_path):
+    monkeypatch.setattr(reamp, "find_device", lambda *a, **k: 0)
+    b = FakeBridge(make_chain())
+    b.allow_document_write = False
+    with pytest.raises(stomp.EngineError, match="allow_document_write"):
+        stomp.StompEngine(bridge=b, session_dir=tmp_path, whole_preset="fallback",
+                          calibration=reamp.Calibration(latency_samples=10, measurements=[10], level_gain_db=0.0,
+                                                        tone_in_dbfs=-18, tone_out_dbfs=-18, firmware="3.50",
+                                                        pa_latency=reamp.PA_LATENCY))
+    with pytest.raises(stomp.EngineError):
+        stomp.StompEngine(bridge=FakeBridge(make_chain()), session_dir=tmp_path, whole_preset="sometimes")
+
+
+def test_bridge_document_write_is_gated(fake_helper, tmp_path):
+    from tonematch.engines.stomp_bridge import BridgeError, StompBridge
+
+    doc = tmp_path / "generated.bin"
+    with StompBridge(binary=fake_helper) as b:
+        with pytest.raises(BridgeError, match="allow_document_write"):
+            b.call("restore", path=str(doc))
+        b.call("backup", path=str(doc))              # this session's own backup may go back
+        assert b.call("restore", path=str(doc))["cmd"] == "restore"
+    with StompBridge(binary=fake_helper, allow_document_write=True) as b:
+        assert b.call("restore", path=str(tmp_path / "other.bin"))["cmd"] == "restore"
+
+
+def test_compile_document_refusal_is_unsupported_model_change(tmp_path):
+    import sys
+
+    exe = tmp_path / "stompd"
+    exe.write_text(f"#!{sys.executable}\nimport json\nprint(json.dumps({{'ok': False, 'error': 'no room'}}))\n")
+    exe.chmod(0o755)
+    with pytest.raises(UnsupportedModelChange, match="no room"):
+        stomp.compile_document(tmp_path / "a.hlx", tmp_path / "b.bin", tmp_path / "c.bin", compiler=exe)
+
+
+def test_whole_write_resends_the_input_route_even_when_the_chain_reads_usb56(monkeypatch, tmp_path):
+    # T018s hardware: after op 21 carrying Input=USB 5/6 the chain read 6 but Path A was silent.
+    eng, b, _ = whole_engine(monkeypatch, tmp_path, "always")
+    b.calls.clear()
+    eng.load(make_preset())
+    assert b.chain["slots"][0]["routing"] == reamp.STOMP_INPUT_USB56
+    cmds = [c for c, _ in b.calls]
+    assert cmds.index("route_key") > cmds.index("restore")
+    eng.REASSERT_INPUT_AFTER_WHOLE = False
+    b.calls.clear()
+    eng.load(make_preset())
+    assert "route_key" not in [c for c, _ in b.calls]
+
+
+def test_inject_diagnose_sequence_is_edit_buffer_only(monkeypatch, tmp_path):
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("stomp_inject", Path(__file__).parents[1] / "scripts" / "stomp_inject.py")
+    si = importlib.util.module_from_spec(spec)
+    sys.modules["stomp_inject"] = si
+    spec.loader.exec_module(si)
+    eng, b, _ = whole_engine(monkeypatch, tmp_path, "always")
+    silent = iter([False, True, True, True, True, True])   # control sounds, K stays silent
+    monkeypatch.setattr(si, "probe", lambda e, x, d, tag: {"tag": tag, "path_a_silent": next(silent)})
+    monkeypatch.setattr(si.P, "read_hlx", lambda *a, **k: make_preset())
+    monkeypatch.setattr(si.C, "load_catalog", lambda *a, **k: {})
+    monkeypatch.setattr(si.time, "sleep", lambda s: None)
+    b.calls.clear()
+    steps = si.diagnose(eng, np.zeros(10, np.float32), tmp_path)
+    assert [s["tag"] for s in steps] == ["c0_original_route_key", "k1_after_write", "k2_settle_0p5s",
+                                          "k3_settle_2p5s", "k4_route_key_resent", "k5_route_toggle_1_6"]
+    cmds = [c for c, _ in b.calls]
+    assert not {"save", "select", "rename"} & set(cmds) and cmds.count("restore") == 1
+    # the K write itself must not have re-sent the route (that is what k4 tests separately)
+    i = cmds.index("restore")
+    assert cmds[i + 1:].index("route_key") > cmds[i + 1:].index("backup")
+    assert eng.REASSERT_INPUT_AFTER_WHOLE is True
+
+
+def test_inject_probe_result_is_json_serialisable_on_digital_silence(monkeypatch, tmp_path):
+    # 20261014T234106Z: a digital-zero capture made path_a_silent a numpy bool and json.dumps failed.
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("stomp_inject", Path(__file__).parents[1] / "scripts" / "stomp_inject.py")
+    si = importlib.util.module_from_spec(spec)
+    sys.modules["stomp_inject"] = si
+    spec.loader.exec_module(si)
+    eng, _, _ = whole_engine(monkeypatch, tmp_path, "always")
+    monkeypatch.setattr(reamp, "playrec", lambda x, dev, **k: (np.zeros((len(x) + 2000, 8), np.float32), 100))
+    out = si.probe(eng, np.ones(480, np.float32), tmp_path, "zero")
+    assert out["path_a_silent"] is True
+    json.dumps(out)

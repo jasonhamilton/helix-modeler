@@ -6,6 +6,7 @@ Exit 0 on pass, 1 on a failed check, 2 when no engine is found (no ledger row wr
 """
 from __future__ import annotations
 
+import argparse
 import os
 import struct
 import subprocess
@@ -39,7 +40,13 @@ def read_wav_f32(path: Path) -> np.ndarray:
     raise ValueError("no data chunk")
 
 
+NO_LEDGER = False
+
+
 def ledger(*args: str) -> None:
+    if NO_LEDGER:
+        print("(dry run, --no-ledger) would append: " + " ".join(args))
+        return
     env = dict(os.environ)
     env.setdefault("TONEMATCH_AGENT", "benchmark")
     subprocess.run([sys.executable, str(ROOT / "scripts" / "ledger_append.py"), *args], check=True, env=env)
@@ -80,12 +87,19 @@ def check(engine) -> tuple[list[str], dict]:
     return fails, {"peak": peak, "wall": wall, "cost": cost.seconds_per_render}
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    global NO_LEDGER
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--engine", choices=["native", "stomp", "auto"], default=None,
+                    help="engine to smoke (default: TONEMATCH_ENGINE, else auto)")
+    ap.add_argument("--no-ledger", action="store_true", help="dry run: print the rows instead of appending them")
+    a = ap.parse_args(argv)
+    NO_LEDGER = a.no_ledger
     from tonematch.engines import registry
     from tonematch.engines.base import UnsupportedModelChange
 
     found = registry.detect()
-    want = os.environ.get("TONEMATCH_ENGINE", "auto").lower()
+    want = (a.engine or os.environ.get("TONEMATCH_ENGINE", "auto")).lower()
     names = sorted(found) if want == "auto" else [n for n in [want] if n in found]
     if not names:
         print(NO_ENGINE)

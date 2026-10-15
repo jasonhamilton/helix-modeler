@@ -1,0 +1,5 @@
+timestamp,metric,reason
+2026-10-14T23:39:30+00:00,peak_dbfs,run by native-engine via engine_smoke.py --help by accident; corrected by the 23:40:10 row (DECISIONS 2026-10-14)
+2026-10-14T23:39:30+00:00,seconds_per_render,run by native-engine via engine_smoke.py --help by accident; corrected by the 23:40:10 row (DECISIONS 2026-10-14)
+2026-10-15T03:18:03+00:00,null_residual_db,Native side reused a stale template captured from the earlier ER=0.783 file (chain key ignores unmapped params); superseded by 2026-10-15T03:20:31 (DECISIONS 2026-10-15)
+2026-10-15T03:18:03+00:00,stomp_to_native_gain_db,same stale-template run as the null row; superseded by 2026-10-15T03:20:31

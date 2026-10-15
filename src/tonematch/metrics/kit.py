@@ -1,8 +1,11 @@
 """`LossKit.score`, the one call of contracts/loss-kit.md (v0).
 
 Implemented in v0: `ltas_tilt`, `crest_flatness_hnr`, `envelope` (no DI needed, content-invariant)
-and `mrstft` (needs an aligned DI). The other contract names are reserved: asking for one with a
-non-zero weight raises `NotImplementedError`; with weight 0 it is skipped.
+and `mrstft` (needs an aligned DI). `embed_afxrep` (AFx-Rep learned embedding, T032) is implemented
+but heavy and optional (the `embed` extra plus a checkpoint in cache/models/afx-rep/): it is computed
+only when its weight is non-zero, and raises `afxrep.AfxRepUnavailable` if the model is missing. The
+other contract names are reserved: asking for one with a non-zero weight raises
+`NotImplementedError`; with weight 0 it is skipped.
 
 Admission rule: every term is weighted 0 in `DEFAULT_WEIGHTS` until `loss-trust-check` passes it on
 the synthetic set at `benchmark`'s threshold. Scores with the default weights therefore have
@@ -19,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from tonematch.metrics import crest, envelope, ltas, mrstft
+from tonematch.metrics import afxrep, crest, envelope, ltas, mrstft
 from tonematch.metrics._common import as_mono
 
 Audio = np.ndarray
@@ -33,12 +36,17 @@ TERMS: tuple[str, ...] = (
 # terms with features(x, mask) / distance(a, b): target features are cached across calls
 _FEATURE_TERMS = {ltas.NAME: ltas, crest.NAME: crest, envelope.NAME: envelope}
 _ALIGNED_TERMS = {mrstft.NAME: mrstft}
-IMPLEMENTED: tuple[str, ...] = (*_FEATURE_TERMS, *_ALIGNED_TERMS)
-NO_DI_TERMS: tuple[str, ...] = tuple(_FEATURE_TERMS)
+# learned embeddings: feature terms too (target embedding cached), but only run at non-zero weight
+_EMBED_TERMS = {afxrep.NAME: afxrep}
+NO_DI_TERMS: tuple[str, ...] = tuple(_FEATURE_TERMS)      # the cheap numpy DSP no-DI terms
+EMBED_TERMS: tuple[str, ...] = tuple(_EMBED_TERMS)
+DSP_TERMS: tuple[str, ...] = (*_FEATURE_TERMS, *_ALIGNED_TERMS)
+IMPLEMENTED: tuple[str, ...] = (*DSP_TERMS, *EMBED_TERMS)
 
 # Admission rule (contracts/loss-kit.md): 0 until loss-trust-check passes on synthetic-v<N>.
 # mrstft is absent because it is only valid with an aligned DI; ask for it explicitly.
-DEFAULT_WEIGHTS: dict[str, float] = {name: 0.0 for name in NO_DI_TERMS}
+# embed_afxrep is listed at 0 but, being heavy and optional, is skipped while its weight is 0.
+DEFAULT_WEIGHTS: dict[str, float] = {name: 0.0 for name in (*NO_DI_TERMS, *EMBED_TERMS)}
 
 # NOT ADMITTED. Equal weights in each term's own scale units; for development and proxy runs only.
 PROVISIONAL_WEIGHTS: dict[str, float] = {name: 1.0 for name in NO_DI_TERMS}
@@ -80,9 +88,9 @@ class LossKit:
         if key in self._cache:
             self._cache.move_to_end(key)
             return self._cache[key]
-        f = _FEATURE_TERMS[name].features(x, mask)
+        f = {**_FEATURE_TERMS, **_EMBED_TERMS}[name].features(x, mask)
         self._cache[key] = f
-        while len(self._cache) > self._cache_size * len(_FEATURE_TERMS):
+        while len(self._cache) > self._cache_size * (len(_FEATURE_TERMS) + len(_EMBED_TERMS)):
             self._cache.popitem(last=False)
         return f
 
@@ -102,6 +110,9 @@ class LossKit:
                 v = mod.distance(self._target_features(name, t, mask), mod.features(c))
             elif name in _ALIGNED_TERMS:
                 v = _ALIGNED_TERMS[name].term(t, c, mask)
+            elif name in _EMBED_TERMS and wt != 0:
+                mod = _EMBED_TERMS[name]
+                v = mod.distance(self._target_features(name, t, mask), mod.features(c))
             elif wt == 0:
                 continue
             elif name == "sepcons" and stems is None:

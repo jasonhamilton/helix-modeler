@@ -21,6 +21,11 @@ dev = ["pytest>=8", "ruff>=0.5", "pip-licenses>=4"]
 # (licence boundary). May live in a separate venv via TONEMATCH_NATIVE_PYTHON. DawDreamer is the
 # fallback host (MIDI CC route), not added until needed.
 native = ["pedalboard>=0.9.26"]
+# native-gui: PyObjC Cocoa bridge (MIT) for the hands-off chain capture (T018n): the Native host
+# drops a generated .hlx onto Helix Native's editor inside its own process
+# (src/tonematch/engines/native_gui.py). macOS only; install it into the same interpreter as
+# `native` (TONEMATCH_NATIVE_PYTHON). Needs no Accessibility/TCC permission.
+native-gui = ["pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'"]
 # stomp: USB audio for StompEngine and reamp-capture (sounddevice, MIT). The control helper
 # `stompd` (Rust, on tonepush's MIT hx-usb crate) is built outside this repo and found through
 # TONEMATCH_STOMPD.
@@ -36,6 +41,11 @@ separation = ["torch>=2.2", "demucs>=4.1"]
 # separation-roformer: BS-/Mel-RoFormer and MDX23C checkpoints via audio-separator (MIT); each
 # checkpoint carries its own licence (docs/notes/separation-models.md). Installed in .venv 2026-10-14.
 separation-roformer = ["audio-separator>=0.30"]
+# embed: learned-embedding loss terms. `embed_afxrep` runs the AFx-Rep (ST-ITO, Apache-2.0) Cnn14
+# encoder vendored in src/tonematch/metrics/_afxrep_model.py on torch (BSD) + torchlibrosa (MIT);
+# st-ito itself is NOT installed (it pulls in pedalboard GPLv3, wandb, laion_clap). Checkpoint goes
+# into cache/models/afx-rep/ (1.16 GB, never committed). See docs/notes/afx-rep.md.
+embed = ["torch>=2.2", "torchlibrosa>=0.1", "pyyaml>=6"]
 # Engines and models are installed by the agent that owns them, once the spike decides what is needed:
 # search: cma, nevergrad, optuna, botorch
 # metrics: librosa, torchaudio

@@ -2,6 +2,78 @@
 
 Status: **offline half done 2026-10-13; hardware batch H1-H9 run on macOS 2026-10-14 (results in "Hardware batch results" below).** H3a/H3b (HX Edit exclusivity) were skipped on instruction (HX Edit not launched); H10/H11 need Linux/Windows machines. Upstream code was read and built in a scratch directory; none of it, and no Line 6 file, is in this repo.
 
+## T018s: autonomous whole-preset injection (2026-10-14, macOS, fw 3.50, HX Edit closed)
+
+**Result: YES, control and audio (rendered 2026-10-14T23:44Z by the human from Terminal; see "T018s rendered results" below; the first agent-run paragraphs here describe the control-only stage).** Code wrote generated `.hlx` presets (not a restore of the pedal's own buffer) into the edit buffer and read them back with no human step. 4 of 4 landed, including a new Amp+Cab model pair built from the file. Restore to 04C matched, and the buffer after the restore is byte-identical to the backup. The renders, and so the "expected direction" check and the settling time, were **not done**: the HX Stomp audio stream would not start from the agent's sandboxed shell (PortAudio -9986, AUHAL err 35, also with no control session open), and an unsandboxed retry was denied by the permission classifier. Ledger: 2026-10-14T23:18:39 (4 rows: `whole_preset_write_s`, `whole_preset_load_s`, `whole_preset_landed`, `reamp_stream_start_ok`=0).
+
+How it works:
+
+1. **Variants** (`scripts/stomp_inject.py gen`, written to `cache/stomp/inject/`, gitignored because they are derived from a Line 6 export). Each is `known.hlx` read with `tonematch.preset` at device_version 0x3500000 (3.50, as in the HX Edit golden). Every model is checked against the catalog's `stomp_min_firmware` (all have none, so all run on 3.50). Path A's input is set to `@input` 6 (USB 5/6) in all of them. K is known.hlx with only that change. A changes the amp: Drive 0.61 to 0.95, Master 1.0 to 0.7, Bass 0.5 to 0.65. B0 is Brit Plexi Brt + 4x12 Greenback25 at catalog defaults, `@mic` 6. B is B0 with the DL4 Ping Pong enabled in the block and in all 3 snapshots. `hlx_validate.py --firmware 0x3500000`: all 4 ok (0 fail; the usual WARN: DSP budget not enforced).
+2. **Compile** (`stompd compile <hlx> <base> <out>`, offline, never opens USB; a separate build at `cache/stomp/bin/stompd-compile`, source kept locally in `cache/stomp/stompd-src/`, not in the repo per the human's stompd decision). The base is a backup of the current edit buffer, so the device's own container is kept: section table, metadata, settings, junctions, assignments, the snapshot section. Each `.hlx` block is placed by `@path`/`@position` through the base's layout. A block with the same model is edited in place, and every value keeps the wire variant the device used. A block with a new model is built: values typed by catalog kind (switch to bool, menu to int, knob to f32), the engine class and second count from `hx-catalog`, a cab's `@mic` and a delay or reverb's `@trails` added as the one value past the symbol list. Blocks the file does not name are emptied. Snapshot bypass states and the input routing come from the file. **Self-check:** with every slot forced to "built", known.hlx compiles to a document **byte-identical** to the device's own 04C buffer (2460 bytes). tonepush's own builder (`hx-catalog/src/build.rs`) says "the pedal will not take what this produces". It writes every value as f32. The difference here is typing values by kind and adding the extras, and the pedal accepted the result.
+3. **Write** (op 21, `restore` in the approved `cache/stomp/bin/stompd`, EDIT BUFFER only; hx-usb's `write_preset` waits until the document reads back). The bridge now refuses this command for anything but the same session's own backup unless it is opened with `allow_document_write=True` (`stomp_bridge.DOCUMENT_WRITE`). No save, rename, restore-all, set-setting or IR command was sent; the USB helper binary is unchanged (sha256 30422bed...).
+
+| Variant | Compile | Write (s) | Whole `load()` (s) | Read-back document vs written | Read-back chain vs `.hlx` |
+|---|---|---|---|---|---|
+| K | in place; input 1 to 6 | 0.313 | 0.446 | equal except the order of the 3 MIDI-CC assignment entries | equal (models, cab, enabled, every named value, input 6) |
+| A | in place; Drive, Bass, Master | 0.324 | 0.487 | same | equal |
+| B0 | **built** slot 2: model 20/45 to 15/66 (Plexi Brt / Greenback25) | 0.319 | 0.463 | same | equal |
+| B | delay enabled; 3 snapshot states | 0.319 | 0.464 | the device also set the delay footswitch's LED colour (67840 to 458496) and state (false to true) | equal |
+
+Whole `load()` = backup 0.03-0.06 s + compile 0.026-0.030 s + write 0.32 s + chain read and input check. The in-place `load()` with one Amp+Cab model change took 0.658 s (T004). Restore: `select` 04C, chain signature equal on the first step, buffer read with a fresh session byte-equal to the backup. Run directory: `cache/stomp/inject/20261014T231801Z/` (summary.json, every written document, every read-back, chains). The first attempt (`.../20261014T231317Z/`) wrote K, which landed (verified offline after the run), then stopped at the first render with the audio error. It restored cleanly too.
+
+Not done, and why:
+- **Renders and the expected direction.** Prediction written before any render: A has a lower crest factor and higher spectral flatness than K, and a higher idle noise floor. B differs from B0 in the energy of the last 0.5 s of the clip (delay repeats). `scripts/stomp_inject.py run` (without `--no-render`) does this, with features, nulls and WAVs. It needs a shell where CoreAudio input works. Earlier Stomp renders on this Mac worked (T004, T019), so the human's terminal is expected to work.
+- **Settling time** after a whole write: the same run renders right after the write, again, and after 2 s, and nulls first-vs-settled against repeat-vs-settled. Unmeasured.
+- Footswitch and controller sections of the `.hlx` are not compiled: the base's are kept, and the device updates a footswitch LED itself (B). A model change or emptied slot that carries controller assignments is refused, as are Send/Return blocks. Splits and joins keep the base's model and attach point. Only blocks on rows the base already has can be placed.
+
+What the human must run to finish it (HX Edit quit, pedal on 04C):
+`TONEMATCH_STOMPD=$PWD/cache/stomp/bin/stompd TONEMATCH_STOMPD_COMPILE=$PWD/cache/stomp/bin/stompd-compile TONEMATCH_AGENT=stomp-engine .venv/bin/python scripts/stomp_inject.py run`
+(about 2 minutes; 4 whole-document writes plus 14 renders, then the restore and the byte diff).
+
+### T018s follow-up: silent render after the whole write (human's Terminal run, 2026-10-14 23:33Z)
+
+The human ran `run` from Terminal. Audio started there, so the earlier -9986 came from the sandbox. K compiled (input 1 to 6), was written (0.31 s) and read back as written, with an empty chain diff. Then the first render raised "the Stomp returned silence". The restore was clean (`cache/stomp/inject/20261014T233351Z/`).
+
+Offline diagnosis, without touching the pedal: K's read-back Input body is `{5: 6, ...}`. A buffer captured at 17:19Z, after the T004 engine's live `route_key` (the routing that rendered fine), holds exactly the same `{5: 6}`. Output `{6: 1}`, settings key 6, the current snapshot and the Output values are identical to the 04C backup. So the document is the same as a working one. The difference is the path. T004/T019 sent a live `route_key` (op 42). After the whole write, `_load_whole` saw the chain already reading 6 and sent nothing. **Hypothesis:** op 21 stores the input routing, but the audio engine keeps routing until a live op-42 route. A settle delay is the alternative. **Fix (implemented, unverified):** `StompEngine.REASSERT_INPUT_AFTER_WHOLE = True` always re-sends `route_key` after a whole write. Test: `test_whole_write_resends_the_input_route_even_when_the_chain_reads_usb56`.
+
+`run --diagnose` gathers the data to decide in one run. First a control: the original buffer with a live `route_key`, rendered. Then K is written whole without the re-send and rendered at 0 s, 0.5 s and 2.5 s, again after re-sending `route_key`, and (only if still silent) after a 1-to-6 toggle. Each probe records the RMS of USB 1/2, 3/4, 5/6 and 7/8, the routing the chain reports, and a WAV. Backups go to `diag_c0.bin`, `diag_k.bin` and `diag_k_after.bin`. Then K, A, B0 and B run normally with the fix. A render failure is recorded and the next variant runs; a control error stops the run. The restore to 04C and the byte diff always run.
+
+**Outcome of the follow-up: the routing hypothesis was wrong.** Run `20261014T234106Z` (`--diagnose`) rendered the control, the ORIGINAL 04C buffer with a live `route_key` (the configuration T004 proved), and got exact digital zero (`diag_c0` peak 0.0). So the silence was macOS withholding audio input from Terminal (Microphone permission), not the document. That run then stopped on a script bug: a numpy bool in the diag print, since fixed and tested. No whole write was made, and the restore was clean. After the permission was granted, run `20261014T234400Z` had sound at k1, straight after the write with no route re-send and no settle (-23.27 dB, identical to the control). `REASSERT_INPUT_AFTER_WHOLE` stays: it is harmless (one op-42 command, k4 identical) but **not needed**. The Microphone requirement is now in `docs/DEV-ENV.md` and `docs/notes/stompd.md`. Ledger: `render_silence` rows for both runs (23:4x).
+
+### T018s rendered results (run `cache/stomp/inject/20261014T234400Z/`, human's Terminal, analysis stomp-engine)
+
+All 4 variants were written whole, read back as written, and rendered with audio. 19 renders in all (diagnose 5, then per variant r0/r1/r2, plus 2 idle). Restore: matched, and the post-restore buffer is byte-equal to the backup. Writes took 0.306-0.317 s, a whole `load()` 0.464-0.488 s.
+
+Nulls on the r2 renders, recomputed with cross-correlation alignment (integer and fractional lag) and a least-squares gain. Analysis in `.../analysis/aligned.txt`:
+
+| Pair | Lag | Gain | Null, aligned + gain | Unaligned (lead's) |
+|---|---|---|---|---|
+| K vs A (Drive/Master/Bass) | 0 | 0.942 | -7.4 dB | -7.4 |
+| K vs B0 (new Amp+Cab pair) | +7 samples (frac -0.31) | 1.231 | **-3.3 dB** | -0.2 (misaligned: the Plexi path is 7 samples later) |
+| B0 vs B (delay on) | 0 | 0.999 | -23.9 dB | -23.9 |
+| repeat r0 vs r2, K / A / B0 / B | 0 | ~1.0 | -27.9 / -36.6 / -39.6 / -38.8 dB | same |
+
+- **Settling:** no settle effect in A, B0 or B. The first render after the write nulls against the settled one about as well as a repeat does (-36.6 vs -33.4, -39.6 vs -43.7, -38.8 vs -32.9). K is the exception: first vs settled -27.9 dB against repeat -40.3 dB. That is one outlier with an unknown cause; the Essex model's Hum and Ripple are a guess. No settle delay is added.
+- **B0 vs B is a real difference:** -23.9 dB is 15 dB above B's own repeat noise. The lead compared it with K's repeat noise, which is K's outlier.
+
+Pre-registered predictions (written before any render):
+
+| Prediction | Outcome |
+|---|---|
+| A crest factor lower than K | **Wrong.** 11.02 vs 9.71 dB (peak/RMS); 8.88 vs 8.56 with the 99.9th percentile. A plausible but untested reason: Master 1.0 to 0.7 removes power-amp compression while Drive 0.61 to 0.95 adds preamp gain. |
+| A spectral flatness higher | Right: -19.76 vs -21.85 dB |
+| A idle noise floor higher | Right: -80.31 vs -86.95 dBFS |
+| B more energy than B0 in the last 0.5 s | **Not supported** (+1.08 vs +1.09 dB relative to clip RMS). Inconclusive rather than refuted: di_2s plays to its last sample, so repeats are masked, and the delay Mix is 0.23. |
+
+Post-hoc and not pre-registered, so weaker evidence: the residual B - B0 (aligned, gain-matched) correlates with B0 lagged by 348.5 ms at |r| 0.309. Across lags of 50-1200 ms the median is 0.055, and the same test on B's repeat residual gives 0.032. This is consistent with delay repeats being present.
+
+Ledger 2026-10-14T23:47Z (11 rows): `whole_preset_rendered` 4, `whole_preset_write_s` 0.309, `null_residual_db` x4, `prediction_correct` x4 (0,1,1,0), `delay_residual_corr` 0.309.
+
+**Remaining for T018s:**
+- A delay test with a gap after the last note: a clip that stops at 1 s and runs 2 s of silence, pre-registered on tail energy.
+- Repeat K's first-render outlier.
+- Then the lead decides on the `whole_preset` default, which stays `off`.
+
 ## Hardware batch results (2026-10-14, macOS 27 arm64, HX Edit closed)
 
 **Firmware: 3.50** (build `v3.15-207-g09aad57`, device id `0x00210006`, serial 3554786), read over USB in H2. Not 3.80: generated `.hlx` files for this pedal must carry device_version for 3.50 (the HX Edit golden says 3.50, consistent; the Native golden's 3.80 is not this pedal).

@@ -118,3 +118,17 @@ def test_example_manifest_has_no_line6_ids_and_same_shape():
 
 def test_default_output_is_gitignored_cache():
     assert sb.SET_DIR == ROOT / "cache" / "synthetic"
+
+
+def test_regressions_skip_void_rows(tmp_path, monkeypatch):
+    led = tmp_path / "runs.csv"
+    led.write_text("timestamp,commit,agent,kind,engine,dataset,metric,value,renders,wall_clock_s,notes\n"
+                   "T1,c,a,benchmark,native,d,block_f1,0.9,,,\n"
+                   "T2,c,a,benchmark,native,d,block_f1,0.99,,,\n")
+    void = tmp_path / "void.csv"
+    void.write_text("timestamp,metric,reason\nT2,block_f1,test\n")
+    monkeypatch.setattr(sb, "LEDGER", led)
+    monkeypatch.setattr(sb, "VOID", void)
+    assert sb.regressions({"block_f1": 0.9}, "d", "native", {}) == []
+    monkeypatch.setattr(sb, "VOID", tmp_path / "none.csv")
+    assert len(sb.regressions({"block_f1": 0.9}, "d", "native", {})) == 1

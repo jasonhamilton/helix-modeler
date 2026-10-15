@@ -16,6 +16,10 @@ Two data sources:
             yet: the script exits 2 until the manifest and its renders exist.
 
     python scripts/loss_trust_check.py --proxy --all [--items 40] [--distractors 15] [--ledger]
+    python scripts/loss_trust_check.py --proxy --term embed_afxrep ltas_tilt envelope --jobs 2
+
+`--all` is the numpy DSP terms. Learned-embedding terms (`embed_afxrep`) run only when named with
+`--term`; they need the `embed` extra and the checkpoint, and use at most 2 worker processes.
 
 Exit 0 on a completed run, 2 when the data is missing.
 """
@@ -36,12 +40,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from tonematch.metrics import (
+    DSP_TERMS,
+    EMBED_TERMS,
     IMPLEMENTED,
     NO_DI_TERMS,
     PROVISIONAL_WEIGHTS,
     LossKit,
     proxy,
 )
+
+MAX_EMBED_JOBS = 2  # learned embeddings: keep compute modest (T032 brief)
 
 PROXY_DATASET = "proxy-dsp-v0"
 COMBO = "provisional_sum"
@@ -54,7 +62,11 @@ def _rank(scores: np.ndarray) -> int:
 
 
 def proxy_item(args: tuple) -> dict:
-    i, seed, n_distract, terms, use_mask, seconds, bleed_db = args
+    i, seed, n_distract, terms, use_mask, seconds, bleed_db, threads = args
+    if set(terms) & set(EMBED_TERMS):
+        from tonematch.metrics import afxrep
+        if afxrep._EMBEDDER is None:
+            afxrep.set_embedder(afxrep.Embedder(threads=threads))
     rng = np.random.default_rng([seed, i])
     p = proxy.random_preset(rng)
     di_a = proxy.guitar_di(int(rng.integers(1 << 30)), seconds)
@@ -89,8 +101,8 @@ def proxy_item(args: tuple) -> dict:
         for t in terms:
             sc = np.asarray(per[t])
             res[t] = {"rank": _rank(sc), "winner": labels[int(np.argmin(sc))], "scores": sc.tolist()}
-        combo = sum(PROVISIONAL_WEIGHTS[t] * np.asarray(per[t]) for t in NO_DI_TERMS if t in per)
-        if not np.isscalar(combo):
+        if all(t in per for t in NO_DI_TERMS):  # the provisional sum needs every DSP no-DI term
+            combo = sum(PROVISIONAL_WEIGHTS[t] * np.asarray(per[t]) for t in NO_DI_TERMS)
             res[COMBO] = {"rank": _rank(combo), "winner": labels[int(np.argmin(combo))],
                           "scores": np.asarray(combo).tolist()}
         out[subset] = res
@@ -144,8 +156,8 @@ def ledger_row(term: str, subset: str, value: float, wall: float, note_extra: st
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--term", choices=IMPLEMENTED)
-    g.add_argument("--all", action="store_true", help="every implemented term")
+    g.add_argument("--term", choices=IMPLEMENTED, nargs="+", help="one or more terms, same items")
+    g.add_argument("--all", action="store_true", help="every numpy DSP term (not the embeddings)")
     ap.add_argument("--proxy", action="store_true", help="offline numpy DSP proxy (not Helix)")
     ap.add_argument("--items", type=int, default=40)
     ap.add_argument("--distractors", type=int, default=15)
@@ -162,7 +174,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--note", default="", help="extra text for the ledger notes")
     a = ap.parse_args(argv)
 
-    terms = list(IMPLEMENTED) if a.all else [a.term]
+    terms = list(DSP_TERMS) if a.all else list(dict.fromkeys(a.term))
+    embed = [t for t in terms if t in EMBED_TERMS]
+    threads = 1
+    if embed:
+        from tonematch.metrics import afxrep
+        if not afxrep.available():
+            print(f"{embed}: model unavailable (pip install -e .[embed] and the checkpoint in "
+                  f"{afxrep.model_dir()}; docs/notes/afx-rep.md)", file=sys.stderr)
+            return 2
+        if a.jobs > MAX_EMBED_JOBS:
+            print(f"embedding terms: --jobs capped at {MAX_EMBED_JOBS}", file=sys.stderr)
+            a.jobs = MAX_EMBED_JOBS
+        threads = max(1, 2 // max(a.jobs, 1))
     if not a.proxy:
         manifest = ROOT / "fixtures" / "synthetic" / "manifest.json"
         print(f"no synthetic set: {manifest} is missing (benchmark builds it in T024 with "
@@ -175,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     if {0, 1} & set(a.seed):
         print("warning: seeds 0 and 1 were used to tune the term scales; this is not held out",
               file=sys.stderr)
-    jobs = [(i, sd, a.distractors, terms, a.mask, a.seconds, bleed) for sd in a.seed
+    jobs = [(i, sd, a.distractors, terms, a.mask, a.seconds, bleed, threads) for sd in a.seed
             for i in range(a.items)]
     if a.jobs > 1:
         with ProcessPoolExecutor(a.jobs) as ex:

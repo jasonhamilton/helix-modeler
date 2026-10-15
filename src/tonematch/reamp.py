@@ -171,22 +171,43 @@ def find_device(name_hint: str = NAME_HINT) -> int:
     raise ReampError(f"no {name_hint!r} audio device with >= {max(PLAY_TO)} outputs at {SR} Hz")
 
 
-def playrec(mono: np.ndarray, device: int | None = None, pre_s: float = PRE_S, tail_s: float = TAIL_S,
-            out_pair: tuple[int, int] = PLAY_TO, in_pair: tuple[int, int] = RECORD_FROM) -> tuple[np.ndarray, int]:
-    """Play `mono` on both channels of out_pair with pre-roll and tail; return (stereo capture, pre)."""
+def duplex(play: np.ndarray, out_channels: tuple[int, ...], device: int | None = None) -> np.ndarray:
+    """One full-duplex stream, the same settings as the calibration (48 kHz, ``PA_LATENCY``).
+
+    ``play`` is (n, len(out_channels)); column c goes to 1-based host output out_channels[c].
+    Returns every input channel, (n, n_in). Input sample i and output sample i share the
+    stream clock, so ``cache/stomp/latency.json`` applies to anything recorded here."""
     import sounddevice as sd
 
     dev = find_device() if device is None else device
     info = sd.query_devices(dev)
+    n_out, n_in = int(info["max_output_channels"]), int(info["max_input_channels"])
+    play = np.asarray(play, np.float32).reshape(len(play), -1)
+    if play.shape[1] != len(out_channels) or max(out_channels) > n_out:
+        raise ReampError(f"cannot map {play.shape[1]} columns to outputs {out_channels} of {n_out}")
+    buf = np.zeros((len(play), n_out), np.float32)
+    for col, ch in enumerate(out_channels):
+        buf[:, ch - 1] = play[:, col]
+    try:
+        rec = sd.playrec(buf, samplerate=SR, device=(dev, dev), dtype="float32", channels=None,
+                         input_mapping=list(range(1, n_in + 1)), output_mapping=list(range(1, n_out + 1)),
+                         latency=PA_LATENCY, blocking=True)
+    except BaseException:
+        sd.stop()  # Ctrl-C mid-take: silence the outputs before re-raising
+        raise
+    return np.asarray(rec, np.float32)
+
+
+def playrec(mono: np.ndarray, device: int | None = None, pre_s: float = PRE_S, tail_s: float = TAIL_S,
+            out_pair: tuple[int, int] = PLAY_TO, in_pair: tuple[int, int] | None = RECORD_FROM
+            ) -> tuple[np.ndarray, int]:
+    """Play `mono` on both channels of out_pair with pre-roll and tail; return (stereo capture, pre).
+    ``in_pair=None`` returns every input channel (diagnostics)."""
     pre, tail = int(pre_s * SR), int(tail_s * SR)
     sig = np.concatenate([np.zeros(pre, np.float32), np.asarray(mono, np.float32), np.zeros(tail, np.float32)])
-    n_out, n_in = int(info["max_output_channels"]), int(info["max_input_channels"])
-    play = np.zeros((len(sig), n_out), np.float32)
-    for ch in out_pair:
-        play[:, ch - 1] = sig
-    rec = sd.playrec(play, samplerate=SR, device=(dev, dev), dtype="float32", channels=None,
-                     input_mapping=list(range(1, n_in + 1)), output_mapping=list(range(1, n_out + 1)),
-                     latency=PA_LATENCY, blocking=True)
+    rec = duplex(np.stack([sig] * len(out_pair), axis=1), out_pair, device)
+    if in_pair is None:
+        return rec.astype(np.float32), pre
     return rec[:, [in_pair[0] - 1, in_pair[1] - 1]].astype(np.float32), pre
 
 

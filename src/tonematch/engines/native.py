@@ -232,6 +232,17 @@ def chain_key(preset) -> tuple[tuple[str, str | None], ...]:
     return tuple((s.category, s.model_id) for s in slots)
 
 
+def _hc_mode(raw: bytes) -> int | None:
+    """Native's Hardware Compatibility mode word from a state (ILCP chunk), None if not Native."""
+    try:
+        from . import native_state as ns
+
+        pl = ns.chunk_payload(ns.plugin_component(raw)[1], "ILCP")
+    except Exception:  # noqa: BLE001 - non-Native (builtin stand-in) or malformed state
+        return None
+    return int.from_bytes(pl[8:12], "little") if pl and len(pl) >= 12 else None
+
+
 def chain_id(key) -> str:
     return hashlib.sha1(json.dumps(key).encode()).hexdigest()[:12]
 
@@ -251,6 +262,13 @@ class ChainTemplate:
     map: dict[str, str] = field(default_factory=dict)
     ranges: dict[str, list[float]] = field(default_factory=dict)
     name: str = ""
+    # T018n stale-template fix: every value the captured state carries that the host cannot set
+    # (unmapped params, bypass states, extras, and mapped params whose CC was not verified to
+    # move the render) is "baked". A template is reused only for presets whose baked values
+    # hash the same. Templates without a hash (older captures) are never reused.
+    verified: list[str] = field(default_factory=list)
+    baked: dict = field(default_factory=dict)
+    baked_hash: str = ""
 
     @classmethod
     def load_all(cls, d: Path | None = None) -> dict[tuple, ChainTemplate]:
@@ -260,17 +278,36 @@ class ChainTemplate:
             meta = json.loads(j.read_text())
             chain = tuple(tuple(x) for x in meta["chain"])
             state = (j.with_suffix(".state")).read_bytes()
-            out[chain] = cls(chain, state, meta.get("map", {}), meta.get("ranges", {}), meta.get("name", j.stem))
+            out[chain] = cls(chain, state, meta.get("map", {}), meta.get("ranges", {}), meta.get("name", j.stem),
+                             meta.get("verified", []), meta.get("baked", {}), meta.get("baked_hash", ""))
+        return out
+
+    @classmethod
+    def load_variants(cls, d: Path | None = None) -> dict[tuple, list[ChainTemplate]]:
+        """All templates per chain (several baked-value variants may share a structure)."""
+        d = d or cache_dir() / "templates"
+        out: dict[tuple, list[ChainTemplate]] = {}
+        for j in sorted(d.glob("*.json")) if d.is_dir() else []:
+            meta = json.loads(j.read_text())
+            if "chain" not in meta or not j.with_suffix(".state").is_file():
+                continue
+            chain = tuple(tuple(x) for x in meta["chain"])
+            out.setdefault(chain, []).append(cls(
+                chain, j.with_suffix(".state").read_bytes(), meta.get("map", {}), meta.get("ranges", {}),
+                meta.get("name", j.stem), meta.get("verified", []), meta.get("baked", {}),
+                meta.get("baked_hash", "")))
         return out
 
     def save(self, d: Path | None = None) -> Path:
         d = d or cache_dir() / "templates"
         d.mkdir(parents=True, exist_ok=True)
         cid = chain_id([list(x) for x in self.chain])
-        (d / f"{cid}.state").write_bytes(self.state)
-        p = d / f"{cid}.json"
+        stem = f"{cid}_{self.baked_hash[:10]}" if self.baked_hash else cid
+        (d / f"{stem}.state").write_bytes(self.state)
+        p = d / f"{stem}.json"
         p.write_text(json.dumps({"name": self.name, "chain": [list(x) for x in self.chain],
-                                 "map": self.map, "ranges": self.ranges}, indent=1))
+                                 "map": self.map, "ranges": self.ranges, "verified": self.verified,
+                                 "baked_hash": self.baked_hash, "baked": self.baked}, indent=1))
         return p
 
 
@@ -312,6 +349,158 @@ def _rms_db(x: np.ndarray) -> float:
 # --------------------------------------------------------------------------- the engine
 
 
+def autocapture_enabled() -> bool:
+    """``TONEMATCH_NATIVE_AUTOCAPTURE=1`` lets ``load()`` capture unknown chains itself (T018n)."""
+    return os.environ.get("TONEMATCH_NATIVE_AUTOCAPTURE", "0").strip().lower() in ("1", "true", "yes")
+
+
+def start_state_path() -> Path:
+    """The human-made HX Stomp start state (scripts/native_hc_once.py), if present."""
+    return cache_dir() / "start_stomp.state"
+
+
+def _scalar(v):
+    if isinstance(v, bool) or v is None or isinstance(v, str):
+        return v
+    if isinstance(v, (int, float)):
+        return round(float(v), 6)
+    return json.dumps(v, sort_keys=True, default=str)
+
+
+def baked_fingerprint(preset, amap: dict[str, str], verified) -> tuple[dict, str]:
+    """Values a template's state fixes for ``preset``: every param, bypass and extra except
+    the mapped params whose CC was verified to move the render. Returns (values, sha1)."""
+    live = {k for k in verified if k in amap}
+    vals: dict = {}
+    for i, s in enumerate(preset.slots):
+        if s.model_id is None:
+            continue
+        for name, v in sorted((s.params or {}).items()):
+            if f"{i}:{name}" not in live:
+                vals[f"{i}:{name}"] = _scalar(v)
+        if f"{i}:@enabled" not in live:
+            vals[f"{i}:@enabled"] = bool(s.enabled)
+        for k, v in sorted((getattr(s, "extra", None) or {}).items()):
+            if k not in ("@position", "@cab"):
+                vals[f"{i}:{k}"] = _scalar(v)
+    h = hashlib.sha1(json.dumps(vals, sort_keys=True).encode()).hexdigest()
+    return vals, h
+
+
+def catalog_ranges(preset, catalog: dict | None = None) -> dict[str, tuple[float, float]] | None:
+    """``"<slot>:<param>" -> (min, max)`` for continuous params from the HX catalog, or None."""
+    if catalog is None:
+        try:
+            from tonematch.catalog import load_catalog
+
+            catalog = load_catalog()
+        except Exception:  # noqa: BLE001 - no catalog cached: fall back to [0, 1] params
+            return None
+    models = catalog.get("models", catalog)
+    out = {}
+    for i, s in enumerate(preset.slots):
+        m = models.get(s.model_id or "", {})
+        for name in s.params or {}:
+            p = (m.get("params") or {}).get(name)
+            if p and p.get("kind") == "continuous" and p.get("min") is not None and p.get("max") is not None:
+                out[f"{i}:{name}"] = (float(p["min"]), float(p["max"]))
+    return out
+
+
+def capture_chain(preset, plugin: str, *, plugin_name: str | None = None,
+                  start_state: bytes | None = None, templates_dir: Path | None = None,
+                  host_factory=None, open_wait_s: float = 8.0, load_wait_s: float = 4.0,
+                  verify_ccs: bool = True, catalog: dict | None = None) -> ChainTemplate:
+    """Capture a template for ``preset``'s chain with no human (T018n, macOS VST3).
+
+    Writes the preset as ``.hlx`` with a free MIDI CC assigned to every [0, 1] parameter
+    (``native_setlist.assign_ccs``), opens Native's editor in a fresh host process, drops the
+    file on it in-process (``native_gui``), closes the editor and saves the state as a
+    ``ChainTemplate`` whose map points at the VST3's ``cc_<n>`` params. Raises
+    ``UnsupportedModelChange`` with the reason if it cannot (no GUI session, no PyObjC, Native
+    asked a question, or the state did not change). ``host_factory(plugin, plugin_name)`` must
+    return an object with ``call``/``close`` like ``HostProcess`` (tests pass a fake).
+
+    CC ranges come from the HX catalog for continuous params (cab Hz, dB levels included);
+    without a catalog only params valued in [0, 1] are mapped, as [0, 1]. With ``verify_ccs``
+    each mapped CC is checked by render (one render per CC, 3 s pre-roll): only CCs that move
+    the render are ``verified``; everything else is baked into the template's fingerprint, so
+    the template is reused only for presets with identical baked values.
+    """
+    from .native_setlist import assign_ccs
+
+    key = chain_key(preset)
+    cid = chain_id([list(k) for k in key])
+    d = preset.to_hlx_dict()
+    ranges = catalog_ranges(preset, catalog)
+    targets = [(i, n) for i, s in enumerate(preset.slots) for n in (s.params or {})
+               if ranges is None or f"{i}:{n}" in ranges]
+    d, amap, rng, _skipped = assign_ccs(d, targets, ranges=ranges)
+    _, full_hash = baked_fingerprint(preset, {}, [])
+    out = cache_dir() / "drop"
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{cid}_{full_hash[:10]}.hlx"
+    path.write_text(json.dumps(d, indent=1))
+    host = (host_factory or HostProcess)(plugin, plugin_name)
+    try:
+        gui = host.call("gui_available")[0]
+        if not gui.get("gui"):
+            raise UnsupportedModelChange(f"Native autocapture unavailable: {gui.get('reason')}")
+        if start_state:
+            host.call("reload_with_state", start_state, path=plugin, plugin_name=plugin_name)
+        before = host.call("get_state")[1]
+        res = host.call("editor_drop", path=str(path.resolve()), open_wait_s=open_wait_s,
+                        load_wait_s=load_wait_s)[0]
+        if res.get("error"):
+            raise UnsupportedModelChange(f"Native autocapture failed: {res['error']}")
+        if res.get("dialogs"):
+            raise UnsupportedModelChange(
+                "Native asked a question while loading the file (usually the HC-mode prompt): run "
+                "scripts/native_hc_once.py once and tick \"Don't ask me again\"")
+        state = host.call("get_state")[1]
+        if state == before:
+            raise UnsupportedModelChange(
+                f"Native autocapture: the drop of {path.name} did not change the state")
+        verified = _verify_ccs(host, plugin, plugin_name, state, preset, amap, rng) if (
+            verify_ccs and amap) else []
+    finally:
+        host.close()
+    baked, h = baked_fingerprint(preset, amap, verified)
+    tpl = ChainTemplate(key, state, amap, rng, name=getattr(preset, "name", "") or cid,
+                        verified=verified, baked=baked, baked_hash=h)
+    tpl.save(templates_dir)
+    return tpl
+
+
+def _verify_ccs(host, plugin, plugin_name, state, preset, amap, rng,
+                threshold_db: float = -45.0, preroll_s: float = 3.0) -> list[str]:
+    """Mapped params whose CC moves the render (one render each, against a base render)."""
+    host.call("reload_with_state", state, path=plugin, plugin_name=plugin_name)
+    pre = int(preroll_s * SAMPLE_RATE)
+    x = np.concatenate([np.zeros(pre, np.float32), test_signal(1.0)])
+
+    def render() -> np.ndarray:
+        _, data = host.call("render", x.astype("<f4").tobytes(), reset=True)
+        return np.frombuffer(data, dtype="<f4")[pre:]
+
+    def norm(ref: str) -> float:
+        i, name = ref.split(":", 1)
+        lo, hi = rng.get(ref, [0.0, 1.0])
+        v = float((preset.slots[int(i)].params or {}).get(name, lo))
+        return float(np.clip((v - lo) / ((hi - lo) or 1.0), 0.0, 1.0))
+
+    host.call("set_params", values={prm: norm(ref) for ref, prm in amap.items()})
+    base = render()
+    ok = []
+    for ref, prm in amap.items():
+        v = norm(ref)
+        host.call("set_params", values={prm: 0.25 if v >= 0.5 else 0.75})
+        if null_db(render(), base) > threshold_db:
+            ok.append(ref)
+        host.call("set_params", values={prm: v})
+    return ok
+
+
 class NativeEngine:
     """Helix Native via a child-process plugin host. See the module docstring."""
 
@@ -331,7 +520,8 @@ class NativeEngine:
     def __init__(self, plugin_path: str | Path | None = None, plugin_name: str | None = None,
                  *, calibration_db: float = 0.0, block_size: int = 512,
                  templates_dir: Path | None = None, route: str | None = None,
-                 preroll: int | None = None, reset_mode: str | None = None, flush_s: float = 2.0):
+                 preroll: int | None = None, reset_mode: str | None = None, flush_s: float = 2.0,
+                 autocapture: bool | None = None):
         p = plugin_path or os.environ.get("TONEMATCH_NATIVE_PLUGIN") or locate_plugin()
         if p is None:
             raise EngineError("Helix Native not found. Install it (your own licence) or set TONEMATCH_NATIVE_PLUGIN.")
@@ -348,10 +538,15 @@ class NativeEngine:
             raise EngineError(f"reset_mode must be one of {self.RESET_MODES}, got {self.reset_mode!r}")
         self.flush_s = float(flush_s)
         self.templates_dir = templates_dir
+        self.autocapture = autocapture_enabled() if autocapture is None else bool(autocapture)
+        self.last_capture_s: float | None = None
+        self._capture_host_factory = None  # tests inject a fake host here
         self.host = HostProcess(p, plugin_name, block_size)
         self._params = {d["name"]: d for d in self.host.info.get("params", [])}
         self.templates = ChainTemplate.load_all(templates_dir)
+        self._variants = ChainTemplate.load_variants(templates_dir)
         self._initial_state = self._get_state()
+        self._hc_mode = _hc_mode(self._initial_state) if self._initial_state else None
         self.codec = _load_codec()
         self.route = route or ("state" if self.codec else "automation")
         self.current_chain: tuple | None = None
@@ -381,14 +576,16 @@ class NativeEngine:
             self.current_template = None
             return
         key = chain_key(preset)
-        tpl = self.templates.get(key)
+        tpl, why = self._match_template(preset, key)
+        if tpl is None and self.autocapture:
+            tpl = self._autocapture(preset)
         if tpl is None:
             raise UnsupportedModelChange(
-                f"No captured Native template for chain {chain_id([list(x) for x in key])} "
-                f"({[m for _, m in key if m]}). Native is driven through 16+16 automation slots on this "
-                "route; capture the chain with scripts/native_spike.py --capture-template."
+                f"No usable Native template for chain {chain_id([list(x) for x in key])} "
+                f"({[m for _, m in key if m]}): {why}. Capture it hands-off with "
+                "TONEMATCH_NATIVE_AUTOCAPTURE=1 (macOS, GUI session, extra native-gui)."
             )
-        if key != self.current_chain:
+        if key != self.current_chain or tpl is not self.current_template:
             self._set_state(tpl.state)
             self.current_chain, self.current_template = key, tpl
         changes, unmapped = {}, []
@@ -403,6 +600,41 @@ class NativeEngine:
         self.last_unmapped = unmapped  # these stay at the template's captured values
         if changes:
             self.set_params(changes)
+
+    def _match_template(self, preset, key) -> tuple[ChainTemplate | None, str]:
+        """The template whose baked values (state-fixed, not host-settable) equal the preset's.
+
+        Stale-template fix (DECISIONS 2026-10-15): a structure match alone is not enough, since
+        unmapped or unverified params live in the captured state. Templates without a
+        fingerprint (captured before the fix) are never reused.
+        """
+        cands = self._variants.get(key, [])
+        if not cands:
+            return None, "no template captured for this structure"
+        diffs = []
+        for t in cands:
+            if not t.baked_hash:
+                diffs.append(f"{t.name!r} has no baked-value fingerprint (captured before the fix)")
+                continue
+            vals, h = baked_fingerprint(preset, t.map, t.verified)
+            if h == t.baked_hash:
+                return t, ""
+            d = sorted(k for k in set(vals) | set(t.baked) if vals.get(k) != t.baked.get(k))
+            diffs.append(f"{t.name!r} differs in baked {d[:6]}")
+        return None, "; ".join(diffs[:4])
+
+    def _autocapture(self, preset) -> ChainTemplate:
+        """Capture an unknown chain by in-process drop (T018n); raises UnsupportedModelChange."""
+        p = start_state_path()
+        t0 = time.perf_counter()
+        tpl = capture_chain(preset, self.plugin, plugin_name=self.plugin_name,
+                            start_state=p.read_bytes() if p.is_file() else None,
+                            templates_dir=self.templates_dir,
+                            host_factory=self._capture_host_factory)
+        self.last_capture_s = time.perf_counter() - t0
+        self.templates[tpl.chain] = tpl
+        self._variants.setdefault(tpl.chain, []).append(tpl)
+        return tpl
 
     def set_params(self, changes: dict[ParamRef, float]) -> None:
         if not changes:
@@ -487,10 +719,19 @@ class NativeEngine:
         return self.host.call("get_state")[1]
 
     def _set_state(self, blob: bytes) -> None:
+        mode = _hc_mode(blob)
         try:
-            self.host.call("set_state", blob)
+            if mode is not None and mode != self._hc_mode:
+                # Native 3.82 ignores a state that switches HC mode once audio has been processed
+                # (T018n): give it a fresh instance with the state set before any render.
+                self.host.call("reload_with_state", blob, path=self.plugin, plugin_name=self.plugin_name)
+            else:
+                self.host.call("set_state", blob)
+            if mode is not None:
+                self._hc_mode = mode
         except EngineError:
             self.host.restart()  # a bad blob may have killed or wedged the host
+            self._hc_mode = _hc_mode(self._initial_state) if self._initial_state else None
             raise
 
     def latency(self) -> int:

@@ -81,6 +81,23 @@ class Host:
         self.channels = self._probe_channels()
         return {"load_s": load_s, **self.info()}
 
+    def reload_with_state(self, payload: bytes, path: str, plugin_name: str | None = None,
+                          **_) -> dict:
+        """Fresh plugin instance with ``payload`` set before any audio is processed.
+
+        Native 3.82 ignores a state that changes the Hardware Compatibility mode once the
+        instance has processed audio (T018n), and ``open`` probes channels with a render.
+        """
+        import pedalboard as pb
+
+        self.plugin = None
+        self.plugin = pb.load_plugin(path, plugin_name=plugin_name)
+        t0 = time.perf_counter()
+        self.plugin.raw_state = payload
+        set_s = time.perf_counter() - t0
+        self.channels = self._probe_channels()
+        return {"set_s": set_s, "channels": self.channels}
+
     def _probe_channels(self) -> int:
         """Mono if the plugin accepts it, else stereo (dry duplicated, output folded to mono)."""
         x = np.zeros((1, self.block), dtype=np.float32)
@@ -161,6 +178,30 @@ class Host:
     def editor(self, **_) -> dict:
         self.plugin.show_editor()  # blocks until the human closes the window
         return {}
+
+    def gui_available(self, **_) -> dict:
+        """Whether this host can open an editor and drop files on it (macOS + PyObjC + a screen)."""
+        if sys.platform != "darwin":
+            return {"gui": False, "reason": f"in-process drop is macOS-only (platform {sys.platform})"}
+        try:
+            import AppKit
+        except ImportError as e:
+            return {"gui": False, "reason": f"PyObjC missing in the host interpreter ({e}); "
+                                            "pip install pyobjc-framework-Cocoa (extra native-gui)"}
+        screens = AppKit.NSScreen.screens() or []
+        if not screens:
+            return {"gui": False, "reason": "no screen: needs a logged-in GUI session"}
+        return {"gui": True, "reason": "", "screens": len(screens)}
+
+    def editor_drop(self, path: str, point: list | None = None, open_wait_s: float = 8.0,
+                    load_wait_s: float = 4.0, snap_prefix: str | None = None,
+                    auto_close: bool = True, **_) -> dict:
+        """T018n: open the editor, drop a preset file on it in-process, close (macOS only)."""
+        from tonematch.engines.native_gui import DEFAULT_DROP_POINT, drop_file
+
+        return drop_file(self.plugin, path, tuple(point or DEFAULT_DROP_POINT),
+                         open_wait_s=open_wait_s, load_wait_s=load_wait_s, snap_prefix=snap_prefix,
+                         auto_close=auto_close)
 
     def ping(self, **_) -> dict:
         return {"pid": os.getpid()}

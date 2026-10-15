@@ -35,3 +35,6 @@ fixtures/smoke/*.hlx
 data/di/**
 !data/di/README.md
 *.aif
+
+# user-supplied songs for local testing only (never committed, never uploaded)
+data/songs/

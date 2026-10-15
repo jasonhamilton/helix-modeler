@@ -30,6 +30,11 @@ on other seeds (`--seed 9101 9102 9103` pools several; the script warns on 0 or 
 `docs/DECISIONS.md` before running, and add `--note` to say which term version was measured. Keep
 `--jobs` at 2 or less when other agents are timing renders.
 
+Learned embeddings (`embed_afxrep`) are not in `--all`; name them, for example
+`--term embed_afxrep ltas_tilt envelope`, so the comparison runs on the same items. They need the
+`embed` extra and the checkpoint in `cache/models/afx-rep/` (`docs/notes/afx-rep.md`); without them
+the script exits 2. Jobs are capped at 2.
+
 ## Ledger
 
 `--kind loss-trust --dataset synthetic-v<N> --metric rank1_rate --value <r> --notes "term=<name>"`, plus a row for the held-out-notes subset.

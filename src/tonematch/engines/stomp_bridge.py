@@ -71,6 +71,11 @@ def stomp_on_bus() -> bool:
 # renames, writes a slot, writes a setting or touches IRs, whatever the helper binary offers.
 ALLOWED_COMMANDS = frozenset({"info", "chain", "backup", "restore", "select", "model", "set", "enable",
                               "route_key", "quit"})
+# The whole-document write (op 21, `restore` in the helper, EDIT BUFFER only). By default it may
+# only write back a backup this same session took (close() putting a dirty buffer back). Writing
+# any other document, such as one compiled from a generated .hlx (T018s), needs a bridge opened
+# with allow_document_write=True.
+DOCUMENT_WRITE = "restore"
 WEDGE_HINT = ("If the pedal no longer answers (here or on its own screen), it may be wedged: pull the "
               "HX Stomp's 9V adapter for a few seconds and plug it back in. A USB replug does not "
               "clear it. Do not retry in a loop.")
@@ -83,7 +88,10 @@ class StompBridge:
     reply can never be read as the answer to a later request; the bridge is then dead and every
     further call raises."""
 
-    def __init__(self, binary: Path | None = None, open_timeout_s: float = 20.0) -> None:
+    def __init__(self, binary: Path | None = None, open_timeout_s: float = 20.0,
+                 allow_document_write: bool = False) -> None:
+        self.allow_document_write = allow_document_write
+        self._backups: set[str] = set()
         exe = binary or helper_path()
         if exe is None:
             raise BridgeError(f"stompd helper not found; it is built outside this repo (see docs/notes/stompd.md), "
@@ -150,6 +158,11 @@ class StompBridge:
     def call(self, cmd: str, timeout_s: float = 30.0, **args: Any) -> dict[str, Any]:
         if cmd not in ALLOWED_COMMANDS:
             raise BridgeError(f"command {cmd!r} is not allowed (edit-buffer operations only)")
+        if cmd == DOCUMENT_WRITE and not self.allow_document_write:
+            p = str(Path(str(args.get("path", ""))).resolve())
+            if p not in self._backups:
+                raise BridgeError("writing a document other than this session's own backup needs "
+                                  "StompBridge(allow_document_write=True)")
         with self._lock:
             if self._dead is not None:
                 raise BridgeError(f"the stompd session is dead ({self._dead}). {WEDGE_HINT}")
@@ -164,6 +177,8 @@ class StompBridge:
             msg = self._next(timeout_s)
         if not msg.get("ok"):
             raise BridgeError(f"{cmd}: {msg.get('error')}")
+        if cmd == "backup" and args.get("path"):
+            self._backups.add(str(Path(str(args["path"])).resolve()))
         return msg
 
     def close(self) -> None:

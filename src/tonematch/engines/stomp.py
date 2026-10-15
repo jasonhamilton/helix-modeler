@@ -18,6 +18,16 @@ v0 limits (measured on firmware 3.50, docs/notes/T003-stomp-control-spike.md):
 - Amp+Cab blocks are changed with ``set_model_pair``: ``set_model`` alone drops the cab.
 - The Input block's "USB 5/6" value is 6 on the Stomp (the Floor menu value 15 is silent).
 - One render at a time (``parallelism=1``); Path A/B parallel renders are untested.
+
+Whole-preset load (T018s, behind a flag: ``StompEngine(whole_preset=...)`` or
+``TONEMATCH_STOMP_WHOLE_PRESET=fallback|always``): when the in-place plan raises
+``UnsupportedModelChange`` (``fallback``), or for every load (``always``), the preset is written as
+an ``.hlx`` with the Input on USB 5/6, compiled offline into a device document on top of a backup
+of the current edit buffer (``stompd compile``, which keeps the device's own container: section
+table, settings, junctions, assignments, snapshots), and written into the EDIT BUFFER with one
+whole-document write (op 21). Never a flash write. The compile refuses what it cannot build (a
+model change or emptied slot that carries controller assignments, Send/Return blocks, a block
+outside the template's rows); that is raised as ``UnsupportedModelChange``.
 """
 from __future__ import annotations
 
@@ -25,6 +35,9 @@ import atexit
 import datetime as dt
 import importlib.util
 import json
+import os
+import subprocess
+import tempfile
 import time
 import weakref
 from pathlib import Path
@@ -63,6 +76,37 @@ def _close_live_engines() -> None:
 
 
 atexit.register(_close_live_engines)
+ENV_WHOLE_PRESET = "TONEMATCH_STOMP_WHOLE_PRESET"   # off | fallback | always
+ENV_COMPILER = "TONEMATCH_STOMPD_COMPILE"           # a stompd build with the offline `compile` mode
+WHOLE_MODES = ("off", "fallback", "always")
+
+
+def compile_document(hlx: Path, base: Path, out: Path, compiler: Path | None = None) -> dict:
+    """Compile a .hlx onto a base device document with ``stompd compile`` (offline, no USB).
+
+    Returns the compiler's report. A refusal raises UnsupportedModelChange (what the compiler
+    cannot build is a layout this engine cannot load)."""
+    exe = compiler or (Path(os.environ[ENV_COMPILER]) if os.environ.get(ENV_COMPILER) else helper_path())
+    if exe is None:
+        raise EngineError(f"no stompd compiler: set {ENV_COMPILER} to a stompd build with `compile`")
+    r = subprocess.run([str(exe), "compile", str(hlx), str(base), str(out)], capture_output=True, text=True,
+                       timeout=60, check=False)
+    try:
+        msg = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError) as e:
+        raise EngineError(f"stompd compile gave no JSON (exit {r.returncode}): {r.stdout[-500:]} {r.stderr[-500:]}") from e
+    if not msg.get("ok"):
+        raise UnsupportedModelChange(f"stompd compile refused the preset: {msg.get('error')}")
+    return msg["report"]
+
+
+def reamp_hlx_dict(preset, input_value: int) -> dict:
+    """The preset as .hlx JSON with Path A's input on the reamp source (USB 5/6)."""
+    d = preset.to_hlx_dict()
+    d["data"]["tone"].setdefault("dsp0", {}).setdefault("inputA", {})["@input"] = int(input_value)
+    return d
+
+
 # .hlx "@" keys that describe layout, not sound; never sent as parameters.
 LAYOUT_KEYS = {"@path", "@position", "@type", "@stereo", "@cab", "@enabled", "@model",
                "@no_snapshot_bypass", "@trails", "@bypassvolume"}
@@ -175,11 +219,21 @@ class StompEngine:
     # so no settle time is added; the cost of a model change is load()'s own wall time.
     SETTLE_PARAM_S = 0.0
     SETTLE_MODEL_S = 0.0
+    REASSERT_INPUT_AFTER_WHOLE = True
 
     def __init__(self, bridge: StompBridge | None = None, calibration: reamp.Calibration | None = None,
-                 session_dir: Path | None = None):
+                 session_dir: Path | None = None, whole_preset: str | None = None,
+                 compiler=None):
+        mode = whole_preset if whole_preset is not None else os.environ.get(ENV_WHOLE_PRESET, "off")
+        if mode not in WHOLE_MODES:
+            raise EngineError(f"whole_preset must be one of {WHOLE_MODES}, got {mode!r}")
+        self.whole_preset = mode
+        self._compiler = compiler or compile_document
         self.cal = calibration or reamp.Calibration.load()
-        self.bridge = bridge or StompBridge()
+        self.bridge = bridge or StompBridge(allow_document_write=mode != "off")
+        if mode != "off" and getattr(self.bridge, "allow_document_write", True) is False:
+            self.bridge.close()
+            raise EngineError("whole_preset needs a bridge opened with allow_document_write=True")
         self._closed = False
         try:
             self.info = self.bridge.call("info")
@@ -203,6 +257,9 @@ class StompEngine:
         self.model_change_s: list[float] = []   # model commands alone
         self.model_load_s: list[float] = []     # whole load() calls that changed a model
         self.restore_report: dict = {}
+        self.whole_writes: list[dict] = []      # one entry per whole-document load (timings, report)
+        self.keep_documents: Path | None = None  # if set, each whole load's .hlx/base/document is copied here
+        self.session_dir = session_dir or SESSION_DIR
         self.last_offset = 0
         self._refs: dict[tuple, np.ndarray] = {}  # (chain key, clip hash) -> first render, for alignment
         self._cost: Cost | None = None
@@ -222,7 +279,14 @@ class StompEngine:
     def load(self, preset) -> None:
         t_start = time.perf_counter()
         self._refresh()
-        plan = plan_load(preset, self.chain)
+        if self.whole_preset == "always":
+            return self._load_whole(preset, t_start)
+        try:
+            plan = plan_load(preset, self.chain)
+        except UnsupportedModelChange:
+            if self.whole_preset == "fallback":
+                return self._load_whole(preset, t_start)
+            raise
         dev = _block_slots(self.chain)
         changed_model = False
         for pos, t in sorted(plan["targets"].items()):
@@ -262,6 +326,68 @@ class StompEngine:
             self.slot_map[t["slot"]] = (pos, False)
             if t["cab_slot"] is not None:
                 self.slot_map[t["cab_slot"]] = (pos, True)
+
+    def _load_whole(self, preset, t_start: float) -> None:
+        """Compile the preset onto a backup of the current edit buffer and write it whole (op 21,
+        edit buffer only). See the module docstring."""
+        before = _block_slots(self.chain)
+        with tempfile.TemporaryDirectory(dir=self.session_dir) as td:
+            tdp = Path(td)
+            hlx, base, out = tdp / "candidate.hlx", tdp / "base.bin", tdp / "candidate.bin"
+            from tonematch.preset import dumps_hlx
+
+            hlx.write_text(dumps_hlx(reamp_hlx_dict(preset, self.cal.input_usb56)), encoding="utf-8")
+            t0 = time.perf_counter()
+            self.bridge.call("backup", path=str(base))
+            t1 = time.perf_counter()
+            report = self._compiler(hlx, base, out)
+            t2 = time.perf_counter()
+            self.bridge.call("restore", path=str(out), timeout_s=30)
+            t3 = time.perf_counter()
+            if self.keep_documents is not None:  # evidence for spikes: what was compiled and written
+                import shutil
+
+                self.keep_documents.mkdir(parents=True, exist_ok=True)
+                n = len(self.whole_writes)
+                for f in (hlx, base, out):
+                    shutil.copy2(f, self.keep_documents / f"{n:02d}_{f.name}")
+        self._refresh()
+        dev = _block_slots(self.chain)
+        key_to_pos = {s_["key"]: int(s_["slot"]) for s_ in report.get("slots", []) if s_.get("key")}
+        self.slot_map = {}
+        changed_model = False
+        for i, sl in enumerate(preset.slots):
+            if sl.model_id is None or sl.key not in key_to_pos:
+                continue
+            pos = key_to_pos[sl.key]
+            cur = dev.get(pos)
+            if cur is None or cur.get("model_id") != sl.model_id:
+                raise EngineError(f"whole-preset write: slot {pos} holds {cur and cur.get('model_id')}, "
+                                  f"wanted {sl.model_id}")
+            prev = before.get(pos)
+            if prev is None or prev.get("model_id") != sl.model_id:
+                changed_model = True
+            self.slot_map[i] = (pos, False)
+            link = sl.extra.get("@cab")
+            if link:
+                ci = next((j for j, c in enumerate(preset.slots) if c.key == link), None)
+                if ci is not None:
+                    if cur.get("paired_id") != preset.slots[ci].model_id:
+                        raise EngineError(f"whole-preset write: slot {pos} cab is {cur.get('paired_id')}, "
+                                          f"wanted {preset.slots[ci].model_id}")
+                    if prev is None or prev.get("paired_id") != preset.slots[ci].model_id:
+                        changed_model = True
+                    self.slot_map[ci] = (pos, True)
+        # T018s: re-sending route_key after a whole write is NOT needed for audio. The --diagnose
+        # run (2026-10-14T23:44Z) had sound straight after the write without it (k1 = -23.27 dB,
+        # same as the control). The earlier "silence" was Terminal lacking Microphone permission.
+        # Kept because it is harmless: one op-42 command, and k4 after the re-send was identical.
+        self._route_input(force=self.REASSERT_INPUT_AFTER_WHOLE)
+        if changed_model or set(before) != set(dev):
+            self.model_load_s.append(time.perf_counter() - t_start)
+        self.whole_writes.append({"backup_s": t1 - t0, "compile_s": t2 - t1, "write_s": t3 - t2,
+                                  "load_s": time.perf_counter() - t_start, "report": report})
+        self.preset = preset
 
     def set_params(self, changes: dict[ParamRef, float]) -> None:
         if not changes:
@@ -349,6 +475,7 @@ class StompEngine:
         return Capabilities(
             engine="stomp", firmware_version=str(self.info.get("firmware") or ""), models=models, snapshots=3,
             extras={"control_route": "usb", "param_steps": None, "build": self.info.get("build"),
+                    "whole_preset": self.whole_preset,
                     "latency_samples": self.cal.latency_samples, "level_gain_db": self.cal.level_gain_db,
                     "input_usb56": self.cal.input_usb56, "original_preset": self.original,
                     "helper": str(helper_path())})
@@ -377,11 +504,11 @@ class StompEngine:
     def _refresh(self) -> None:
         self.chain = self.bridge.call("chain")
 
-    def _route_input(self) -> None:
+    def _route_input(self, force: bool = False) -> None:
         inp = next((s for s in self.chain["slots"] if s["kind"] == "Input" and s["pos"] == 0), None)
         if inp is None:
             raise EngineError("the pedal's preset has no Path A input")
-        if inp.get("routing") != self.cal.input_usb56:
+        if force or inp.get("routing") != self.cal.input_usb56:
             self.bridge.call("route_key", pos=0, key=51, to=self.cal.input_usb56)
 
     def _apply_values(self, pos: int, dev_params: list[dict], want: dict, paired: bool) -> None:

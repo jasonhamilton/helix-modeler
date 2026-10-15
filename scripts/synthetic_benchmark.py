@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SET_DIR = ROOT / "cache" / "synthetic"
 EXAMPLE_DIR = ROOT / "fixtures" / "synthetic"
 LEDGER = ROOT / "ledger" / "runs.csv"
+VOID = ROOT / "ledger" / "void.csv"  # timestamp,metric,reason; rows declared void in docs/DECISIONS.md
 
 # Switchable categories (amp and cab stay on: every chain here is full-rig).
 SWITCHABLE = ("comp", "drive", "eq", "mod", "delay", "reverb")
@@ -232,13 +233,24 @@ def _fmt_s(s: float) -> str:
 
 # ---- regression check against the ledger ----------------------------------------------
 
+def load_void(path: Path | None = None) -> set[tuple[str, str]]:
+    path = path or VOID
+    if not path.exists():
+        return set()
+    with path.open() as f:
+        return {(r["timestamp"], r["metric"]) for r in csv.DictReader(f)}
+
+
 def regressions(current: dict[str, float], dataset: str, engine: str, tol: dict) -> list[str]:
     """Compare against the previous ledger row with the same kind, dataset, engine and metric."""
     if not LEDGER.exists():
         return []
     prev: dict[str, float] = {}
+    void = load_void()
     with LEDGER.open() as f:
         for r in csv.DictReader(f):
+            if (r["timestamp"], r["metric"]) in void:
+                continue
             if r["kind"] == "benchmark" and r["dataset"] == dataset and r["engine"] == engine:
                 try:
                     prev[r["metric"]] = float(r["value"])

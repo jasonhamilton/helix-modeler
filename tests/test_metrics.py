@@ -193,7 +193,8 @@ def pair(dis):
 
 
 def test_default_weights_are_zero_until_admitted(pair):
-    assert set(DEFAULT_WEIGHTS) == set(NO_DI_TERMS)
+    # embed_afxrep is listed at weight 0 but skipped (heavy, optional) until its weight is non-zero
+    assert set(DEFAULT_WEIGHTS) == set(NO_DI_TERMS) | {"embed_afxrep"}
     assert all(w == 0.0 for w in DEFAULT_WEIGHTS.values())
     s = LossKit().score(*pair)
     assert s.total == 0.0
@@ -209,7 +210,7 @@ def test_weights_and_names(pair):
     with pytest.raises(KeyError):
         kit.score(*pair, weights={"not_a_term": 1.0})
     with pytest.raises(NotImplementedError):
-        kit.score(*pair, weights={"embed_afxrep": 1.0})
+        kit.score(*pair, weights={"embed_fxenc": 1.0})
     assert kit.score(*pair, weights={"embed_afxrep": 0.0, "envelope": 1.0}).terms.keys() == {"envelope"}
     with pytest.raises(ValueError):
         kit.score(*pair, weights={"sepcons": 1.0})
