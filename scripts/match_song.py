@@ -39,6 +39,7 @@ from scipy.signal import stft
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from tonematch import param_policy
 
 SR = 48_000
 N_FFT, HOP = 2048, 512                      # the separator's mask grid (tonematch.separation.confidence)
@@ -52,7 +53,9 @@ MIN_CC = 0.004
 FIXED_PARAMS = {"Hum", "Ripple", "Bias", "BiasX", "Time", "Offset", "Spread", "Level"}
 # Parity findings: parameters whose Native 3.82 render does not match the Stomp fw 3.50, frozen at the
 # given value in Stomp-verified mode (default). Add future findings here: (category, param) -> value.
-STOMP_FROZEN = {("cab", "EarlyReflections"): 0.0}   # benchmark 2026-10-15: ER 0 nulls -31.4 dB, 0.783 -3.6 dB
+# Read from the per-engine policy (src/tonematch/param_policy.json); first entry: cab EarlyReflections 0.0
+# (benchmark 2026-10-15: ER 0 nulls -31.4 dB, 0.783 -3.6 dB).
+STOMP_FROZEN = param_policy.frozen_for("stomp")
 TEMPLATE_SETS = {                           # name -> (hlx, templates dir) relative to the repo root
     "K": ("cache/stomp/inject/K.hlx", "cache/native/templates_files/K"),
     "A": ("cache/stomp/inject/A.hlx", "cache/native/templates_files/A"),

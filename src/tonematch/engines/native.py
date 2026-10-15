@@ -192,12 +192,14 @@ def rss_mb(pid: int) -> float | None:
 class HostProcess:
     """One plugin-host child process. Thread-safe per instance (one request at a time)."""
 
-    def __init__(self, plugin: str, plugin_name: str | None = None, block_size: int = 512):
+    def __init__(self, plugin: str, plugin_name: str | None = None, block_size: int = 512,
+                 initial_state: bytes | None = None):
         from .native_host import read_msg, write_msg  # protocol helpers only, no pedalboard
 
         self._read, self._write = read_msg, write_msg
         self._lock = threading.Lock()
         self.plugin, self.plugin_name, self.block_size = plugin, plugin_name, block_size
+        self.initial_state = initial_state or b""  # set before any audio (HC mode at start)
         self.info: dict = {}
         self.mem_mb: float | None = None  # host's physical footprint after the last reply
         self._spawn()
@@ -210,8 +212,9 @@ class HostProcess:
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None, env=env,
         )
         try:
-            self.info = self.call("open", path=self.plugin, plugin_name=self.plugin_name,
-                                  sample_rate=SAMPLE_RATE, block_size=self.block_size)[0]
+            self.info = self.call("open", self.initial_state, path=self.plugin,
+                                  plugin_name=self.plugin_name, sample_rate=SAMPLE_RATE,
+                                  block_size=self.block_size)[0]
         except EngineError:
             self.proc.kill()  # never leave a half-open host (each holds GBs) behind
             self.proc.wait(timeout=10)
@@ -555,7 +558,8 @@ class NativeEngine:
                  *, calibration_db: float = 0.0, block_size: int = 512,
                  templates_dir: Path | None = None, route: str | None = None,
                  preroll: int | None = None, reset_mode: str | None = None, flush_s: float = 2.0,
-                 autocapture: bool | None = None, mem_limit_mb: float | None = None):
+                 autocapture: bool | None = None, mem_limit_mb: float | None = None,
+                 start_state: bytes | None = None):
         p = plugin_path or os.environ.get("TONEMATCH_NATIVE_PLUGIN") or locate_plugin()
         if p is None:
             raise EngineError("Helix Native not found. Install it (your own licence) or set TONEMATCH_NATIVE_PLUGIN.")
@@ -575,7 +579,14 @@ class NativeEngine:
         self.autocapture = autocapture_enabled() if autocapture is None else bool(autocapture)
         self.last_capture_s: float | None = None
         self._capture_host_factory = None  # tests inject a fake host here
-        self.host = HostProcess(p, plugin_name, block_size)
+        if start_state is None and not p.startswith("builtin:") and \
+                os.environ.get("TONEMATCH_NATIVE_START_STATE", "1") != "0" and start_state_path().is_file():
+            # Start in the human-made HX Stomp state (scripts/native_hc_once.py): templates are
+            # captured in HX Stomp mode, so loading them needs no HC-mode reload, and the
+            # ~1.3 GB a reload_with_state leaks is never spent.
+            start_state = start_state_path().read_bytes()
+        self.host = (HostProcess(p, plugin_name, block_size, initial_state=start_state) if start_state
+                     else HostProcess(p, plugin_name, block_size))
         self._params = {d["name"]: d for d in self.host.info.get("params", [])}
         self.templates = ChainTemplate.load_all(templates_dir)
         self._variants = ChainTemplate.load_variants(templates_dir)
@@ -955,7 +966,7 @@ def measure_parallelism(plugin: str, plugin_name: str | None, state: bytes, clip
     payload = np.concatenate([np.zeros(preroll, np.float32), clip]).astype("<f4").tobytes()
 
     def open_host(_=None) -> HostProcess:
-        h = HostProcess(plugin, plugin_name)
+        h = HostProcess(plugin, plugin_name, initial_state=state or None)  # HC mode set before audio
         try:
             if state and h.info.get("has_state"):
                 h.call("set_state", state)

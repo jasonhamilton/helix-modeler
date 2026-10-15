@@ -326,7 +326,7 @@ The first risk below decides the architecture, so its spike runs first; the rest
 | Search space too large for the budget | Medium | Fixed template, measured starting values, predictor seeding | Fewer tuned parameters; user picks the amp family |
 | Native and Stomp differ | Low to medium | Parity null test | Final refinement on hardware via fretwire |
 | Native and HX Edit versions out of step with firmware (HX Edit 3.51 here vs firmware 3.80) | Medium: stale catalog | Upgrade to HX Edit 3.82, re-run catalog-import | Pin versions in DEV-ENV |
-| Native EULA silent on ML training from Native renders | Medium: limits published weights | Read installer EULAs; prefer hardware renders for published models | Ask Line 6 |
+| Native EULA silent on ML training from Native renders | Medium: limits published weights | Read installer EULAs; prefer hardware renders for published models | Ask Line 6 | Retired 2026-10-15: the human reviewed the installer EULAs and found no problem.
 | Native on Linux | Low | Wine + yabridge test | Develop on Windows or macOS |
 | Studio processing on the record (doubling, mix-bus compression, room mics) | Medium: limits how close any preset can get | Add an optional output EQ block; report the residual honestly | Document as a known limit |
 | Several guitars in one stem | Medium | Pan and register heuristics; user picks the part | Instrument-wise embeddings later |

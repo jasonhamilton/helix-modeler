@@ -53,6 +53,9 @@ embed = ["torch>=2.2", "torchlibrosa>=0.1", "pyyaml>=6"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+tonematch = ["param_policy.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

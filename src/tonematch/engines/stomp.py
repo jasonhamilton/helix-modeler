@@ -308,6 +308,7 @@ class StompEngine:
         self.model_change_s: list[float] = []   # model commands alone
         self.model_load_s: list[float] = []     # whole load() calls that changed a model
         self.restore_report: dict = {}
+        self.policy_warnings: list[str] = []   # last load(): parameters against the Stomp policy
         self.whole_writes: list[dict] = []      # one entry per whole-document load (timings, report, checks)
         self.last_readback: dict = {}           # the last load()'s full-parameter readback (stomp_readback)
         self.keep_documents: Path | None = None  # if set, each whole load's .hlx/base/document is copied here
@@ -330,6 +331,10 @@ class StompEngine:
 
     def load(self, preset) -> None:
         t_start = time.perf_counter()
+        # Per-engine parameter policy: reported, never silently rewritten (tonematch.param_policy).
+        from tonematch import param_policy
+
+        self.policy_warnings = param_policy.violations(preset, "stomp")
         self._refresh()
         if self.whole_preset == "always":
             return self._load_whole(preset, t_start)

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "about": "Per-engine parameter policy. Parameters known to render differently between HX Stomp firmware and Helix Native are frozen (held at a value) or forbidden (must not appear) for presets bound to that engine. Owner: stomp-engine; findings come from benchmark parity rows. Edit here, not in scripts.",
+  "rules": [
+    {
+      "category": "cab",
+      "param": "EarlyReflections",
+      "engines": {"stomp": {"action": "freeze", "value": 0.0}},
+      "firmware": {"stomp": "3.50", "native": "3.82"},
+      "evidence": "benchmark parity 2026-10-15T02:48:51: Stomp vs Native null with ER 0 -31.4 dB; ER 0.25 -14.7; 0.50 -9.1; 1.00 -1.1",
+      "until": "re-measure after a Stomp firmware upgrade (human decision 2026-10-15: deprioritised)"
+    }
+  ]
+}

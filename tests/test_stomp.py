@@ -531,3 +531,37 @@ def test_inject_probe_result_is_json_serialisable_on_digital_silence(monkeypatch
     out = si.probe(eng, np.ones(480, np.float32), tmp_path, "zero")
     assert out["path_a_silent"] is True
     json.dumps(out)
+
+
+SILENT_INFO_HELPER = """#!{python}
+import json, sys, time
+print(json.dumps({{"ok": True, "event": "ready", "presets": 126}}), flush=True)
+for line in sys.stdin:
+    cmd = json.loads(line)["cmd"]
+    if cmd == "info":
+        time.sleep(30)  # a wedged pedal: the session opens, nothing answers
+    print(json.dumps({{"ok": True, "cmd": cmd}}), flush=True)
+"""
+
+
+def test_health_check_tells_the_user_to_power_cycle(tmp_path, monkeypatch):
+    import sys
+
+    from tonematch.engines import stomp_bridge as sb
+
+    exe = tmp_path / "stompd"
+    exe.write_text(SILENT_INFO_HELPER.format(python=sys.executable))
+    exe.chmod(0o755)
+    monkeypatch.setattr(sb.StompBridge, "HEALTH_TIMEOUT_S", 0.5)
+    with pytest.raises(sb.PowerCycleNeeded) as e:
+        sb.StompBridge(binary=exe)
+    msg = str(e.value)
+    assert "off and on" in msg and "9V" in msg and "Nothing was written" in msg
+    assert "stderr" not in msg   # plain message, no debugging noise
+
+
+def test_health_check_passes_on_a_healthy_helper(fake_helper):
+    from tonematch.engines.stomp_bridge import StompBridge
+
+    with StompBridge(binary=fake_helper) as b:
+        assert b.health_check()["cmd"] == "info"

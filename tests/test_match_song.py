@@ -13,6 +13,10 @@ import soundfile as sf
 from scipy.signal import stft
 
 ROOT = Path(__file__).resolve().parents[1]
+KNOWN = ROOT / "fixtures" / "smoke" / "known.hlx"
+# known.hlx is built from the user's own HX Stomp export (Line 6 content), so it is gitignored and
+# absent in CI; tests that need it skip there and run locally.
+needs_known = pytest.mark.skipif(not KNOWN.exists(), reason="fixtures/smoke/known.hlx is local only (gitignored)")
 spec = importlib.util.spec_from_file_location("match_song", ROOT / "scripts" / "match_song.py")
 MS = importlib.util.module_from_spec(spec)
 sys.modules["match_song"] = MS  # dataclasses look the module up
@@ -90,6 +94,7 @@ def test_masked_kit_injects_and_slices_the_mask():
     assert seen["mask"].sum() == 60
 
 
+@needs_known
 def test_derive_free_skips_minutiae_unmapped_and_bypassed_delay():
     from tonematch.preset import read_hlx
 
@@ -107,6 +112,7 @@ def test_derive_free_skips_minutiae_unmapped_and_bypassed_delay():
     assert (2, "Mix") in MS.derive_free(pre, tpl, None)
 
 
+@needs_known
 def test_write_best_hlx_applies_values_and_snapshots(tmp_path):
     from tonematch.preset import read_hlx
     from tonematch.search import ParamSpace
@@ -181,6 +187,7 @@ def test_dry_run_renders_nothing(tmp_path):
     assert not (tmp_path / "out" / "report.md").exists()
 
 
+@needs_known
 def test_make_space_never_commands_exact_zero():
     from tonematch.preset import read_hlx
 
@@ -238,6 +245,7 @@ def test_level_guard_penalises_a_collapsed_output_only():
     assert g.score(x, x * 10 ** (20 / 20)).total > 1.0                   # and so is too loud
 
 
+@needs_known
 def test_make_prior_is_off_at_zero_weight_and_pulls_to_the_middle():
     from tonematch.preset import read_hlx
 
@@ -277,6 +285,7 @@ def test_timed_engine_restarts_a_bloated_host_before_it_is_killed(monkeypatch):
     assert inner.params[(0, "Gain")] == 0.8                               # state replayed after each restart
 
 
+@needs_known
 def test_frozen_params_excluded_and_pack_writes_true_level_di(tmp_path):
     from tonematch.preset import read_hlx
 
@@ -323,6 +332,7 @@ def test_target_and_user_di_options(tmp_path):
         MS.user_di_clip(tmp_path / "take0_dry.wav", tmp_path / "take0.json", {"start_s": 20.0, "end_s": 24.0, "dur_s": 4.0})
 
 
+@needs_known
 def test_top3_hlx_written_from_result_json(tmp_path):
     from tonematch.preset import read_hlx
 

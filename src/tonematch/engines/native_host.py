@@ -140,7 +140,11 @@ class Host:
     # --- commands ---------------------------------------------------------------------------
 
     def open(self, path: str, plugin_name: str | None = None, sample_rate: int = 48_000,
-             block_size: int = 512, reset_strategy: str | None = None, **_) -> dict:
+             block_size: int = 512, reset_strategy: str | None = None, payload: bytes = b"",
+             **_) -> dict:
+        """Load the plugin. ``payload``, if given, is a state set before any audio is processed,
+        so a host can start in another Hardware Compatibility mode (e.g. HX Stomp) without the
+        extra plugin instance (~1.3 GB, never freed) that ``reload_with_state`` costs."""
         import pedalboard as pb
 
         if reset_strategy is not None:
@@ -154,8 +158,10 @@ class Host:
         else:
             self.plugin = pb.load_plugin(path, plugin_name=plugin_name)
             self.instances += 1
+            if payload:
+                self.plugin.raw_state = payload
         self.processed = 0
-        self._rebase()
+        self._rebase(payload or None)
         load_s = time.perf_counter() - t0
         self.channels = self._probe_channels()
         return {"load_s": load_s, **self.info()}

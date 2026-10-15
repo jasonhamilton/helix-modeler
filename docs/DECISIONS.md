@@ -295,3 +295,20 @@ Append-only. One entry per decision: date, decision, why, who decided. The lead 
 - **Completion percentages are removed** (the registry validator rejects `completion`); progress is shown as criteria evidenced per gate, board task counts and evidence levels. `ear` evidence is labelled "informal, not blind" until Gate 3 is signed.
 - **"What changed" diffs against `reports/status/history/<date>.json`** (committed, small, written each run, one per day); with no earlier snapshot the report says so and uses curated, evidence-cited recent changes. The first snapshot is 2026-10-15.
 - **Human actions exclude lead-owned rulings** (open DECISIONS proposals); they are listed in the technical details as open items for the lead. The registry's `needs_human` entries are mapped to actions or to `agent_owned` in the curated file.
+
+## 2026-10-15 (Native priorities, human)
+
+- **Stereo is out of scope for now.** Most guitar pedals are mono; the host stays mono in / mono out and no stereo host path is planned. Stereo blocks are captured and used in mono. — human
+- **Order of Native work: bugs first, then performance, then sampling.** Fix the unexplained ~-67 dB floor in chained blocks, the ~1.3 GB leak per state reload, and the sub-5 Hz offset after delay blocks before adding features; then parallel rendering and faster capture/probe rendering, measured; the overnight block library (T048) waits for both. — human
+
+## 2026-10-15 (HX Stomp priorities, human)
+
+- **Control-channel wedge: deprioritised.** Seen once. Detect it pre-emptively (a short health check before any Stomp run) and tell the user plainly to switch the pedal off and on; investigate only if it recurs. — human
+- **Fix now:** the unexplained delay readback (Mix 0.72, Time 0.47) and K's noisier first render after a write: reproduce, find the cause, fix. — human
+- **Cab Early Reflections mismatch: deprioritised** until a firmware upgrade; meanwhile engine-specific handling (a per-engine parameter policy, so a Stomp-bound preset never carries a parameter known to differ on the pedal). — human
+- **Per-block parity audit (T049): skipped for now.** Linux/Windows checks: ignored for now. `stompd` source: stays unpublished until a better working version. — human
+- **Check now:** the delay-tail test with silence after the last note; then improve and decide the whole-preset default. **Test ASAP:** rendering on Path A and Path B at once (two renders per pass). — human
+
+## 2026-10-15 (EULA, human)
+
+- **Installer EULAs reviewed by the human: no problem for this project** ("we are fine"). This closes T017 with a recorded finding and retires the PLAN risk "Native EULA silent on ML training from Native renders". Not legal advice; the human's own reading of the Helix Native and HX Edit installer agreements. — human

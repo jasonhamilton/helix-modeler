@@ -17,3 +17,7 @@ Status: T009. The only Line 6 licence text reached was the generic software EULA
 - Keep Native automation (16+16 slots, MIDI CC, pedalboard hosting) as documented user-facing features; they are not restricted by anything found.
 - Do not publish a hosted render service. Do not ship trained models derived from Native renders until item 5 is answered.
 - Do not decompile HX Edit or Native to learn the state-blob format; inspect the blobs the plugin itself produces with its host API only (this is T002's approach) and treat the result as still subject to clause 1 until the installer EULA is read.
+
+## Human review (2026-10-15)
+
+The human read the EULAs shipped with the Helix Native and HX Edit installers and found no problem for this project, including local scripted use and training on renders made with their own licence. Recorded in docs/DECISIONS.md. This closes T017.

@@ -149,6 +149,26 @@ def configs(catalog: dict) -> dict[str, dict]:
     return out
 
 
+def grouped(name: str, allc: dict) -> dict:
+    """``C8g_<groups>``: C8's blocks split into instances, e.g. ``C8g_0-12`` = [comp] [drive amp].
+    The one-instance reference is the chain of all blocks named in the groups."""
+    groups = name.split("_", 1)[1].split("-")
+    idx = [int(c) for g in groups for c in g]
+    c8 = allc["C8"]["single"]
+    single = _empty_like(c8, f"BS C8 sel{''.join(map(str, idx))}")
+    single.slots = [copy.deepcopy(c8.slots[i]) for i in idx]
+    for j, sl in enumerate(single.slots):
+        sl.position, sl.key = j, f"block{j}"
+    parts = []
+    for g in groups:
+        p = _empty_like(c8, f"BS C8 grp{g}")
+        p.slots = [copy.deepcopy(c8.slots[int(c)]) for c in g]
+        for j, sl in enumerate(p.slots):
+            sl.position, sl.key = j, f"block{j}"
+        parts.append(p)
+    return {"single": single, "serial": parts}
+
+
 # ----------------------------------------------------------------------------- capture
 
 
@@ -315,7 +335,7 @@ def main() -> int:
     allc = configs(catalog)
     results = {}
     for name in a.configs.split(","):
-        cfg = allc[name]
+        cfg = allc[name] if name in allc else grouped(name, allc)
         d = OUT / (name + a.tag)
         d.mkdir(parents=True, exist_ok=True)
         tpls = {}

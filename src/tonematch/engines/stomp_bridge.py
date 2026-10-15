@@ -33,6 +33,20 @@ class BridgeError(EngineError):
     """The helper reported an error, timed out or exited."""
 
 
+POWER_CYCLE_MESSAGE = (
+    "The HX Stomp is not answering on USB. Switch the pedal off and on (pull its 9V adapter for a "
+    "few seconds and plug it back in), wait until it has finished booting and shows a preset, then "
+    "run this again. Nothing was written to the pedal. (A USB replug does not clear this.)")
+
+
+class PowerCycleNeeded(BridgeError):
+    """Pre-run health check failed: the pedal does not answer. The message is for the user."""
+
+    def __init__(self, detail: str = ""):
+        super().__init__(POWER_CYCLE_MESSAGE)
+        self.detail = detail
+
+
 def helper_path() -> Path | None:
     """The `stompd` binary, from TONEMATCH_STOMPD or PATH."""
     env = os.environ.get(ENV_HELPER)
@@ -88,8 +102,10 @@ class StompBridge:
     reply can never be read as the answer to a later request; the bridge is then dead and every
     further call raises."""
 
+    HEALTH_TIMEOUT_S = 3.0   # a healthy pedal answers `info` in well under 0.1 s
+
     def __init__(self, binary: Path | None = None, open_timeout_s: float = 20.0,
-                 allow_document_write: bool = False) -> None:
+                 allow_document_write: bool = False, health_check: bool = True) -> None:
         self.allow_document_write = allow_document_write
         self._backups: set[str] = set()
         exe = binary or helper_path()
@@ -106,14 +122,32 @@ class StompBridge:
         self._lock = threading.Lock()
         try:
             ready = self._next(open_timeout_s)
-        except BridgeError:
+        except BridgeError as e:
             self._kill()
+            if "did not answer" in str(e):   # no ready line at all: the pedal hangs the open
+                raise PowerCycleNeeded(str(e)) from None
             raise
         if not ready.get("ok") or ready.get("event") != "ready":
             self._kill()
             raise BridgeError(f"stompd did not open the device: {ready} {self._stderr_tail()} "
                               "(is HX Edit running? it holds the control interface)")
         self.ready: dict[str, Any] = ready
+        if health_check:
+            self.health_check()
+
+    def health_check(self, timeout_s: float | None = None) -> dict[str, Any]:
+        """Pre-run check: `info` must answer within a few seconds. On no answer (or a dead
+        session) raise PowerCycleNeeded, whose message tells the user to power-cycle the pedal.
+        Run before anything is written; never retried in a loop."""
+        try:
+            return self.call("info", timeout_s=timeout_s or self.HEALTH_TIMEOUT_S)
+        except PowerCycleNeeded:
+            raise
+        except BridgeError as e:
+            if "did not answer" in str(e) or "dead" in str(e) or "lost" in str(e) or "exited" in str(e):
+                self.close()
+                raise PowerCycleNeeded(str(e)) from None
+            raise
 
     def _pump(self) -> None:
         assert self._proc.stdout is not None
