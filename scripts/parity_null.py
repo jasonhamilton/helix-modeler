@@ -334,7 +334,14 @@ def default_native_factory(name: str):
 
 
 def default_verify_restore(eng) -> dict:
-    """With a fresh helper session: the pedal's edit buffer is byte-equal to the backup taken at open."""
+    """The pedal's edit buffer is byte-equal to the backup taken at open. Since T061 the engine checks
+    this in its own session (close(verify_bytes=True)); a fresh helper session only for engines
+    that did not."""
+    rr = getattr(eng, "restore_report", {}) or {}
+    if "bytes_equal_backup" in rr:
+        o = rr.get("original") or {}
+        return {"after": {k: o.get(k) for k in ("setlist", "index", "label", "name")},
+                "bytes_equal_backup": bool(rr["bytes_equal_backup"]), "same_session": True}
     from tonematch.engines.stomp_bridge import StompBridge
 
     with StompBridge() as b:
@@ -399,7 +406,13 @@ def render_all(factory, presets: dict[str, Path], dry: np.ndarray, raw_dir: Path
                 if engine == "stomp" and gap_s:
                     time.sleep(gap_s)   # let the previous preset's delay tail die before the next write+render
         finally:
-            eng.close()
+            if engine == "stomp":
+                try:
+                    eng.close(verify_bytes=True)   # restore check in the same session (T061 item 1)
+                except TypeError:
+                    eng.close()
+            else:
+                eng.close()
             if engine == "stomp":
                 info["restore_report"] = getattr(eng, "restore_report", {})
                 if verify is not None:
@@ -527,7 +540,7 @@ def cmd_check(a) -> int:
 
 
 def cmd_run(a) -> int:
-    if subprocess.run(["pgrep", "-f", "HX Edit"], capture_output=True, check=False).stdout.strip():
+    if subprocess.run(["pgrep", "-f", "HX Edit.app/Contents/MacOS/HX Edit"], capture_output=True, check=False).stdout.strip():
         sys.exit("HX Edit is running: quit it first (it holds the control interface)")
     for var in ("TONEMATCH_STOMPD", "TONEMATCH_STOMPD_COMPILE"):
         if "stomp" in a.engines and not os.environ.get(var):
@@ -560,7 +573,11 @@ def main(argv=None) -> int:
             p.add_argument("--stomp-gap-s", type=float, default=3.0,
                            help="wait after each Stomp render so the delay tail dies (default 3 s)")
             p.add_argument("--no-ledger", action="store_true")
+            from tonematch.engines.stomp_bridge import add_usb_reset_arg
+            add_usb_reset_arg(p)
     a = ap.parse_args(argv)
+    from tonematch.engines.stomp_bridge import apply_usb_reset_arg
+    apply_usb_reset_arg(a)
     return {"gen": cmd_gen, "check": cmd_check, "run": cmd_run}[a.cmd](a)
 
 

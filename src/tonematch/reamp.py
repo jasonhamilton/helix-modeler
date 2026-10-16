@@ -16,6 +16,10 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
+import sys
+import threading
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -115,6 +119,34 @@ def trim(rec_mono: np.ndarray, pre: int, latency: int, n: int, tail: int) -> np.
     return out.astype(np.float32)
 
 
+# Clip lengths (T061 item 2). Hardware renders take about clip length + 0.67 s, so search trials
+# use a short excerpt and only finalists get the long clip. Env overrides for experiments.
+SEARCH_CLIP_S = float(os.environ.get("TONEMATCH_STOMP_SEARCH_CLIP_S", "3.0"))
+FINALIST_CLIP_S = float(os.environ.get("TONEMATCH_STOMP_FINALIST_CLIP_S", "10.0"))
+
+
+def excerpt(x: np.ndarray, seconds: float, sr: int = SR, hop_s: float = 0.25) -> tuple[np.ndarray, int]:
+    """The loudest `seconds`-long window of `x` (RMS, on a `hop_s` grid), with its start sample.
+    The whole clip when it is shorter. Deterministic, so every engine renders the same excerpt."""
+    x = np.asarray(x, np.float32)
+    n = round(seconds * sr)
+    if n <= 0 or len(x) <= n:
+        return x.copy(), 0
+    hop = max(1, int(hop_s * sr))
+    c = np.concatenate([[0.0], np.cumsum(np.asarray(x, np.float64) ** 2)])
+    starts = np.arange(0, len(x) - n + 1, hop)
+    e = c[starts + n] - c[starts]
+    i = int(starts[int(np.argmax(e))])
+    return x[i:i + n].copy(), i
+
+
+def clip_for(x: np.ndarray, stage: str = "search", sr: int = SR) -> tuple[np.ndarray, int]:
+    """`stage` "search" -> SEARCH_CLIP_S excerpt; "finalist" -> FINALIST_CLIP_S excerpt."""
+    if stage not in ("search", "finalist"):
+        raise ValueError(f"stage must be search or finalist, got {stage!r}")
+    return excerpt(x, SEARCH_CLIP_S if stage == "search" else FINALIST_CLIP_S, sr)
+
+
 # --------------------------------------------------------------------------- calibration file
 
 @dataclass
@@ -158,6 +190,41 @@ class Calibration:
 
 # --------------------------------------------------------------------------- device I/O
 
+_STREAMS = 0
+_STREAMS_LOCK = threading.Lock()
+
+
+@contextmanager
+def _streaming():
+    """Count a live audio stream, so the control side never resets USB under it (T059)."""
+    global _STREAMS
+    with _STREAMS_LOCK:
+        _STREAMS += 1
+    try:
+        yield
+    finally:
+        with _STREAMS_LOCK:
+            _STREAMS -= 1
+
+
+def audio_active() -> bool:
+    """True while any stream opened through this module is playing or recording."""
+    with _STREAMS_LOCK:
+        return _STREAMS > 0
+
+
+def refresh_audio_devices() -> bool:
+    """Re-scan audio devices after the HX Stomp re-enumerated (a USB reset). PortAudio keeps the
+    device list it saw at start-up, so without this the next stream would use a stale index.
+    No-op when sounddevice was never imported or a stream is live. Returns True if re-scanned."""
+    sd = sys.modules.get("sounddevice")
+    if sd is None or audio_active():
+        return False
+    sd._terminate()
+    sd._initialize()
+    return True
+
+
 def find_device(name_hint: str = NAME_HINT) -> int:
     import sounddevice as sd
 
@@ -188,13 +255,14 @@ def duplex(play: np.ndarray, out_channels: tuple[int, ...], device: int | None =
     buf = np.zeros((len(play), n_out), np.float32)
     for col, ch in enumerate(out_channels):
         buf[:, ch - 1] = play[:, col]
-    try:
-        rec = sd.playrec(buf, samplerate=SR, device=(dev, dev), dtype="float32", channels=None,
-                         input_mapping=list(range(1, n_in + 1)), output_mapping=list(range(1, n_out + 1)),
-                         latency=PA_LATENCY, blocking=True)
-    except BaseException:
-        sd.stop()  # Ctrl-C mid-take: silence the outputs before re-raising
-        raise
+    with _streaming():
+        try:
+            rec = sd.playrec(buf, samplerate=SR, device=(dev, dev), dtype="float32", channels=None,
+                             input_mapping=list(range(1, n_in + 1)), output_mapping=list(range(1, n_out + 1)),
+                             latency=PA_LATENCY, blocking=True)
+        except BaseException:
+            sd.stop()  # Ctrl-C mid-take: silence the outputs before re-raising
+            raise
     return np.asarray(rec, np.float32)
 
 

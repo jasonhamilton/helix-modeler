@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 STOMP_DEVICE_ID = 2162694
+SNAPSHOT_CONTROLLER = 9  # tone.controller @controller id of "snapshot" (setlist survey, 126 presets)
 TEMPLATE_ORDER = ("comp", "drive", "amp", "cab", "eq", "mod", "delay", "reverb")
 MAX_BLOCKS = 8
 # Keys of a block dict that the Slot fields own; every other "@" key rides along in Slot.extra.
@@ -62,15 +63,61 @@ class Preset:
     device_version: int = 0
     raw: dict = field(default_factory=dict)
     path: Path | None = None
+    current_snapshot: int = 0
+    # Opt-in snapshot-varying parameters: (block key, param) -> (min, max, controller id).
+    # Empty by default: block values win and every snapshot value is synced to them.
+    snapshot_controlled: dict = field(default_factory=dict)
 
     def to_hlx_dict(self, sync_snapshots: bool = True) -> dict:
         """The preset as an .hlx dict. Snapshot controller values are set to the block values
         (lead ruling 2026-10-15: block values win) unless ``sync_snapshots`` is False, which exists
-        only so an engine can report what a foreign file's snapshots disagreed on."""
+        only so an engine can report what a foreign file's snapshots disagreed on. Parameters
+        opted in through :meth:`vary_in_snapshots` keep their per-snapshot values; their block
+        value mirrors the current snapshot's, as HX Edit writes it."""
         d = _apply(self)
         if sync_snapshots:
-            sync_snapshot_controllers(d)
+            sync_snapshot_controllers(d, keep=set(self.snapshot_controlled))
         return d
+
+    def vary_in_snapshots(self, key: str, param: str, values, lo: float | None = None,
+                          hi: float | None = None, catalog: dict | None = None) -> None:
+        """Make ``key.param`` take ``values[i]`` in snapshot ``i`` (one value per snapshot).
+
+        Written as a ``tone.controller`` entry with ``@controller`` 9 (snapshot) whose
+        ``@min``/``@max`` span the parameter's catalog range, plus one ``@value`` per snapshot.
+        The block value becomes ``values[current_snapshot]``."""
+        slot = next((s for s in self.slots if s.key == key), None)
+        if slot is None or param not in slot.params:
+            raise PresetError(f"{key}.{param}: no such block parameter")
+        if len(values) != len(self.snapshots):
+            raise PresetError(f"{len(values)} values for {len(self.snapshots)} snapshots")
+        if lo is None or hi is None:
+            pd = ((catalog or {}).get("models", {}).get(slot.model_id, {}).get("params", {})
+                  .get(param))
+            if not pd or pd.get("min") is None:
+                raise PresetError(f"{key}.{param}: give lo and hi (no catalog range)")
+            lo, hi = pd["min"], pd["max"]
+        for sn, v in zip(self.snapshots, values):
+            sn.params.setdefault(key, {})[param] = v
+        slot.params[param] = values[self.current_snapshot]
+        self.snapshot_controlled[(key, param)] = (lo, hi, SNAPSHOT_CONTROLLER)
+
+    def keep_snapshot_varying(self) -> int:
+        """Adopt the file's controller-assigned parameters whose snapshot values differ from each
+        other or from the block (snapshot-controlled ``@controller`` 9, but also expression-pedal
+        and footswitch positions the pedal stores per snapshot) as opted in, so a read-write keeps
+        them. Returns how many."""
+        ctl = self.raw.get("data", {}).get("tone", {}).get("controller", {}).get("dsp0", {})
+        n = 0
+        for key, ps in ctl.items():
+            for param, e in ps.items():
+                vals = [sn.params.get(key, {}).get(param) for sn in self.snapshots]
+                blk = next((x.params.get(param) for x in self.slots if x.key == key), None)
+                if len(set(vals)) > 1 or any(v is not None and v != blk for v in vals):
+                    self.snapshot_controlled[(key, param)] = (
+                        e.get("@min"), e.get("@max"), e.get("@controller"))
+                    n += 1
+        return n
 
     def blocks(self) -> list[Slot]:
         return [s for s in self.slots if s.model_id is not None]
@@ -167,7 +214,8 @@ def from_dict(raw: dict, catalog: dict | None = None, path: Path | None = None) 
         else "full_rig"
     return Preset(name=meta.get("name", ""), slots=slots, snapshots=snaps, export_mode=mode,
                   device=data.get("device", 0), device_version=data.get("device_version", 0),
-                  raw=copy.deepcopy(raw), path=path)
+                  raw=copy.deepcopy(raw), path=path,
+                  current_snapshot=int(tone.get("global", {}).get("@current_snapshot", 0)))
 
 
 def read_hlx(path: str | Path, catalog: dict | None = None) -> Preset:
@@ -229,6 +277,15 @@ def _apply(pre: Preset) -> dict:
             for b, ps in sn.params.items():
                 for p, v in ps.items():
                     c.setdefault(b, {}).setdefault(p, {"@fs_enabled": False})["@value"] = v
+    for (key, param), (lo, hi, cid) in pre.snapshot_controlled.items():
+        if key in dsp0 and param in dsp0[key]:
+            dsp0[key][param] = pre.snapshots[pre.current_snapshot].params[key][param]
+            c = tone.setdefault("controller", {}).setdefault("dsp0", {}).setdefault(key, {})
+            ent = c.setdefault(param, {"@min": lo, "@max": hi, "@controller": cid,
+                                       "@snapshot_disable": False})
+            ent["@controller"] = cid
+    if "global" in tone:
+        tone["global"]["@current_snapshot"] = pre.current_snapshot
     _prune(tone, {k for k, v in dsp0.items() if isinstance(v, dict) and "@model" in v})
     if pre.export_mode == "effects_only":
         data["meta"].setdefault("tonematch", {})["export_mode"] = "effects_only"
@@ -258,10 +315,13 @@ def _snapshot_entries(hlx: dict):
                         yield n, dsp, bkey, name, ent, blk
 
 
-def snapshot_conflicts(hlx: dict) -> list[str]:
-    """Snapshot controller values that differ from the block's own value (the file says two things)."""
+def snapshot_conflicts(hlx: dict, keep=frozenset()) -> list[str]:
+    """Snapshot controller values that differ from the block's own value (the file says two
+    things). ``keep`` is a set of ``(block key, param)`` that are allowed to vary."""
     out = []
     for n, dsp, bkey, name, ent, blk in _snapshot_entries(hlx):
+        if (bkey, name) in keep:
+            continue
         b, v = _num(blk.get(name)), _num(ent["@value"])
         if b is not None and v is not None and abs(b - v) > 1e-6 * max(1.0, abs(b)):
             out.append(f"snapshot{n}.controllers.{bkey}.{name} = {v} but the block says {b}")
@@ -271,13 +331,13 @@ def snapshot_conflicts(hlx: dict) -> list[str]:
     return out
 
 
-def sync_snapshot_controllers(hlx: dict) -> list[str]:
+def sync_snapshot_controllers(hlx: dict, keep=frozenset()) -> list[str]:
     """Set every snapshot controller ``@value`` in an .hlx dict to its block's value, in place.
     Works on the document, so stale entries left in ``Preset.raw`` are fixed too. Returns what
     changed (``snapshot_conflicts`` before the sync)."""
-    changed = snapshot_conflicts(hlx)
-    for _n, _dsp, _bkey, name, ent, blk in _snapshot_entries(hlx):
-        if name in blk:
+    changed = snapshot_conflicts(hlx, keep)
+    for _n, _dsp, bkey, name, ent, blk in _snapshot_entries(hlx):
+        if (bkey, name) not in keep and name in blk:
             ent["@value"] = copy.deepcopy(blk[name])
     return changed
 
@@ -484,16 +544,31 @@ def validate(preset: Preset, catalog: dict | None, costs: dict | None = None,
     if not valid:
         W("snapshots", "no valid snapshot")
     for i, sn in enumerate(preset.snapshots):
-        extra = set(sn.enabled) - keys
+        extra = set(sn.enabled) - keys - {"split", "join"}  # split/join can be bypassed too
         if extra:
             F("snapshots", f"snapshot{i} references blocks not in dsp0: {sorted(extra)}")
         if sn.valid and keys - set(sn.enabled):
             W("snapshots", f"snapshot{i} has no bypass state for {sorted(keys - set(sn.enabled))}")
     if len({tuple(sorted(sn.enabled)) for sn in valid}) > 1:
         F("snapshots", "valid snapshots do not cover the same block set")
-    # block values win: a document whose snapshots disagree with its blocks is refused
-    for msg in snapshot_conflicts(preset.to_hlx_dict(sync_snapshots=False)):
+    # block values win: a document whose snapshots disagree with its blocks is refused, except
+    # parameters explicitly opted in as snapshot-controlled (checked separately)
+    doc = preset.to_hlx_dict(sync_snapshots=False)
+    for msg in snapshot_conflicts(doc, set(preset.snapshot_controlled)):
         F("snapshot_values", msg)
+    ctl = doc["data"]["tone"].get("controller", {}).get("dsp0", {})
+    for (key, param), (_lo, _hi, cid) in preset.snapshot_controlled.items():
+        e = ctl.get(key, {}).get(param, {})
+        if not e:
+            F("snapshot_controlled", f"{key}.{param}: no tone.controller entry")
+            continue
+        if cid != SNAPSHOT_CONTROLLER:
+            continue  # pedal/footswitch position stored per snapshot: nothing to mirror
+        cur = preset.snapshots[preset.current_snapshot].params.get(key, {}).get(param) \
+            if preset.snapshots else None
+        slot = next((x for x in blocks if x.key == key), None)
+        if slot is not None and cur is not None and slot.params.get(param) != cur:
+            F("snapshot_controlled", f"{key}.{param}: block value is not the current snapshot's")
     # amp/cab pairing
     amps = [s for s in blocks if s.category == "amp"]
     cabs = [s for s in blocks if s.category == "cab"]

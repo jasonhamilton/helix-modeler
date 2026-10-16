@@ -312,7 +312,7 @@ def test_markdown_structure_and_escaping(tmp_path):
     assert "**Project Health:** ▲ At Risk" in md and "**Product Readiness:** Prototype" in md
     assert "<script" not in md and "<b>" not in md and "Capture <chain>" not in md
     assert "Board says &lt;done&gt;" in md
-    assert "[`src/a.py`](../../src/a.py)" in md and "](../../gone/" not in md
+    assert "[`src/a.py`](../../src/a.py " in md and "](../../gone/" not in md
     assert "](../../cache/" not in md
     # every internal link resolves to a real heading anchor
     used: dict[str, int] = {}
@@ -515,3 +515,109 @@ def test_real_project_public_safety(real):
 def test_real_registry_has_no_unmapped_needs():
     reg = json.loads((REPO / "docs" / "features.json").read_text(encoding="utf-8"))
     assert sr.validate(reg) == []
+
+
+# ------------------------------------------------------------------ engines section
+
+
+def engines_cfg():
+    sys.path.insert(0, str(REPO / "scripts"))
+    import engine_timing as et
+    return {
+        "units": "Times are in seconds (s), minutes (min) and hours (h).",
+        "activities": {k: {"label": f"Activity {k}", "means": f"Means {k}"} for k in et.ALL_ACTIVITY_KEYS},
+        "jobs": [{"id": j, "name": f"Job {j}", "purpose": f"Purpose {j}"} for j in et.JOB_IDS],
+        "capabilities": [
+            {"capability": "Change <any> parameter",
+             "stomp": {"verdict": "Yes, render {t:render_2s:stomp} (ledger 2026-01-01T00:00:00+00:00).",
+                       "fw350": True},
+             "native": {"verdict": "Grid only; capture {t:capture:native}."}},
+            {"capability": "Agreement", "both": {"verdict": "Agree except delays.", "fw350": True}}],
+    }
+
+
+ENGINE_LEDGER = (
+    LEDGER_CSV
+    + "2026-01-02T00:00:00+00:00,abc,t,render-cost,native,smoke,seconds_per_render,0.2,,,\n"
+    + "2026-01-02T00:00:01+00:00,abc,t,render-cost,stomp,smoke,seconds_per_render,2.5,,,\n"
+    + "2026-01-02T00:00:02+00:00,abc,t,render-cost,native,smoke,capture_s_per_chain,40,,,\n")
+
+
+def engines_model(tmp_path, ledger_csv=ENGINE_LEDGER):
+    cur = curated()
+    cur["engines"] = engines_cfg()
+    f = facts(tmp_path)
+    f["ledger"] = list(csv.DictReader(ledger_csv.splitlines()))
+    reg = registry()
+    errs = sr.validate_curated(cur, reg, f)
+    assert errs == [], errs
+    return sr.build_model(reg, cur, f)
+
+
+def test_engines_section_present_in_both_formats_with_ledger_numbers(tmp_path):
+    m = engines_model(tmp_path)
+    en = m["engines"]
+    est = {r["key"]: r for r in en["estimates"]}
+    assert est["render_2s"]["native"]["serial_s"] == pytest.approx(20.0)      # 100 x 0.2 s
+    assert est["render_2s"]["stomp"]["serial_s"] == pytest.approx(250.0)      # 100 x 2.5 s
+    md = sr.render_markdown(m, tmp_path)
+    out = sr.render_html(m, root=tmp_path)
+    for txt in (md, out):
+        for needle in ("Engines: what each can do and how fast", "What each engine can do",
+                       "Measured time per test", "Estimated time for 100 tests",
+                       "Real-world jobs", "0.20 s", "20.0 s", "4.2 min", "2.50 s", "40.0 s",
+                       "Verified on fw 3.50, recheck on 3.80 pending", "not measured",
+                       "Job match_section", "Takeaway"):
+            assert needle in html.unescape(txt), needle
+    assert "Change &lt;any&gt; parameter" in out and "Change <any>" not in out
+    assert "(both engines)" in md and 'colspan="2"' in out
+    assert 'href="#engines"' in out and "(#engines-what-each-can-do-and-how-fast)" in md
+    assert not re.search(r"\d\s?%", md) and not re.search(r"\d\s?%", strip_css(out))
+
+
+def test_engines_numbers_are_regenerated_from_the_ledger(tmp_path):
+    first = engines_model(tmp_path)
+    more = ENGINE_LEDGER + "2026-01-03T00:00:00+00:00,abc,t,render-cost,native,smoke,capture_s_per_chain,12,,,\n"
+    second = engines_model(tmp_path, more)
+    def cap(m):
+        return {r["key"]: r for r in m["engines"]["estimates"]}["capture"]["native"]["serial_s"]
+    assert cap(first) == pytest.approx(4000.0) and cap(second) == pytest.approx(1200.0)
+    assert "12.0 s" in sr.render_markdown(second, tmp_path)
+
+
+def test_engines_not_measured_path_in_both_formats(tmp_path):
+    m = engines_model(tmp_path, LEDGER_CSV)  # no timing rows at all
+    md = sr.render_markdown(m, tmp_path)
+    out = html.unescape(sr.render_html(m, root=tmp_path))
+    for txt in (md, out):
+        assert "not measured" in txt
+        assert "0.20 s" not in txt
+    assert all(r[c]["state"] == "not-measured" for r in m["engines"]["estimates"] for c in ("stomp", "native", "any"))
+
+
+def test_engines_block_is_optional_and_validated(tmp_path):
+    m = build(tmp_path)  # fixture curated has no engines block
+    assert m["engines"] is None
+    assert "Engines: what each can do" not in sr.render_markdown(m, tmp_path)
+    assert 'id="engines"' not in sr.render_html(m)
+    cur = curated()
+    cur["engines"] = engines_cfg()
+    cur["engines"]["jobs"].pop()
+    cur["engines"]["capabilities"][0]["stomp"]["verdict"] = "{t:bogus:stomp}"
+    errs = " | ".join(sr.validate_curated(cur, registry(), facts(tmp_path)))
+    assert "engines.jobs needs an entry" in errs and "unknown placeholder" in errs
+
+
+def test_real_project_engines_section(real):
+    en = real["engines"]
+    assert en and en["capabilities"] and en["jobs"] and en["estimates"]
+    caps = {c["capability"] for c in en["capabilities"]}
+    for want in ("Load a generated preset file (.hlx) directly", "Platforms", "Reliability",
+                 "Agreement between the two engines"):
+        assert want in caps
+    md = sr.render_markdown(real, REPO)
+    out = sr.render_html(real, root=REPO)
+    for txt in (md, out):
+        assert "Real-world jobs" in txt and "Estimated time for 100 tests" in txt
+    # every verdict that carries a 3.50-era Stomp claim is marked
+    assert md.count("Verified on fw 3.50, recheck on 3.80 pending") >= 5

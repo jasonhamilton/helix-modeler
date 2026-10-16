@@ -284,6 +284,8 @@ for line in sys.stdin:
     print(json.dumps({{"ok": True, "cmd": cmd}}), flush=True)
     if cmd == "quit":
         break
+# Like the real helper since T059: HX Edit's session-close, reported on exit.
+print(json.dumps({{"ok": True, "event": "closed", "release": True, "release_sent": True}}), flush=True)
 """
 
 
@@ -307,8 +309,10 @@ def test_bridge_allowlist_blocks_flash_writes(fake_helper):
             b.call("save")
 
 
-def test_bridge_timeout_kills_the_helper_and_names_the_9v_fix(fake_helper):
+def test_bridge_timeout_kills_the_helper_and_names_the_9v_fix(fake_helper, monkeypatch):
     from tonematch.engines.stomp_bridge import BridgeError, StompBridge
+
+    monkeypatch.setattr(StompBridge, "KILL_GRACE_S", 0.2)
 
     b = StompBridge(binary=fake_helper)
     with pytest.raises(BridgeError, match="9V adapter"):
@@ -565,3 +569,30 @@ def test_health_check_passes_on_a_healthy_helper(fake_helper):
 
     with StompBridge(binary=fake_helper) as b:
         assert b.health_check()["cmd"] == "info"
+
+
+def test_pre_roll_flushes_delay_and_reverb_tails(monkeypatch, tmp_path):
+    eng, _b = make_engine(monkeypatch, tmp_path)
+    monkeypatch.setattr(stomp, "_category_of", lambda m: {"DelayA": "delay", "RevA": "reverb"}.get(m))
+    assert eng.pre_roll_s() == eng.PRE_S                       # make_chain's delay is off
+    d = next(s for s in eng.chain["slots"] if s["pos"] == 3)
+    d["enabled"] = True
+    d["params"] = [stomp_param("Time", 0.375), stomp_param("Feedback", 0.4)]
+    expect = 0.375 * np.log(1e-3) / np.log(0.4) + 0.5
+    assert eng.pre_roll_s() == pytest.approx(expect)          # ~3.3 s: time to -60 dB plus 0.5 s
+    d["params"].append(stomp_param("TempoSync1", 1.0))
+    assert eng.pre_roll_s() == eng.MAX_FLUSH_S                 # synced: 2 s worst case, capped
+    d["model_id"] = "RevA"
+    assert eng.pre_roll_s() == eng.REVERB_FLUSH_S
+
+
+def stomp_param(sym, v):
+    return {"i": 0, "sym": sym, "id": sym, "name": sym, "value": v, "min": 0.0, "max": 2.0, "kind": "Continuous"}
+
+
+def test_fallback_sends_model_changes_as_one_whole_write(monkeypatch, tmp_path):
+    eng, b, compiled = whole_engine(monkeypatch, tmp_path, "fallback", make_chain(model_id="AmpB", cab_id="CabB"))
+    b.calls.clear()
+    eng.load(make_preset())                      # same layout, different amp model
+    cmds = [c for c, _ in b.calls]
+    assert "model" not in cmds and cmds.count("restore") == 1 and len(compiled) == 1

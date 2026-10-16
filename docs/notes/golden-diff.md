@@ -36,7 +36,7 @@ its amp via `@cab`.
   3.82. The 3.50 is presumably the Stomp firmware HX Edit saw; this is not confirmed. HX Edit
   3.82 against a firmware older than 3.82 is the likely cause. `hlx-validate` therefore takes
   `--firmware` and warns on a mismatch rather than hard-coding 3.80. Open question for the
-  human (T010): which value does the pedal report on its own System screen?
+  human ([T010](../../board/TASKS.md#t010 "Confirm Stomp firmware 3.80 and Native 3.82")): which value does the pedal report on its own System screen?
 - **Snapshots.** A snapshot stores per-block on/off in `blocks.dsp0` and per-parameter values in
   `controllers.dsp0.blockN.<param>.@value`; the parameter must also appear in
   `tone.controller.dsp0.blockN.<param>` (with `@controller`, `@min`, `@max`). Native exports
@@ -45,3 +45,18 @@ its amp via `@cab`.
   floats as 17 significant digits, empty containers as `{` blank line `}`, no trailing newline.
 - **Unsure.** Which `@controller` ids mean "snapshot"; the DSP budget unit (catalog `load`
   figures, stereo-aware, sum to 50.7 for the Stomp golden and 53.6 for the Native one; both load, so the limit is at least that on this scale; needs device measurement).
+
+## Update 2026-10-15: HXStomp_380.hlx and the 126-preset setlist
+
+Structure only; counts are aggregate. Method and numbers: `docs/notes/setlist-survey.md`.
+
+- `fixtures/golden/HXStomp_380.hlx`: same key set as `HXStomp.hlx` (`controller`, `variax`,
+  `footswitch`, ...), `device_version` 58720256 (0x3800000), `meta.application` `HX Edit`, single path
+  (`global.@topology0` = `A`). It validates with 0 fail.
+- `HXStompSetlist.hls`: all 126 presets carry `device` 2162694 and `device_version` 0x3800000, so
+  the pedal's firmware is 3.80. The 3.50 in the first HX Edit golden was the version that file
+  was last saved under, not the current firmware.
+- A setlist preset is the `data` object only: `meta` holds just `name` and `build_sha`; no outer
+  `meta`/`schema`/`version`. Every preset has `dsp1` (empty), `global`, `variax`, `snapshot0-2`;
+  `footswitch` in 114, `controller` in 70, `irUuidTable` in 6.
+- Two-path presets (42) set `tone.global.@topology0` to `SABJ`; single path is `A`.

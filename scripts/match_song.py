@@ -46,10 +46,6 @@ N_FFT, HOP = 2048, 512                      # the separator's mask grid (tonemat
 LABEL = "unadmitted loss"
 DI_PEAK_DBFS = -12.5                        # same DI level convention as scripts/parity_null.py
 # Power-supply and hum minutiae: not worth search dimensions, and they invite odd settings.
-# Native's CC route ignores a command of exactly 0.0 (measured 2026-10-14 on the A15 chain: a parameter
-# moved up and "set back" to 0.0 stays where it was, -5 dB null vs the fresh state), so the search never
-# commands below this. A value this small is within -54 dB of true zero in the render.
-MIN_CC = 0.004
 FIXED_PARAMS = {"Hum", "Ripple", "Bias", "BiasX", "Time", "Offset", "Spread", "Level"}
 # Parity findings: parameters whose Native 3.82 render does not match the Stomp fw 3.50, frozen at the
 # given value in Stomp-verified mode (default). Add future findings here: (category, param) -> value.
@@ -539,13 +535,24 @@ def make_plan(spr: float, wall_s: float, cap: int):
                 notes=[f"wall-clock budget {wall_s:.0f} s; serial renders at {spr:.2f} s each (measured)"])
 
 
-def make_space(cand: Cand):
-    """Free-parameter space with the lower bound at MIN_CC and the start clipped into it."""
+CC_STEPS = 128   # a CC-driven Native parameter has 128 values across its assignment's Min..Max
+
+
+def make_space(cand: Cand, steps: int = CC_STEPS):
+    """Free-parameter space on Native's CC grid: values k*(hi-lo)/(steps-1) across the template's
+    Min..Max (default 0..1) for k = 0..steps-1. Step 0 (the exact minimum) is included: native-engine's memory fix
+    re-sends every parameter, so returning to 0.0 now matches setting 0.0 (ledger 2026-10-15T19:01:31).
+    The start is snapped."""
     from tonematch.search import ParamSpace
 
     refs = cand.free if cand.free is not None else ParamSpace.from_preset(cand.preset).refs
-    space = ParamSpace.from_preset(cand.preset, refs, {r: (MIN_CC, 1.0) for r in refs})
-    space.start = np.clip(space.start, space.lo, space.hi)
+    rng = getattr(cand.template, "ranges", None) or {}
+    bounds = {}
+    for r in refs:
+        lo, hi = rng.get(f"{r[0]}:{r[1]}", [0.0, 1.0])
+        bounds[r] = (lo, hi)
+    space = ParamSpace.from_preset(cand.preset, refs, bounds, steps)
+    space.start = space.from_unit(space.to_unit(space.start))
     return space
 
 
@@ -669,7 +676,7 @@ def _weights() -> dict:
     return dict(PROVISIONAL_WEIGHTS)
 
 
-def final_check(engine, kit, section, results: list[ChainResult], top: int = 3, ndigits: int = 3,
+def final_check(engine, kit, section, results: list[ChainResult], top: int = 3, ndigits: int = 6,
                 other_dis: list | None = None, log=print, prior_weight: float = 0.0) -> dict:
     """Top chains on the full excerpt with stems and mask; values rounded as they will be written.
     Also renders the best with the other DIs (DI sensitivity) and its unmatched start."""
@@ -767,7 +774,7 @@ def write_pack(listen: Path, target, match_y, start_y, di, extras: dict | None =
     return info
 
 
-def write_best_hlx(cand: Cand, space, values, path: Path, name: str, ndigits: int = 3) -> Path:
+def write_best_hlx(cand: Cand, space, values, path: Path, name: str, ndigits: int = 6) -> Path:
     """The candidate's .hlx (fw 3.50, HX Stomp) with the matched values. Snapshot entries that carry
     a parameter (controller-assigned ones) are set to the same value, and a controller range is
     widened to include it, so the value is what the device uses in every snapshot."""
@@ -967,9 +974,10 @@ def write_report(path: Path, ctx: dict) -> None:
            "0.004 and the render ended 52 dB below the target stem while the loss improved from 14.0 to "
            "7.9; that preset would be silent on hardware. The guard and prior above are the response; they "
            "are my additions (search), not admitted terms. Compare `level_db_vs_ref` in each preset's terms."),
-          ("- **Native's CC route cannot command exactly 0.0** (a parameter moved up and set back to 0.0 stays "
-           f"where it was; measured here), so the search bounds every parameter to [{MIN_CC}, 1]. "
-           "This is a native-engine limitation, proposed to the lead."),
+          ("- **Exact-minimum commands:** the CC route used to ignore a command of exactly 0.0 (measured "
+           "2026-10-14); native-engine's memory fix re-sends every parameter and returning to 0.0 now matches "
+           "setting 0.0 (ledger 2026-10-15T19:01:31), so the grid includes step 0. Earlier runs in "
+           "`cache/matches/` predate that and used a 0.004 floor."),
           ("- **Short beam.** Each chain got a handful of generations, so a chain's rank after the beam "
           "partly reflects its start values."),
           ("- **Native only.** No Stomp rendering was done; Native and the Stomp differ by a measured parity "
@@ -1087,7 +1095,7 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
                     eng, k0, s0, best["result"], args.snap0_renders, args.seed + 7, log,
                     args.prior_weight)
                 hlx0 = out / "best_snapshot0.hlx"
-                write_best_hlx(best["result"].cand, best["result"].space, np.round(v0, 3), hlx0,
+                write_best_hlx(best["result"].cand, best["result"].space, np.round(v0, 6), hlx0,
                                args.preset_name[:13] + " s0")
                 snap0_text = (f"window {w0['start_s']:.1f}-{w0['end_s']:.1f} s (confidence "
                               f"{w0['mean_confidence']:.2f}); snapshot 1's preset scores {before:.4f} there, "

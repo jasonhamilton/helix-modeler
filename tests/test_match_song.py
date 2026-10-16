@@ -122,10 +122,10 @@ def test_write_best_hlx_applies_values_and_snapshots(tmp_path):
     space = ParamSpace.from_preset(pre, cand.free)
     path = MS.write_best_hlx(cand, space, np.array([0.123456, 0.9]), tmp_path / "x.hlx", "DS-Sample s1")
     back = read_hlx(path)
-    assert back.slots[0].params["Drive"] == pytest.approx(0.123)       # rounded as reported
+    assert back.slots[0].params["Drive"] == pytest.approx(0.123456, abs=1e-6)   # grid values are written unrounded
     assert back.slots[0].params["Treble"] == pytest.approx(0.9)
     assert back.name == "DS-Sample s1" and back.device_version == pre.device_version
-    assert pre.slots[0].params["Drive"] != 0.123                         # the source preset is untouched
+    assert pre.slots[0].params["Drive"] != 0.123456                         # the source preset is untouched
 
 
 def _args(tmp_path, **kw):
@@ -188,14 +188,14 @@ def test_dry_run_renders_nothing(tmp_path):
 
 
 @needs_known
-def test_make_space_never_commands_exact_zero():
+def test_make_space_includes_the_minimum_grid_step():
     from tonematch.preset import read_hlx
 
     pre = read_hlx(ROOT / "fixtures" / "smoke" / "known.hlx")
     cand = MS.Cand("known", pre, None, [(0, "Cut"), (0, "Drive")])
     sp = MS.make_space(cand)
-    assert sp.start[0] == MS.MIN_CC and sp.lo.min() == MS.MIN_CC     # Cut starts at 0.0 in the file
-    assert sp.from_unit(np.zeros(2)).min() == MS.MIN_CC               # CMA-ES boundary stays off zero
+    assert sp.start[0] == 0.0 and sp.lo.min() == 0.0                  # Cut starts at 0.0: minimum is a grid step
+    assert sp.from_unit(np.zeros(2)).min() == 0.0
     assert MS.make_space(MS.Cand("all", pre, None, None)).n >= 9      # free=None means every numeric param
 
 
@@ -344,3 +344,23 @@ def test_top3_hlx_written_from_result_json(tmp_path):
     out = MS.write_top_hlx(fins, tmp_path, "T")
     assert [p.name for p, _ in out] == ["rank1_known.hlx", "rank2_known.hlx", "rank3_known.hlx"]
     assert read_hlx(tmp_path / "rank2_known.hlx").slots[0].params["Drive"] == pytest.approx(0.4)
+
+
+def test_space_snaps_to_the_cc_grid_and_hlx_keeps_snapped_values(tmp_path):
+    from tonematch.preset import read_hlx
+
+    pre = read_hlx(ROOT / "fixtures" / "smoke" / "known.hlx")
+    tpl = SimpleNamespace(ranges={"0:Drive": [0.0, 1.0], "0:Treble": [0.2, 0.8]})
+    cand = MS.Cand("known", pre, tpl, [(0, "Drive"), (0, "Treble")])
+    sp = MS.make_space(cand)
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        v = sp.from_unit(rng.uniform(size=2))
+        k0, k1 = v[0] * 127, (v[1] - 0.2) / 0.6 * 127
+        assert abs(k0 - round(k0)) < 1e-6 and abs(k1 - round(k1)) < 1e-6 and 0 <= round(k0) <= 127
+        assert 0.2 - 1e-9 <= v[1] <= 0.8 + 1e-9
+    k = sp.from_unit(np.array([0.3, 0.7]))
+    path = MS.write_best_hlx(cand, sp, k, tmp_path / "g.hlx", "g")
+    back = read_hlx(path).slots[0].params
+    assert back["Drive"] * 127 == pytest.approx(round(back["Drive"] * 127), abs=1e-4)
+    assert back["Drive"] == pytest.approx(k[0], abs=1e-6) and back["Treble"] == pytest.approx(k[1], abs=1e-6)

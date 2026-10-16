@@ -1,4 +1,4 @@
-# Dry signal: reference DI library (option B), T021
+# Dry signal: reference DI library (option B), [T021](../../board/TASKS.md#t021 "Reference DI library index over EGDB")
 
 Code: `src/tonematch/dry.py`. Tests: `tests/test_dry.py` (synthetic clips only). Audio 48 kHz float32 mono; other rates are resampled on `load()`, stereo is averaged.
 
@@ -41,7 +41,7 @@ A dataset placed in `data/di/` must keep its CC BY 4.0 licence text and attribut
 - Caveats: the style heuristic is crude (a palm-mute file shows as `sustained`, only 50 clips are `muted`; onset density reads 0 on many chord clips). The pick for muted riffs is therefore weak; prefer P2_techniques PalmMute by name until the classifier is improved. Three players only, so "several DIs per tone" is limited to guitar/pickup variety across P1/P2/P3.
 - Real fixture: `fixtures/smoke/di_2s_real.wav` (see PROVENANCE.md).
 
-## Option A: the user's own DI, played along (accuracy mode, T042, stomp-engine)
+## Option A: the user's own DI, played along (accuracy mode, [T042](../../board/TASKS.md#t042 "Play-along user-DI capture"), stomp-engine)
 
 PLAN option A ("User records own DI"; open question PLAN line 401 still stands: opt-in, needs the player's effort). Capture is `scripts/reamp_capture.py --user-di --play ...` (skill `reamp-capture`, section "Play-along user DI"); code in `src/tonematch/user_di.py`; fake-device tests in `tests/test_user_di.py`. Built and tested offline on 2026-10-15. **It has not been run on hardware yet** (the guitar was not plugged in).
 

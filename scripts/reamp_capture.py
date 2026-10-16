@@ -303,7 +303,9 @@ def main() -> int:
     p.add_argument("--dataset", help="ledger dataset id (default: the clip's file stem)")
     p.add_argument("--no-bridge", action="store_true", help="do not touch the pedal's control interface")
     p.add_argument("--ledger", action="store_true")
+    stomp_bridge.add_usb_reset_arg(p)
     a = p.parse_args()
+    stomp_bridge.apply_usb_reset_arg(a)
     if not (a.calibrate or a.user_di or (a.dry and a.out)):
         p.error("give --calibrate, --user-di [--play <song>], or <dry.wav> --out <wet.wav>")
     if a.play and not a.user_di:

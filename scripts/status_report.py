@@ -24,6 +24,11 @@ import sys
 import urllib.parse
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import engine_timing
+import evidence_links
+import task_links
+
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_SCHEMA = "tonematch.status-report-model"
 MODEL_VERSION = 1
@@ -157,7 +162,7 @@ def top_evidence(feature: dict) -> str:
 
 # --------------------------------------------------------------------------- live facts
 
-TASK_RE = re.compile(r"^- \[(?P<m>[ x~])\] (?P<id>T\d+[a-z]?) ")
+TASK_RE = re.compile(r"^- \[(?P<m>[ x~])\] (?:<a id=\"[^\"]*\"></a>)?(?P<id>T\d+[a-z]?) ")
 
 
 def parse_tasks(text: str) -> dict[str, str]:
@@ -257,6 +262,7 @@ def collect_facts(root: Path, checks: bool) -> dict:
         "tasks": parse_tasks(tasks_p.read_text(encoding="utf-8")) if tasks_p.exists() else {},
         "gates": parse_gates(gates_p.read_text(encoding="utf-8")) if gates_p.exists() else [],
         "ledger": read_ledger(root / "ledger" / "runs.csv"),
+        "task_index": task_links.parse_board(root),
         "git": git_info(root),
         "checks": run_checks(root) if checks else None,
         "now": dt.datetime.now(dt.UTC),
@@ -305,6 +311,47 @@ def plain_language_problems(text: str, glossary_terms: set[str]) -> list[str]:
 
 def covers(action: dict, need: str) -> bool:
     return any(c.lower() in need.lower() for c in action.get("covers", []))
+
+
+def validate_engines(eng: object) -> list[str]:
+    """The optional 'engines' block of the curated file (capability verdicts and timing wording)."""
+    if eng is None:
+        return []
+    if not isinstance(eng, dict):
+        return ["curated: engines must be an object"]
+    errs: list[str] = []
+    caps = eng.get("capabilities")
+    if not isinstance(caps, list) or not caps:
+        errs.append("curated: engines.capabilities must be a non-empty list")
+        caps = []
+    for c in caps:
+        name = c.get("capability") if isinstance(c, dict) else None
+        if not name:
+            errs.append("curated: an engines capability has no 'capability' name")
+            continue
+        cols = ("both",) if c.get("both") else ("stomp", "native")
+        for col in cols:
+            if not (isinstance(c.get(col), dict) and c[col].get("verdict")):
+                errs.append(f"curated: engines capability {name!r} needs a '{col}' verdict")
+        for col in cols:
+            v = (c.get(col) or {}).get("verdict", "")
+            for m in re.finditer(r"\{t:(\w+):(\w+)\}", v):
+                if m[1] not in engine_timing.PLACEHOLDER_KEYS or m[2] not in ("stomp", "native", "any"):
+                    errs.append(f"curated: engines capability {name!r} uses unknown placeholder {m[0]}")
+    if not eng.get("units"):
+        errs.append("curated: engines.units (plain-English units note) is required")
+    labels = eng.get("activities", {})
+    for key in engine_timing.ALL_ACTIVITY_KEYS:
+        if key not in labels or not labels[key].get("label"):
+            errs.append(f"curated: engines.activities needs a label for {key!r}")
+    ids = [j.get("id") for j in eng.get("jobs", [])]
+    for jid in engine_timing.JOB_IDS:
+        if jid not in ids:
+            errs.append(f"curated: engines.jobs needs an entry for {jid!r}")
+    for j in eng.get("jobs", []):
+        if not (j.get("name") and j.get("purpose")):
+            errs.append(f"curated: engines job {j.get('id')!r} needs a name and a purpose")
+    return errs
 
 
 def validate_curated(cur: dict, reg: dict, facts: dict) -> list[str]:
@@ -476,6 +523,7 @@ def validate_curated(cur: dict, reg: dict, facts: dict) -> list[str]:
     for m in cur["milestones"].values():
         check_refs("milestone", m.get("evidence", []))
 
+    errs += validate_engines(cur.get("engines"))
     feats = {f["id"]: f for f in reg["features"] if not f.get("retired")}
     placed: dict[str, str] = {}
     cids = [c.get("id") for c in cur["components"]]
@@ -701,6 +749,8 @@ def build_model(reg: dict, cur: dict, facts: dict, baseline: dict | None = None)
         "changes": {"baseline_date": baseline["date"] if baseline else None, "diff": [],
                     "recent": recent},
         "components": components,
+        "engines": (engine_timing.build(cur["engines"], facts["ledger"], facts.get("root"))
+                    if cur.get("engines") else None),
         "glossary": sorted(cur["glossary"], key=lambda g: g["term"].lower()),
         "evidence": [ev_ref(i) for i in used_ev],
         "details": {
@@ -1006,7 +1056,7 @@ footer{margin-top:2em;padding-top:1em;border-top:2px solid var(--line);font-size
 """
 
 
-def render_html(model: dict) -> str:
+def render_html(model: dict, board_rel: str = "../../board", root: Path | None = None) -> str:
     """Render the report model as one self-contained HTML document (no JavaScript)."""
     gl = Glossary(model["glossary"])
     a = model["assessments"]
@@ -1026,7 +1076,9 @@ def render_html(model: dict) -> str:
              '<a href="#dashboard">Dashboard</a><a href="#problems">Problems</a>'
              '<a href="#milestones">Milestones</a><a href="#works">What works</a>'
              '<a href="#actions">Human actions</a><a href="#changes">What changed</a>'
-             '<a href="#components">Components</a><a href="#technical">Technical details</a>'
+             '<a href="#components">Components</a>'
+             + ('<a href="#engines">Engines</a>' if model.get("engines") else "")
+             + '<a href="#technical">Technical details</a>'
              '<a href="#glossary">Glossary</a></nav></div></header><main class="wrap">')
 
     # --- executive dashboard
@@ -1194,6 +1246,9 @@ def render_html(model: dict) -> str:
                  + "</p></article>")
     p.append("</div></section>")
 
+    # --- engines
+    p.append(_engines_html(model, gl))
+
     # --- technical details
     p.append('<section id="technical"><h2>Technical details and evidence</h2>'
              '<p class="muted">Supporting material for the conclusions above: per-feature detail, '
@@ -1250,7 +1305,10 @@ def render_html(model: dict) -> str:
              "scripts/status_report.py from one report model; the Markdown report "
              "(README.md in this folder) carries the same conclusions.</p></footer>")
     p.append("</main></body></html>")
-    return "\n".join(p)
+    page = "\n".join(p)
+    if root is not None:
+        page = evidence_links.linkify_html(page, evidence_links.Index(root, board_rel[:-len("/board")]))
+    return task_links.linkify_html(page, model.get("task_index", {}), board_rel)
 
 
 def _issue_html(i: dict, gl: Glossary, model: dict, open_: bool) -> str:
@@ -1310,6 +1368,173 @@ def _feature_html(f: dict) -> str:
     return "".join(parts)
 
 
+# --------------------------------------------------------------------------- engines section (shared)
+
+ENG_NAMES = {"stomp": "HX Stomp (the pedal)", "native": "Helix Native (software)"}
+
+
+def eng_cap_text(c: dict | None) -> str:
+    if not c:
+        return ""
+    return c["verdict"] + (" Verified on fw 3.50, recheck on 3.80 pending." if c.get("fw350") else "")
+
+
+def eng_est_cell(c: dict, which: str) -> str:
+    t = engine_timing.est_text(c, which)
+    if t != engine_timing.NOT_MEASURED and c.get("assume_n"):
+        t += " (note " + ", ".join(str(n) for n in c["assume_n"]) + ")"
+    return t
+
+
+def eng_job_cells(j: dict) -> dict:
+    """Display strings for one real-world job row, shared by both renderers."""
+    nm = engine_timing.NOT_MEASURED
+
+    def one(v: float | None) -> str:
+        if v is None or j["serial_s"] is None:
+            return nm
+        pre = "at least " if j["lower"] else ""
+        return f"{pre}{engine_timing.fmt_dur(v)} (est., from {j['date']})" if j.get("date") else (
+            f"{pre}{engine_timing.fmt_dur(v)} (est.)")
+    par = one(j["parallel_s"])
+    if j["parallel_s"] is not None and j["serial_s"] is not None and j.get("par_note"):
+        par += f"; {j['par_note']}"
+    dom = ""
+    if j.get("dominant"):
+        dom = (f"{engine_timing.DOM_LABEL.get(j['dominant'], j['dominant'])} "
+               f"({engine_timing.fmt_dur(j['dominant_s'])})")
+    if j.get("extra"):
+        dom = (dom + "; " if dom else "") + j["extra"]
+    return {"serial": one(j["serial_s"]), "parallel": par, "dominant": dom or nm if j["serial_s"] is None
+            else dom}
+
+
+def _eng_label(en: dict, key: str) -> tuple[str, str]:
+    lab = en["labels"].get(key) or {"label": key, "means": ""}
+    return lab["label"], lab.get("means", "")
+
+
+def _engines_html(model: dict, gl) -> str:
+    en = model.get("engines")
+    if not en:
+        return ""
+    p = ['<section id="engines"><h2>Engines: what each can do and how fast</h2>',
+         f'<p class="muted">{gl(en["units"])}</p>',
+         "<h3>What each engine can do</h3>",
+         ('<div class="scroll"><table><thead><tr><th scope="col">Capability</th>'
+          f'<th scope="col">{e(ENG_NAMES["stomp"])}</th><th scope="col">{e(ENG_NAMES["native"])}</th>'
+          "</tr></thead><tbody>")]
+    for c in en["capabilities"]:
+        if c["both"]:
+            p.append(f'<tr><th scope="row">{gl(c["capability"])}</th><td colspan="2">'
+                     f'{gl(eng_cap_text(c["both"]))}</td></tr>')
+        else:
+            p.append(f'<tr><th scope="row">{gl(c["capability"])}</th>'
+                     f'<td>{gl(eng_cap_text(c["stomp"]))}</td><td>{gl(eng_cap_text(c["native"]))}</td></tr>')
+    p.append("</tbody></table></div>")
+    p.append("<h3>Measured time per test</h3>"
+             '<p class="muted">Each figure is the newest ledger row for that activity, with its date '
+             "and a link to the row. Results from the pedal's older firmware are marked until they are "
+             "rechecked on 3.80. The table regenerates from the ledger every run.</p>"
+             '<div class="scroll"><table><thead><tr><th scope="col">Activity</th>'
+             f'<th scope="col">{e(ENG_NAMES["stomp"])}</th><th scope="col">{e(ENG_NAMES["native"])}</th>'
+             '<th scope="col">Either engine / both</th></tr></thead><tbody>')
+    for m in en["measured"]:
+        p.append(f'<tr><th scope="row">{gl(m["label"])}<br><span class="muted">{gl(m["means"])}</span></th>'
+                 + "".join(f"<td>{gl(engine_timing.cell_text(m[c]))}</td>" for c in ("stomp", "native", "any"))
+                 + "</tr>")
+    p.append("</tbody></table></div>")
+    p.append(f"<h3>Estimated time for {en['n']} tests</h3>"
+             f'<p class="muted">Each estimate is {en["n"]} times the measured time above. Where a speed-up '
+             "from running things in parallel has been measured, the second column shows it, with the "
+             "assumption it rests on listed below the table. Numbers marked \"not measured\" have no "
+             "measurement behind them.</p>"
+             '<div class="scroll"><table><thead><tr><th scope="col">Activity</th>'
+             '<th scope="col">Stomp, one after another</th><th scope="col">Stomp, in parallel</th>'
+             '<th scope="col">Native, one after another</th><th scope="col">Native, in parallel</th>'
+             '<th scope="col">Both or neither, one after another</th></tr></thead><tbody>')
+    for r in en["estimates"]:
+        lab, means = _eng_label(en, r["key"])
+        head = f"<strong>{gl(lab)}</strong>" if r["kind"] == "combined" else gl(lab)
+        p.append(f'<tr><th scope="row">{head}<br><span class="muted">{gl(means)}</span></th>'
+                 f'<td>{gl(eng_est_cell(r["stomp"], "serial"))}</td><td>{gl(eng_est_cell(r["stomp"], "parallel"))}</td>'
+                 f'<td>{gl(eng_est_cell(r["native"], "serial"))}</td><td>{gl(eng_est_cell(r["native"], "parallel"))}</td>'
+                 f'<td>{gl(eng_est_cell(r["any"], "serial"))}</td></tr>')
+    p.append("</tbody></table></div>")
+    if en["assumptions"]:
+        p.append('<p class="muted">Assumptions behind the estimates:</p><ol>' + "".join(
+            f"<li>{gl(a['text'])}</li>" for a in en["assumptions"]) + "</ol>")
+    p.append("<h3>Real-world jobs: how long the things we actually do take</h3>"
+             '<p class="muted">Typical sizes come from the repository (cited in each row); times are those '
+             "sizes multiplied by the measured per-unit times above. Estimates, not measurements, and "
+             "they regenerate from the ledger and notes every run.</p>"
+             '<div class="scroll"><table><thead><tr><th scope="col">Job and what it is for</th>'
+             '<th scope="col">Engine</th><th scope="col">Typical size and where it comes from</th>'
+             '<th scope="col">Per-unit time used</th><th scope="col">One after another</th>'
+             '<th scope="col">In parallel</th><th scope="col">What dominates</th></tr></thead><tbody>')
+    for j in en["jobs"]:
+        c = eng_job_cells(j)
+        p.append(f'<tr><th scope="row">{gl(j["name"])}<br><span class="muted">{gl(j["purpose"])}</span></th>'
+                 f'<td>{gl(j["engine"])}</td><td>{gl(j["size"])}<br><span class="muted">Source: {e(j["source"])}</span></td>'
+                 f'<td>{gl(j["unit"])}</td><td>{gl(c["serial"])}</td><td>{gl(c["parallel"])}</td>'
+                 f'<td>{gl(c["dominant"])}</td></tr>')
+    p.append("</tbody></table></div>")
+    p.append(f'<p class="summary"><strong>Takeaway.</strong> {gl(en["takeaway"])}</p></section>')
+    return "".join(p)
+
+
+def _engines_md(doc: MdDoc, model: dict) -> None:
+    en = model.get("engines")
+    if not en:
+        return
+    doc.h(2, "Engines: what each can do and how fast", "engines")
+    doc.add(mde(en["units"]), "")
+    doc.h(3, "What each engine can do", "eng-can")
+    doc.add(f"| Capability | {ENG_NAMES['stomp']} | {ENG_NAMES['native']} |", "|---|---|---|")
+    for c in en["capabilities"]:
+        if c["both"]:
+            doc.add(f"| {mde(c['capability'])} | {mde(eng_cap_text(c['both']))} (both engines) | |")
+        else:
+            doc.add(f"| {mde(c['capability'])} | {mde(eng_cap_text(c['stomp']))} | "
+                    f"{mde(eng_cap_text(c['native']))} |")
+    doc.h(3, "Measured time per test", "eng-measured")
+    doc.add("Each figure is the newest ledger row for that activity, with its date and a link to the row. "
+            "Results from the pedal's older firmware are marked until they are rechecked on 3.80. "
+            "The table regenerates from the ledger every run.", "",
+            f"| Activity | {ENG_NAMES['stomp']} | {ENG_NAMES['native']} | Either engine / both |",
+            "|---|---|---|---|")
+    for m in en["measured"]:
+        doc.add(f"| {mde(m['label'])} | " + " | ".join(
+            mde(engine_timing.cell_text(m[c])) for c in ("stomp", "native", "any")) + " |")
+    doc.h(3, f"Estimated time for {en['n']} tests", "eng-estimates")
+    doc.add(f"Each estimate is {en['n']} times the measured time above. Where a speed-up from running "
+            "things in parallel has been measured, the second column shows it, with the assumption it "
+            "rests on listed below the table. Numbers marked \"not measured\" have no measurement behind them.",
+            "", "| Activity | Stomp, one after another | Stomp, in parallel | Native, one after another | "
+            "Native, in parallel | Both or neither, one after another |", "|---|---|---|---|---|---|")
+    for r in en["estimates"]:
+        lab, _ = _eng_label(en, r["key"])
+        head = f"**{mde(lab)}**" if r["kind"] == "combined" else mde(lab)
+        doc.add(f"| {head} | {mde(eng_est_cell(r['stomp'], 'serial'))} | {mde(eng_est_cell(r['stomp'], 'parallel'))} | "
+                f"{mde(eng_est_cell(r['native'], 'serial'))} | {mde(eng_est_cell(r['native'], 'parallel'))} | "
+                f"{mde(eng_est_cell(r['any'], 'serial'))} |")
+    if en["assumptions"]:
+        doc.add("", "Assumptions behind the estimates:", "")
+        doc.add(*[f"{a['n']}. {mde(a['text'])}" for a in en["assumptions"]])
+    doc.h(3, "Real-world jobs: how long the things we actually do take", "eng-jobs")
+    doc.add("Typical sizes come from the repository (cited in each row); times are those sizes multiplied "
+            "by the measured per-unit times above. Estimates, not measurements, and they regenerate from the "
+            "ledger and notes every run.", "",
+            "| Job and what it is for | Engine | Typical size (source) | Per-unit time used | One after another "
+            "| In parallel | What dominates |", "|---|---|---|---|---|---|---|")
+    for j in en["jobs"]:
+        c = eng_job_cells(j)
+        doc.add(f"| {mde(j['name'])}: {mde(j['purpose'])} | {mde(j['engine'])} | {mde(j['size'])} "
+                f"(source: {mde(j['source'])}) | {mde(j['unit'])} | {mde(c['serial'])} | {mde(c['parallel'])} "
+                f"| {mde(c['dominant'])} |")
+    doc.add("", f"**Takeaway.** {mde(en['takeaway'])}")
+
+
 # --------------------------------------------------------------------------- Markdown renderer
 
 
@@ -1351,7 +1576,8 @@ def md_path(path: str, root: Path | None, ignored: set[str]) -> str:
     clean = path.strip()
     if (root is not None and clean and not clean.startswith(MD_UNLINKED_PREFIXES)
             and clean not in ignored and (root / clean).exists()):
-        return f"[{md_code(clean)}](../../{urllib.parse.quote(clean)})"
+        title = evidence_links.md_title(evidence_links.file_description(root, clean))
+        return f'[{md_code(clean)}](../../{urllib.parse.quote(clean)} "{title}")'
     return md_code(clean)
 
 
@@ -1381,7 +1607,7 @@ def md_refs(model: dict, ids: list[str]) -> str:
     return "; ".join(by_id[i]["label"] for i in ids if i in by_id)
 
 
-def render_markdown(model: dict, root: Path | None = None) -> str:
+def render_markdown(model: dict, root: Path | None = None, board_rel: str = "../../board") -> str:
     """Render the report model as standalone GitHub-flavoured Markdown."""
     a, rep, d = model["assessments"], model["report"], model["details"]
     all_paths = sorted({p for f in d["features"] for i in f["implemented"]
@@ -1539,6 +1765,9 @@ def render_markdown(model: dict, root: Path | None = None) -> str:
                 "- **Detail.** " + ", ".join(
                     f"[{mde(f['name'])}](@@a:feat-{f['id']}@@)" for f in c["features"]))
 
+    # --- engines
+    _engines_md(doc, model)
+
     # --- technical details
     doc.h(2, "Technical details and evidence", "technical")
     doc.add("Supporting material: per-feature detail, gate checklists, evidence references, the "
@@ -1606,10 +1835,14 @@ def render_markdown(model: dict, root: Path | None = None) -> str:
         f"[{label}](@@a:{key}@@)" for key, label in (
             ("dash", "Dashboard"), ("problems", "Problems"), ("milestones", "Milestones"),
             ("works", "What works"), ("actions", "Human actions"), ("changes", "What changed"),
-            ("components", "Components"), ("technical", "Technical details"),
-            ("glossary", "Glossary")))]
+            ("components", "Components"), *((("engines", "Engines"),) if model.get("engines") else ()),
+            ("technical", "Technical details"), ("glossary", "Glossary")))]
     doc.lines = [ln if ln != "@@TOC@@" else toc[0] for ln in doc.lines]
-    return doc.text()
+    page = doc.text()
+    if root is not None:
+        page = evidence_links.linkify_markdown(
+            page, evidence_links.Index(root, board_rel[:-len("/board")]))
+    return task_links.linkify_markdown(page, model.get("task_index", {}), board_rel)
 
 
 def _md_issue(doc: MdDoc, i: dict, model: dict, level: int) -> None:
@@ -1683,6 +1916,17 @@ def make_model(root: Path, reg_path: Path | None, cur_path: Path | None, checks:
     today = facts["now"].strftime("%Y-%m-%d")
     baseline = load_baseline(root / "reports" / "status" / "history", today)
     model = build_model(reg, cur, facts, baseline)
+    model["task_index"] = facts.get("task_index", {})
+    if model["task_index"]:
+        mentioned = set(task_links.ID_RE.findall(json.dumps(model["details"], default=str)))
+        for tid in sorted(mentioned - set(model["task_index"])):
+            model["details"]["discrepancies"].append(
+                f"{tid} is mentioned in this report but is not on board/TASKS.md or board/CYCLES.md, "
+                "so it is shown without a link.")
+    idx = evidence_links.Index(root, "..")
+    for msg in sorted(evidence_links.collect_unresolved(
+            {k: v for k, v in model.items() if k not in ("task_index",)}, idx)):
+        model["details"]["discrepancies"].append(msg + "; shown as plain text.")
     return model, []
 
 
@@ -1714,12 +1958,14 @@ def main(argv: list[str] | None = None) -> int:
     if "html" in formats:
         out = a.out or root / "reports" / "status" / "index.html"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(render_html(model), encoding="utf-8")
+        out.write_text(render_html(model, task_links.rel_prefix(root, out.resolve().parent), root),
+                       encoding="utf-8")
         print(out)
     if "md" in formats:
         mout = a.md_out or root / "reports" / "status" / "README.md"
         mout.parent.mkdir(parents=True, exist_ok=True)
-        mout.write_text(render_markdown(model, root), encoding="utf-8")
+        mout.write_text(render_markdown(model, root, task_links.rel_prefix(root, mout.resolve().parent)),
+                        encoding="utf-8")
         print(mout)
     if a.json:
         a.json.write_text(json.dumps(model, indent=1, ensure_ascii=False, default=str) + "\n",

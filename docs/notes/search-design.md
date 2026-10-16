@@ -1,4 +1,4 @@
-# Search design (T023)
+# Search design ([T023](../../board/TASKS.md#t023 "CMA-ES over the fixed template using cost() for the budget"))
 
 Code: `src/tonematch/search/` (`cmaes.py`, `space.py`, `loop.py`, `report.py`, `types.py`, `stubs.py`). Tests: `tests/test_search.py`. Smoke demo: `scripts/search_smoke.py`.
 
@@ -41,7 +41,7 @@ Native's `set_params` only reaches knobs the captured template maps (today `know
 
 `scripts/search_smoke.py`, 2026-10-14, Native on the captured `known.hlx` chain, one free parameter (`0:Drive`, `knob_01`), spectral stub loss, 16-render budget. Target rendered at Drive 0.75; the search started from the file's 0.61 and found 0.749 (stub score 0.0105, 20 render calls). Wall time was 207 s including host start, so about 10 s per render call, far above the 1.63 s `cost()` figure. Each `set_params` followed by a render on this chain appears to cost more than the cached empty-preset measurement (cost() is a lower bound, see DECISIONS); budget Native by measured wall time on the real chain, not by `cost()` alone.
 
-## Loss weights and clip length (lead ruling from T022)
+## Loss weights and clip length (lead ruling from [T022](../../board/TASKS.md#t022 "Loss kit v0 with the no-DI terms"))
 
 - `DEFAULT_WEIGHTS` in the real kit are all 0, so a call with no `weights` gives a flat objective. `Evaluator` now passes `weights` explicitly: `Budget.weights="provisional"` resolves to `tonematch.metrics.PROVISIONAL_WEIGHTS`. Every `RankedPreset` and report carries `loss_label = "unadmitted loss"` until the caller sets `Budget.admitted=True` after `loss-trust-check` admits the terms. A test shows the real kit's objective is not constant over the fake (numpy proxy) chain.
 - `Budget.clip_s` default is now 10 s (short rung 3 s); the actual length is `min(clip_s, section length)`, recorded in `RankedPreset.clip_s` and printed in the report.

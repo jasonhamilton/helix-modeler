@@ -38,3 +38,11 @@ data/di/**
 
 # user-supplied songs for local testing only (never committed, never uploaded)
 data/songs/
+
+# internal-only reports (block/model coverage): never committed
+reports/local/
+
+# user-exported Line 6 setlists and preset folders stay local
+fixtures/golden/*.hls
+fixtures/golden/setlists/
+fixtures/golden/presets/

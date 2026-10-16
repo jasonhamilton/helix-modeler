@@ -496,7 +496,15 @@
     {"term": "gate", "definition": "A milestone with a written checklist and a human sign-off."},
     {"term": "blind A/B", "definition": "A listening test where the listener does not know which option is which."},
     {"term": "readback", "definition": "Reading the pedal's settings back after writing them to confirm they match."},
-    {"term": "MIDI CC", "definition": "A control message that moves one knob or switch from software."}
+    {"term": "MIDI CC", "definition": "A control message that moves one knob or switch from software."},
+    {"term": "fw", "definition": "Short for firmware, the pedal's built-in software. The pedal was on version 3.50 until 2026-10-15 and is now on 3.80."},
+    {"term": "render", "definition": "Play a test signal through a preset and record the audio that comes out."},
+    {"term": "capture", "definition": "The one-off step that teaches Helix Native a new chain: the preset file is loaded into its editor and the resulting state is recorded."},
+    {"term": "parity", "definition": "Agreement between the two engines: the same preset is rendered on both and the recordings are compared."},
+    {"term": "render pool", "definition": "Several copies of Helix Native running at once, each rendering a different candidate, to finish a batch sooner."},
+    {"term": "pre-roll", "definition": "Extra audio played before the part that is recorded, so delays and reverbs start from the same state every time."},
+    {"term": "Path A and Path B", "definition": "The two signal paths of the HX Stomp. Using both at once renders two chains in one pass."},
+    {"term": "wall-clock", "definition": "Real elapsed time on a clock, as opposed to computing time."}
   ],
   "evidence": [
     {"id": "ev-gate1", "label": "Gate 1 sign-off record", "kind": "ledger", "ref": "2026-10-14T18:04:42+00:00"},
@@ -517,5 +525,267 @@
     {"id": "ev-stomp-notes", "label": "Pedal control notes", "kind": "file", "ref": "docs/notes/stompd.md"},
     {"id": "ev-licence-notes", "label": "Line 6 licence flags", "kind": "file", "ref": "docs/notes/line6-eula-flags.md"},
     {"id": "ev-board", "label": "Task board", "kind": "file", "ref": "board/TASKS.md"}
-  ]
+  ],
+  "engines": {
+    "_about": "Wording for the 'Engines: what each can do and how fast' section. The capability verdicts are curated judgements from the ledger, DECISIONS, notes and board (cite them inline; they become links). Numbers written as {t:key:engine} are filled from the ledger every run, so they cannot go stale. 'fw350': true appends 'verified on fw 3.50, recheck on 3.80 pending' until a person re-checks on firmware 3.80 and clears the flag. All timings and the 100-test estimates are computed by scripts/engine_timing.py; nothing about time is written by hand here.",
+    "units": "Times are in seconds (s), minutes (min) and hours (h). A render is one pass of a test signal through a preset, recorded as audio. A score is one comparison of a rendered candidate against the target tone (lower is better). A capture is the one-off step that teaches Helix Native a new chain, by loading the preset file into its editor and recording its state. A parity check renders one preset on both engines and compares the two recordings. Estimates are 100 times the newest measured time; every estimate says which measurement it uses and its date.",
+    "activities": {
+      "render_2s": {
+        "label": "One render of a 2 s test clip",
+        "means": "Play a 2 second test signal through a preset and record the result."
+      },
+      "render_10s": {
+        "label": "One render of a 10 s clip",
+        "means": "The same, with a 10 second excerpt (the size a song-section search uses)."
+      },
+      "score": {
+        "label": "One comparison (score) of a candidate against a target",
+        "means": "Measure how far a rendered candidate is from the target tone."
+      },
+      "parity": {
+        "label": "One parity comparison (per preset)",
+        "means": "Render one preset on both engines, then analyse how closely the two recordings agree."
+      },
+      "smoke": {
+        "label": "One engine smoke test",
+        "means": "The quick end-to-end check that an engine loads a preset and returns sound."
+      },
+      "search_run": {
+        "label": "A search run, wall-clock per render call",
+        "means": "Total run time divided by the renders it made, engine start-up included."
+      },
+      "load": {
+        "label": "One preset load or model change",
+        "means": "Stomp: one whole-document write of a generated preset. Native: load a stored template."
+      },
+      "capture": {
+        "label": "First-time capture of a new chain",
+        "means": "Native only: teach the engine a chain it has not seen. Once per chain."
+      },
+      "probe_pass": {
+        "label": "One probe pass through an engine",
+        "means": "Play the block-probe test signals through one block and record them."
+      },
+      "probe_analysis": {
+        "label": "One probe analysis (offline)",
+        "means": "Check the probe analysis code against known software blocks; no engine involved."
+      },
+      "trial": {
+        "label": "One search trial (render + score)",
+        "means": "One candidate setting: render it, then score it. Scoring time is taken from the score row above."
+      },
+      "combined_testing": {
+        "label": "Combined: testing",
+        "means": "Engine smoke test per engine, and one parity comparison per preset on both."
+      },
+      "combined_comparison": {
+        "label": "Combined: comparison",
+        "means": "Scoring a candidate against a target."
+      },
+      "combined_modelling": {
+        "label": "Combined: modelling",
+        "means": "One search trial plus a capture (Native) or a preset write (Stomp)."
+      }
+    },
+    "jobs": [
+      {
+        "id": "match_section",
+        "name": "Match one song section",
+        "purpose": "Search for the settings that make a preset sound like one 10 s section of a song."
+      },
+      {
+        "id": "match_budget",
+        "name": "Match one section, same time budget as before",
+        "purpose": "The same search given the same wall-clock budget: how many more tries now fit."
+      },
+      {
+        "id": "match_song",
+        "name": "Match a whole song (up to 3 snapshot sections)",
+        "purpose": "One preset with up to three snapshots, one per kind of section in the song."
+      },
+      {
+        "id": "verify_top3",
+        "name": "Verify the top 3 candidates on the pedal",
+        "purpose": "Check the best three presets on the real Stomp before a human listens."
+      },
+      {
+        "id": "parity_one",
+        "name": "One parity check per preset",
+        "purpose": "Prove that the two engines agree on one preset."
+      },
+      {
+        "id": "synth_ci",
+        "name": "Synthetic benchmark, quick check (Native)",
+        "purpose": "A small known-answer test that can run after every code change."
+      },
+      {
+        "id": "synth_nightly",
+        "name": "Synthetic benchmark, full recovery (Native)",
+        "purpose": "The full known-answer test: does the search recover presets whose answer we know."
+      },
+      {
+        "id": "synth_stomp_truth",
+        "name": "Synthetic benchmark, Stomp reference renders",
+        "purpose": "Render the Stomp half of the known-answer set once."
+      },
+      {
+        "id": "synth_stomp_sub",
+        "name": "Synthetic benchmark, Stomp recovery on 10 items",
+        "purpose": "Known-answer recovery on the pedal, small subset."
+      },
+      {
+        "id": "synth_stomp_full",
+        "name": "Synthetic benchmark, Stomp recovery on all 60 items",
+        "purpose": "The same on the full Stomp set (6 times the 10-item subset)."
+      },
+      {
+        "id": "loss_trust",
+        "name": "One loss trust check run",
+        "purpose": "Test whether each way of scoring a tone ranks the true answer first among decoys."
+      },
+      {
+        "id": "library",
+        "name": "Capture the whole per-block library (Native)",
+        "purpose": "Capture every Stomp-compatible model once so Native can render any of them."
+      },
+      {
+        "id": "library_packed",
+        "name": "Capture the library with 8 blocks per capture",
+        "purpose": "The same library, if one capture carries up to 8 blocks."
+      },
+      {
+        "id": "probe_one",
+        "name": "Probe one block at one setting (Native)",
+        "purpose": "Fingerprint one block: frequency response, distortion and dynamics at one setting."
+      },
+      {
+        "id": "probe_library",
+        "name": "Probe every block at one setting (Native)",
+        "purpose": "A fingerprint of the whole library at one setting each."
+      },
+      {
+        "id": "probe_stomp",
+        "name": "Probe one block at one setting (Stomp)",
+        "purpose": "Compare the pedal against Native block by block."
+      }
+    ],
+    "capabilities": [
+      {
+        "capability": "Load a generated preset file (.hlx) directly",
+        "stomp": {
+          "verdict": "Yes. The file is compiled and written whole into the pedal's working memory, then read back parameter by parameter before anything is rendered; about 40 whole writes, all read back as written (DECISIONS 2026-10-15 Stomp T056 outcomes). 4 of 4 generated files were written and rendered (ledger 2026-10-14T23:47:43+00:00). Takes {t:load:stomp}.",
+          "fw350": true
+        },
+        "native": {
+          "verdict": "Yes, with no person, on macOS: a script drops the file into Native's editor and records the state as a template, then renders from the template (ledger 2026-10-14T23:58:32+00:00). A stored template loads in {t:load:native}; a chain never seen before needs a capture first (see below)."
+        }
+      },
+      {
+        "capability": "Export or save a preset file",
+        "stomp": {
+          "verdict": "Our own writer produces the .hlx; a human imports it in HX Edit (accepted, ledger 2026-10-14T17:38:00+00:00). The engine never saves to the pedal's flash memory, by policy: it edits the working copy only and puts the original preset back (DECISIONS 2026-10-14 stomp-engine, T003 hardware batch and T004).",
+          "fw350": true
+        },
+        "native": {
+          "verdict": "Not done and not needed for matching: the generated .hlx is the source, and Native's captured state is kept as a local template, not exported as a file."
+        }
+      },
+      {
+        "capability": "Change any parameter",
+        "stomp": {
+          "verdict": "Yes, at full resolution. Parameters are set in place and checked by read-back to within one hundred-thousandth of the parameter's range (DECISIONS 2026-10-15 stomp-engine, T051 whole-write readback).",
+          "fw350": true
+        },
+        "native": {
+          "verdict": "Only parameters given a MIDI control number at capture, in 128 steps across each range; everything else stays as captured. Inside that grid it equals a freshly captured file almost exactly (ledger 2026-10-15T20:46:58+00:00). On the 8-block test chain 54 of 63 mapped parameters moved the sound (ledger 2026-10-15T21:31:30+00:00)."
+        }
+      },
+      {
+        "capability": "Change models (swap an amp, cab or effect)",
+        "stomp": {
+          "verdict": "Yes. Any model or layout change is one whole write with read-back, never the pedal's own model command (DECISIONS 2026-10-15 Stomp T056 outcomes). {t:load:stomp} per write.",
+          "fw350": true
+        },
+        "native": {
+          "verdict": "Not live. A new model or layout needs a new capture ({t:capture:native}, once per chain); only chains already captured can be rendered. The per-block library that would remove this is not captured yet (T048)."
+        }
+      },
+      {
+        "capability": "Switch blocks on and off by script",
+        "stomp": {
+          "verdict": "Yes. Bypass is toggled in place with a MIDI control (the delay's bypass moved with CC 110, ledger 2026-10-15T21:14:14+00:00), and is part of every whole write.",
+          "fw350": true
+        },
+        "native": {
+          "verdict": "Yes. Each block's bypass is a MIDI control number in the captured template; one capture reproduces every bypass pattern almost exactly (-328.7 dB against files captured one by one, ledger 2026-10-15T21:31:30+00:00). Only chains captured since 2026-10-15 have it; older templates keep fixed bypass states (DECISIONS 2026-10-15 native-engine, Native phase 2 block bypass)."
+        }
+      },
+      {
+        "capability": "Two chains at once (throughput)",
+        "stomp": {
+          "verdict": "Path A and Path B give twice the renders per pass (ledger 2026-10-15T21:14:14+00:00), but each two-path render differs from a single-path render by -18 to -22 dB (cause unknown), so use it only to compare two-path renders with two-path renders. The pause on writing two-path documents (DECISIONS 2026-10-15 pedal lockups) has not been formally lifted.",
+          "fw350": true
+        },
+        "native": {
+          "verdict": "Block-serial chaining (one block per Native instance, in series) equals one instance at -67 to -79 dB above 20 Hz on the tested chains (ledger 2026-10-15T19:21:10+00:00; DECISIONS 2026-10-15 native-engine, T045 block-serial spike). Mono only; dual cabs and stereo untested (stereo is out of scope)."
+        }
+      },
+      {
+        "capability": "Use the whole block and model catalog",
+        "stomp": {
+          "verdict": "In principle any compatible model can be written with no capture, because the pedal runs it itself. Tried so far: the amps, cabs, drives and delays in the test presets, on firmware 3.50. Whether the 90 models gated by firmware now work on 3.80 has not been rechecked (DECISIONS 2026-10-15 Stomp firmware upgrade, human).",
+          "fw350": true
+        },
+        "native": {
+          "verdict": "Only through a per-block library, which is not captured yet: about 661 models at {t:capture:native} each is the plan (T048), and one capture may carry up to 8 blocks (DECISIONS 2026-10-15 native-engine, Native phase 2 block bypass). Until then only the few chains captured so far can be rendered."
+        }
+      },
+      {
+        "capability": "Render speed",
+        "stomp": {
+          "verdict": "{t:render_2s:stomp} for a 2 s clip (the pedal plays the audio in real time); a 10 s clip is {t:render_10s:stomp}. Two-chain passes double throughput (see above).",
+          "fw350": true
+        },
+        "native": {
+          "verdict": "{t:render_2s:native} for a 2 s clip and {t:render_10s:native} for a 10 s clip including 3 s of pre-roll. A pool of parallel hosts is faster again (timing tables below)."
+        }
+      },
+      {
+        "capability": "Snapshots",
+        "stomp": {
+          "verdict": "Snapshot values are written into the document and must equal the block values (DECISIONS 2026-10-15 snapshot values, lead on stomp-engine T051). Switching snapshots by MIDI (CC 69) recalls the stored values (ledger 2026-10-15T21:14:14+00:00). Switching during a render is not tested.",
+          "fw350": true
+        },
+        "native": {
+          "verdict": "Native renders the block values and ignores snapshot values when a file is loaded (ledger 2026-10-15T19:42:45+00:00). Snapshots are not switched in Native."
+        }
+      },
+      {
+        "capability": "Agreement between the two engines",
+        "both": {
+          "verdict": "On the test presets the engines null against each other at -31 to -40 dB (K, A, B0, B00; ledger 2026-10-15T21:37:31+00:00), the pass line being -30 dB. Two known exceptions: cab Early Reflections match only at 0 (-31.4 dB at 0, -3.6 dB at 0.78; DECISIONS 2026-10-15 parity finding cab EarlyReflections), and delay echoes arrive about 1.48 ms later per echo on Native, so delay tails cannot null and are compared by level and timing (ledger 2026-10-15T21:14:14+00:00; DECISIONS 2026-10-15 Stomp T056 outcomes).",
+          "fw350": true
+        }
+      },
+      {
+        "capability": "Reliability",
+        "stomp": {
+          "verdict": "Open problem: any control session leaves the pedal's block editing locked until USB is unplugged, and the firmware 3.80 upgrade did not fix it (ledger 2026-10-15T22:36:17+00:00; T059). One earlier control wedge needed a power cycle (DECISIONS 2026-10-15 HX Stomp priorities, human)."
+        },
+        "native": {
+          "verdict": "Memory growth and crashes are fixed: the host stays at about 3.0 GB and repeats are identical to -313 dB (ledger 2026-10-15T18:54:10+00:00; DECISIONS 2026-10-15 native-engine, host memory). Captures need a logged-in screen session."
+        }
+      },
+      {
+        "capability": "Platforms",
+        "stomp": {
+          "verdict": "Tested on macOS only. Linux is expected to work and Windows is unconfirmed; both are set aside for now (DECISIONS 2026-10-15 HX Stomp priorities, human). The pedal is now on firmware 3.80, so everything measured on 3.50 awaits a recheck.",
+          "fw350": true
+        },
+        "native": {
+          "verdict": "Tested on macOS with Native 3.82 as a VST3 plug-in in a helper process. Other platforms untested. Real MIDI control into the AU build did not change parameters (DECISIONS 2026-10-15 native-engine, Native phase 2 block bypass)."
+        }
+      }
+    ]
+  }
 }

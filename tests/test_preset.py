@@ -209,3 +209,52 @@ def test_engine_modules_use_the_canonical_helpers():
     assert native.snapshot_mismatches is P.snapshot_mismatches
     assert stomp_readback.sync_snapshot_controllers is P.sync_snapshot_controllers
     assert stomp_readback.snapshot_conflicts is P.snapshot_conflicts
+
+
+def test_vary_in_snapshots_writes_snapshot_controller_and_mirrors_current():
+    pre = load()
+    pre.current_snapshot = 1
+    pre.vary_in_snapshots("block1", "Mix", [0.1, 0.5, 0.9], lo=0.0, hi=1.0)
+    d = pre.to_hlx_dict()["data"]["tone"]
+    e = d["controller"]["dsp0"]["block1"]["Mix"]
+    assert e["@controller"] == P.SNAPSHOT_CONTROLLER == 9 and (e["@min"], e["@max"]) == (0.0, 1.0)
+    vals = [d[f"snapshot{i}"]["controllers"]["dsp0"]["block1"]["Mix"]["@value"] for i in range(3)]
+    assert vals == [0.1, 0.5, 0.9]
+    assert d["dsp0"]["block1"]["Mix"] == 0.5  # block mirrors the current snapshot
+    assert checks(P.validate(pre, CAT)) == set()
+
+
+def test_default_still_flattens_unopted_params():
+    pre = load()
+    pre.snapshots[2].params["block1"]["Mix"] = 0.8
+    d = pre.to_hlx_dict()["data"]["tone"]
+    assert d["snapshot2"]["controllers"]["dsp0"]["block1"]["Mix"]["@value"] == 0.25
+
+
+def test_vary_needs_range_or_catalog_and_matching_count():
+    pre = load()
+    with pytest.raises(P.PresetError):
+        pre.vary_in_snapshots("block1", "Mix", [0.1, 0.2])
+    with pytest.raises(P.PresetError):
+        pre.vary_in_snapshots("block1", "Mix", [0.1, 0.2, 0.3])  # no range and no catalog
+    pre.vary_in_snapshots("block1", "Mix", [0.1, 0.2, 0.3], catalog=CAT)  # range from catalog
+
+
+def test_keep_snapshot_varying_roundtrips_a_foreign_file():
+    raw = synth()
+    t = raw["data"]["tone"]
+    t["controller"]["dsp0"]["block1"]["Mix"].update({"@controller": 9, "@min": 0.0, "@max": 1.0})
+    for i, v in enumerate((0.25, 0.6, 0.7)):
+        t[f"snapshot{i}"]["controllers"]["dsp0"]["block1"]["Mix"]["@value"] = v
+    pre = load(raw)
+    assert "snapshot_values" in checks(P.validate(pre, CAT))
+    assert pre.keep_snapshot_varying() == 1
+    assert checks(P.validate(pre, CAT)) == set()
+    assert pre.to_hlx_dict() == raw
+
+
+def test_split_join_bypass_keys_are_allowed_in_snapshots():
+    raw = synth()
+    for i in range(3):
+        raw["data"]["tone"][f"snapshot{i}"]["blocks"]["dsp0"]["split"] = True
+    assert "snapshots" not in checks(P.validate(load(raw), CAT))

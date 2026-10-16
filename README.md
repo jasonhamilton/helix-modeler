@@ -13,6 +13,7 @@ Status: Gate 1 passed (2026-10-14). Both render engines are driven from code (He
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — the decision log.
 - [`board/TASKS.md`](board/TASKS.md) and [`board/GATES.md`](board/GATES.md) — what is being worked on, and what each gate needs.
 - [Project status report](reports/status/README.md) — project health, what works, the main blockers and what needs you.
+- [How benchmarking works](docs/BENCHMARKING.md) — what the benchmark tests, how it reaches a verdict, and where each test stands.
 - [How the tone comparison works](docs/TONE-COMPARISON.md) — what is compared, how the search iterates, the hardware null test, and whether the score can be trusted yet.
 
 ## Layout

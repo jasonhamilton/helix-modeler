@@ -31,7 +31,7 @@ Send each returned change to `reviewer`. A block goes back to the owner once; a 
 
 ## 6. Gate
 
-Ask `benchmark` to run what the mode needs: `engine-smoke` (mode 1), `synthetic-benchmark` (mode 2 onward, every merge), `parity-null` and `blind-ab-session` (mode 3), `synthetic-benchmark` with seeded-vs-cold comparison (mode 4), `engine-smoke` on fresh installs plus `licence-check` (mode 5). If an exit condition in `docs/AGENT-TEAM.md` is met, `benchmark` ticks the evidence in `board/GATES.md`; the human signs.
+Ask `benchmark` to run the whole suite first: `python scripts/benchmark_suite.py` (add `--no-hardware` when the pedal is not free). It runs every test in a fixed order, times each, writes `reports/benchmark/latest.json` and a history file, appends the `suite_wall_clock_s` ledger row, and refreshes the "most recent benchmark run" section of `docs/BENCHMARKING.md` (`--render-doc` refreshes only that section). A test that passed last run and fails now is a regression: freeze merges and tell the owner. Then ask `benchmark` to run anything extra the mode needs: `engine-smoke` (mode 1), `synthetic-benchmark` (mode 2 onward, every merge), `parity-null` and `blind-ab-session` (mode 3), `synthetic-benchmark` with seeded-vs-cold comparison (mode 4), `engine-smoke` on fresh installs plus `licence-check` (mode 5). If an exit condition in `docs/AGENT-TEAM.md` is met, `benchmark` ticks the evidence in `board/GATES.md`; the human signs.
 
 ## 7. Sync
 
@@ -39,4 +39,4 @@ Run `plan-sync`.
 
 ## 8. Status report
 
-Run `status-report` (agent `status-reporter`): refresh `docs/features.json` and regenerate `reports/status/index.html`, the by-feature progress page for the person. Then end with one paragraph to the person: mode, what shipped (ledger rows), what is blocked on them, what is next, and the path to the status page with its three biggest blockers.
+Run `status-report` (agent `status-reporter`): refresh `docs/features.json` and regenerate `reports/status/index.html`, the by-feature progress page for the person. Then regenerate the block coverage report, `python scripts/block_coverage_report.py` (owner `benchmark`): the Stomp-versus-Native block table by GUI category, with a card per tested chain. It writes only `reports/local/blocks/index.html` and `README.md`, which are gitignored because they name Line 6 models: never commit them, never link them from a committed document, never create a public copy. Mention its path in the closing paragraph. Then end with one paragraph to the person: mode, what shipped (ledger rows), what is blocked on them, what is next, and the path to the status page with its three biggest blockers.

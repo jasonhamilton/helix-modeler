@@ -845,3 +845,9 @@ Those statements are not contradictory. Together, they describe the project's ac
 Build a reporting system that communicates that distinction clearly, accurately, and efficiently in both HTML and Markdown.
 
 The goal is a concise, professional project-health dashboard backed by detailed, accessible engineering evidence—not a technical audit log disguised as a status report.
+
+---
+
+# Addendum (owner, 2026-10-15): task references
+
+Any report that references a task must give a relative link to that task in the GitHub repository, and every task number must show the task's name on hover. In Markdown: `[T042](../../board/TASKS.md#t042 "Play-along user-DI capture")`. In HTML: `<a href="…#t042" title="Play-along user-DI capture">T042</a>`. Links point at the per-task anchors in `board/TASKS.md` (or `board/CYCLES.md` once archived) defined in `contracts/board.md`.

@@ -283,7 +283,7 @@ def cmd_run(a) -> int:
     from tonematch.engines.stomp import StompEngine, chain_signature
     from tonematch.engines.stomp_bridge import BridgeError, StompBridge
 
-    if subprocess.run(["pgrep", "-f", "HX Edit"], capture_output=True, check=False).stdout.strip():
+    if subprocess.run(["pgrep", "-f", "HX Edit.app/Contents/MacOS/HX Edit"], capture_output=True, check=False).stdout.strip():
         sys.exit("HX Edit is running: quit it first (it holds the control interface)")
     compiler()  # fail early if unset
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -402,7 +402,10 @@ def main(argv=None) -> int:
     r.add_argument("--diagnose", action="store_true",
                    help="first: control render on the original buffer (live route_key), then K by whole write "
                         "rendered at 0/0.5/2.5 s, after re-sending route_key, and after a 1->6 toggle")
+    from tonematch.engines.stomp_bridge import add_usb_reset_arg, apply_usb_reset_arg
+    add_usb_reset_arg(r)
     a = ap.parse_args(argv)
+    apply_usb_reset_arg(a)
     return {"gen": cmd_gen, "compile": cmd_compile, "run": cmd_run}[a.cmd](a)
 
 

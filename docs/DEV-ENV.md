@@ -12,7 +12,7 @@ Backend check: `python -c "from tonematch.gpu import detect_backend as d; print(
 - Python via Homebrew or python.org. Default torch wheel includes MPS on Apple Silicon.
 - Native runs as AU/VST3; HX Edit runs natively. Intel Macs: CPU only.
 - `soundfile` needs libsndfile (bundled in recent wheels; `brew install libsndfile` if missing).
-- **Stomp reamping needs Microphone permission for the app that runs Python** (Terminal, iTerm, VS Code: System Settings > Privacy & Security > Microphone). Without it, macOS hands the process digital silence on the HX Stomp's inputs. There is no error, so the engine reports "the Stomp returned silence for a non-silent input" (T018s, 2026-10-14). In an agent's sandboxed shell the stream does not start at all (PortAudio -9986). USB control (`stompd`) does not need this permission.
+- **Stomp reamping needs Microphone permission for the app that runs Python** (Terminal, iTerm, VS Code: System Settings > Privacy & Security > Microphone). Without it, macOS hands the process digital silence on the HX Stomp's inputs. There is no error, so the engine reports "the Stomp returned silence for a non-silent input" ([T018s](../board/TASKS.md#t018s "Spike: autonomous whole-preset injection on the HX Stomp"), 2026-10-14). In an agent's sandboxed shell the stream does not start at all (PortAudio -9986). USB control (`stompd`) does not need this permission.
 
 ## Linux
 - `apt install libsndfile1 libportaudio2 libasound2-dev` (or distro equivalent).

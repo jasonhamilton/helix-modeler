@@ -1,6 +1,6 @@
 # Line 6 EULA flags for automation and protocol use (not legal advice)
 
-Status: T009. The only Line 6 licence text reached was the generic software EULA at [line6.com/software/eulas/standard.html](https://line6.com/software/eulas/standard.html) (the page names YGG, Yamaha Guitar Group). It may not be the exact EULA shown in the Helix Native installer or HX Edit; the installer text must be read by the human before any decision. Line 6's [API Developer Agreement](https://line6.com/api/developeragreement.html) has similar wording but applies to their web API, not to us.
+Status: [T009](../../board/TASKS.md#t009 "Pull the Native Pilot's Guide automation details and fretwire's…"). The only Line 6 licence text reached was the generic software EULA at [line6.com/software/eulas/standard.html](https://line6.com/software/eulas/standard.html) (the page names YGG, Yamaha Guitar Group). It may not be the exact EULA shown in the Helix Native installer or HX Edit; the installer text must be read by the human before any decision. Line 6's [API Developer Agreement](https://line6.com/api/developeragreement.html) has similar wording but applies to their web API, not to us.
 
 ## Clauses that matter (paraphrased)
 
@@ -16,8 +16,8 @@ Status: T009. The only Line 6 licence text reached was the generic software EULA
 - Human to read the EULAs displayed by the Native and HX Edit installers and record the verdicts in docs/DECISIONS.md.
 - Keep Native automation (16+16 slots, MIDI CC, pedalboard hosting) as documented user-facing features; they are not restricted by anything found.
 - Do not publish a hosted render service. Do not ship trained models derived from Native renders until item 5 is answered.
-- Do not decompile HX Edit or Native to learn the state-blob format; inspect the blobs the plugin itself produces with its host API only (this is T002's approach) and treat the result as still subject to clause 1 until the installer EULA is read.
+- Do not decompile HX Edit or Native to learn the state-blob format; inspect the blobs the plugin itself produces with its host API only (this is [T002](../../board/TASKS.md#t002 "Spike: can pedalboard write a whole preset into Helix Native's saved…")'s approach) and treat the result as still subject to clause 1 until the installer EULA is read.
 
 ## Human review (2026-10-15)
 
-The human read the EULAs shipped with the Helix Native and HX Edit installers and found no problem for this project, including local scripted use and training on renders made with their own licence. Recorded in docs/DECISIONS.md. This closes T017.
+The human read the EULAs shipped with the Helix Native and HX Edit installers and found no problem for this project, including local scripted use and training on renders made with their own licence. Recorded in docs/DECISIONS.md. This closes [T017](../../board/TASKS.md#t017 "Read the EULA shipped with the Native and HX Edit installers").

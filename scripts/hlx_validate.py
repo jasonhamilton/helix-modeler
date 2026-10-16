@@ -27,6 +27,8 @@ def main(argv=None) -> int:
     ap.add_argument("--golden", default=str(C.repo_root() / "fixtures" / "golden"))
     ap.add_argument("--firmware", help="expected device_version, e.g. 0x3800000 or 58720256")
     ap.add_argument("--cache-dir")
+    ap.add_argument("--keep-snapshot-values", action="store_true",
+                    help="accept snapshot-controlled (@controller 9) parameters that vary by snapshot")
     ap.add_argument("--no-report", action="store_true")
     a = ap.parse_args(argv)
     cache = Path(a.cache_dir) if a.cache_dir else C.default_cache_dir()
@@ -39,6 +41,8 @@ def main(argv=None) -> int:
     except P.PresetError as e:
         print(f"hlx-validate: {e}", file=sys.stderr)
         return 2
+    if a.keep_snapshot_values:
+        pre.keep_snapshot_varying()
     fw = int(a.firmware, 0) if a.firmware else None
     viol = P.validate(pre, cat, _load_costs(cache, cat), fw)
     ver = cat["_source"]["hxedit_version"] if cat else "none"

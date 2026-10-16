@@ -20,6 +20,7 @@ Script: `scripts/reamp_capture.py <dry.wav> --out <wet.wav> [--calibrate]` (owne
 3. Trim by the measured latency, level-match to the reference, keep the tail, write the result.
 4. For the user's own DI: record USB 5/6 (dry) and USB 1/2 (processed) at the same time while they play; both are saved. See "Play-along user DI" below.
 5. Leave the pedal as found. The script never selects another preset; it undoes its own edit-buffer edits (Input routing, and for `--calibrate` the blocks it bypassed), newest first, and keeps going if one undo fails, reporting the failures. Nothing is saved.
+6. End the control session cleanly (T059). The helper sends HX Edit's session-close when it exits; without it the pedal keeps its blocks locked until USB is unplugged. `--usb-reset auto` (the default, also `TONEMATCH_STOMP_USB_RESET`) re-enumerates the pedal's USB only when the helper could not send that close; `always` resets after every session, `off` never. A reset never runs while audio streams. If the script says the pedal did not come back, ask the person to unplug and replug the USB cable (the 9V can stay in).
 
 ## Play-along user DI (`--user-di --play`, dry-signal accuracy mode A)
 

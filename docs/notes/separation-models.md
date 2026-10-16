@@ -1,4 +1,4 @@
-# Separation models, weights and licences (separation agent, T020)
+# Separation models, weights and licences (separation agent, [T020](../../board/TASKS.md#t020 "separate skill with backend detection and htdemucs_6s first"))
 
 No model weights and no song audio are in the repo. Weights download on first use into `cache/models/` (gitignored); the only network traffic is that weight download (HuggingFace hub, plain GET, nothing uploaded).
 

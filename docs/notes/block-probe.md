@@ -1,6 +1,6 @@
-# block-probe (T046, offline part)
+# block-probe ([T046](../../board/TASKS.md#t046 "block-probe skill, offline part"), offline part)
 
-Owner: `tone-metrics`. Rendering through Native or the Stomp is T047 (`native-engine`); this note
+Owner: `tone-metrics`. Rendering through Native or the Stomp is [T047](../../board/TASKS.md#t047 "block-probe rendering") (`native-engine`); this note
 covers the probe signal, the analysis and the fingerprint format. Code: `src/tonematch/probe/`
 (`signals.py`, `analysis.py`, `fingerprint.py`, `synthetic.py`), CLI `scripts/block_probe.py`, tests
 `tests/test_probe.py`, skill `.claude/skills/block-probe/SKILL.md`.
@@ -116,7 +116,7 @@ band); the frequency response also reports the RMS over the grid per sweep level
 levels below -80 dB on both sides count as equal; modulation depths are compared only above their
 detection floors; a feature measured on one side only (a delay found in A but not B) is a `differs`
 row. Exit code 1 when anything differs. The tolerances are provisional: they should be set from the
-Native repeat-render spread and the Stomp-vs-Native spread on blocks known to be in parity (T049).
+Native repeat-render spread and the Stomp-vs-Native spread on blocks known to be in parity ([T049](../../board/TASKS.md#t049 "Per-block parity audit on the Stomp using the probe set")).
 
 ## Accuracy on KNOWN synthetic blocks (`validate`, 2026-10-15)
 
@@ -165,7 +165,7 @@ how close any Helix block is to them.
   the 10 dB staircase step.
 - **Impulse SNR on hardware.** One sample at -6 dBFS against a -90 dBFS noise floor leaves about 37 dB
   of decay range, so T30 is withheld and RT60 comes from T20. Averaging several Stomp captures, or a
-  longer ESS segment for reverbs, is the fix if T049 needs better.
+  longer ESS segment for reverbs, is the fix if [T049](../../board/TASKS.md#t049 "Per-block parity audit on the Stomp using the probe set") needs better.
 - **Tails leak forward.** A long reverb or delay keeps sounding into the following segments. The
   steady-state fits are robust to that, but THD and IMD floors rise; for time-based blocks read the
   impulse and modulation sections.

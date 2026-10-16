@@ -1,6 +1,6 @@
 # AFx-Rep (ST-ITO) as loss term `embed_afxrep`
 
-Owner: `tone-metrics`. Task T032. Read 2026-10-14. Not legal advice.
+Owner: `tone-metrics`. Task [T032](../../board/TASKS.md#t032 "Wire AFx-Rep (ST-ITO) in as loss term embed_afxrep"). Read 2026-10-14. Not legal advice.
 
 ## Sources and licence wording (read 2026-10-14)
 
@@ -60,7 +60,7 @@ Batching does not help on the CPU (0.22 s per clip in a batch of 16). `auto` the
 
 ## Proxy trust check (NOT Helix)
 
-Seeds 9201-9203, 120 items, paired with `ltas_tilt` and `envelope`. Report: `cache/loss-trust/proxy-dsp-v0-T032-afxrep-12s.json`. Ledger: 2026-10-14T23:14:41.
+Seeds 9201-9203, 120 items, paired with `ltas_tilt` and `envelope`. Report: `cache/loss-trust/proxy-dsp-v0-T032-afxrep-12s.json`. Ledger: [2026-10-14T23:14:41](../../ledger/runs.csv?plain=1#L56 "loss-trust · - · proxy-dsp-v0 · rank1_rate = 0.0667 (first of 6 rows at this time)") (6 rows).
 
 | Term | Held-out rank-1 | Same-notes rank-1 | Held-out vs random only | Pooled pairwise win |
 |---|---|---|---|---|
@@ -68,4 +68,4 @@ Seeds 9201-9203, 120 items, paired with `ltas_tilt` and `envelope`. Report: `cac
 | ltas_tilt | 0.133 | 0.292 | 0.933 | 0.882 |
 | envelope | 0.150 | 0.242 | 0.750 | 0.861 |
 
-Chance is 0.0625. AFx-Rep is worse on the proxy. Without the proxy separator (diagnostic, seed 9201 only), it is clean-target strong on boost, cab, eq and random (pairwise 0.98-1.00), but it always prefers the gate-perturbed distractor (pairwise 0.26). Details and reasoning: `docs/DECISIONS.md`, T032.
+Chance is 0.0625. AFx-Rep is worse on the proxy. Without the proxy separator (diagnostic, seed 9201 only), it is clean-target strong on boost, cab, eq and random (pairwise 0.98-1.00), but it always prefers the gate-perturbed distractor (pairwise 0.26). Details and reasoning: `docs/DECISIONS.md`, [T032](../../board/TASKS.md#t032 "Wire AFx-Rep (ST-ITO) in as loss term embed_afxrep").

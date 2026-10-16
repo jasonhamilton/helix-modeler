@@ -1,6 +1,6 @@
 # fretwire and related protocol notes (own summary)
 
-Status: T009, research. Source: [fretwire README](https://github.com/john-baxter-dev/fretwire) (read via summary). The detailed protocol docs live in the repo and were not read line by line; open them before implementing.
+Status: [T009](../../board/TASKS.md#t009 "Pull the Native Pilot's Guide automation details and fretwire's…"), research. Source: [fretwire README](https://github.com/john-baxter-dev/fretwire) (read via summary). The detailed protocol docs live in the repo and were not read line by line; open them before implementing.
 
 ## What it is
 
@@ -14,17 +14,17 @@ Status: T009, research. Source: [fretwire README](https://github.com/john-baxter
 - Preset streams use MessagePack.
 - Operations: preset read/write, parameter edits, block routing, snapshots, device backup/restore.
 - Needs reference data (names, ranges, model IDs) imported from the user's own HX Edit install at runtime; nothing from Line 6 is shipped.
-- One concurrent session per device. So HX Edit and our tool cannot control the pedal at once (matches T003's coexistence question).
+- One concurrent session per device. So HX Edit and our tool cannot control the pedal at once (matches [T003](../../board/TASKS.md#t003 "Spike: fretwire on Linux drives a block, model and parameter change")'s coexistence question).
 - Verification: HX Stomp fully verified; Floor reads verified; LT/Rack reads only; Effects/XL user-reported; POD Go verified.
 - Crates: data parsers, protocol codecs, USB transport, core session, command layer, CLI, GUI, HTTP server, MCP.
 
 ## Second source: TonePush
 
-[crmne/tonepush](https://github.com/crmne/tonepush) (MIT) is another open client with PROTOCOL.md and an opcode dictionary (`docs/_reference/opcodes.md`) and model-catalog format notes. Per its README: MessagePack RPC framing over several channels, strict ordered sessions where a timeout poisons the connection, unsolicited device notifications must be drained or writes time out, HX Edit must be closed (exclusive access), and it uses the Rust `nusb` crate, which is cross-platform. Good candidate for the Windows/macOS port question in T003. Also see [helix_usb](https://github.com/Pedalnetics) (Python scripts, per search result; not inspected).
+[crmne/tonepush](https://github.com/crmne/tonepush) (MIT) is another open client with PROTOCOL.md and an opcode dictionary (`docs/_reference/opcodes.md`) and model-catalog format notes. Per its README: MessagePack RPC framing over several channels, strict ordered sessions where a timeout poisons the connection, unsolicited device notifications must be drained or writes time out, HX Edit must be closed (exclusive access), and it uses the Rust `nusb` crate, which is cross-platform. Good candidate for the Windows/macOS port question in [T003](../../board/TASKS.md#t003 "Spike: fretwire on Linux drives a block, model and parameter change"). Also see [helix_usb](https://github.com/Pedalnetics) (Python scripts, per search result; not inspected).
 
 ## Implications for the plan
 
-- Cross-platform port looks plausible: pure-Rust USB, but Windows needs a driver that exposes the vendor interface; coexistence with the Line 6 driver is untested (T003).
+- Cross-platform port looks plausible: pure-Rust USB, but Windows needs a driver that exposes the vendor interface; coexistence with the Line 6 driver is untested ([T003](../../board/TASKS.md#t003 "Spike: fretwire on Linux drives a block, model and parameter change")).
 - Reuse two independent implementations to cross-check opcodes before trusting either.
 - Keep to read-only/control-plane operations; do not send anything firmware-related.
 - Add TonePush to the doc index (done in PLAN.md).

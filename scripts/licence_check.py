@@ -167,6 +167,8 @@ def section_assets(root: Path) -> tuple[str, list[str]]:
     fail, warn = [], []
     for p, rel in walk(root):
         low = rel.lower()
+        if low.startswith("reports/local/"):
+            continue  # internal-only reports, gitignored and never committed (DECISIONS 2026-10-15)
         if p.suffix.lower() in BANNED_SUFFIXES:
             fail.append(f"{rel}: Line 6 / binary asset type {p.suffix}")
         elif (any(h in p.name.lower() for h in FIRMWARE_HINTS)
