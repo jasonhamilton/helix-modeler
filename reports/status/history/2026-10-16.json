@@ -8,9 +8,21 @@
    "group": "soon",
    "title": "Choose the first real songs for local testing"
   },
+  "coreaudio": {
+   "group": "soon",
+   "title": "Bring the Mac's audio back and check the pedal's blocks can be edited"
+  },
   "early-reflections-ruling": {
    "group": "later",
    "title": "Rule on how to treat the cab Early Reflections setting if it cannot be matched"
+  },
+  "gate2-later-options": {
+   "group": "later",
+   "title": "Decide whether to make the no-recording measures note-proof or train a guitar-specific comparison"
+  },
+  "gate2-scoring": {
+   "group": "blocking",
+   "title": "Choose how the Gate 2 comparison test is scored"
   },
   "hx-edit-import": {
    "group": "later",
@@ -28,28 +40,28 @@
    "group": "later",
    "title": "Provide a Windows and a Linux machine, or accept macOS only"
   },
-  "overnight-capture-go": {
-   "group": "later",
-   "title": "Give the go to capture the whole block library"
-  },
   "pedal-delay-check": {
-   "group": "soon",
+   "group": "later",
    "title": "Check the delay settings on the pedal after loading a regenerated preset"
   },
   "play-along": {
    "group": "soon",
    "title": "Record the play-along takes and report what happened"
+  },
+  "push-commit": {
+   "group": "soon",
+   "title": "Push the next commit once the engine work lands"
   }
  },
  "biggest_problem": "The tone comparison is not validated",
  "capabilities": {
   "missing": [
    "Learned predictor for good starting points",
-   "Library of measured blocks",
+   "Measured fingerprints for each block in the library",
    "Pedal control on Windows or Linux",
    "Produce up to three tone snapshots from one song",
    "Run blind listening sessions",
-   "Run the known-answer benchmark on Helix audio",
+   "Run the full known-answer test on Helix audio",
    "Stereo blocks and dual cabinets in Native",
    "Turn a song into a pedal-verified preset with one command"
   ],
@@ -67,8 +79,11 @@
    "Catch a mismatch between what was written and what the pedal holds",
    "Control Helix Native from code",
    "Control the HX Stomp from code and restore it",
+   "Hold the pedal's effect models in Native as single-block templates",
    "Native and the pedal agree on simple presets",
-   "Read, write and check preset files"
+   "Native stands in for the pedal on most effect types",
+   "Read, write and check preset files",
+   "Render two chains in one pedal pass"
   ]
  },
  "components": {
@@ -126,11 +141,6 @@
  },
  "health": "At Risk",
  "issues": {
-  "block-library-pending": {
-   "classification": "Risk",
-   "priority": "Medium",
-   "title": "The library of measured blocks does not exist yet"
-  },
   "board-hygiene": {
    "classification": "Confirmed Problem",
    "priority": "Low",
@@ -145,6 +155,11 @@
    "classification": "Unknown/Unverified",
    "priority": "Low",
    "title": "What the Line 6 licence agreements allow for training is not recorded"
+  },
+  "native-coverage-gaps": {
+   "classification": "Risk",
+   "priority": "Medium",
+   "title": "The software engine cannot stand in for every pedal effect"
   },
   "no-blind-listening": {
    "classification": "Unknown/Unverified",
@@ -167,7 +182,7 @@
    "title": "The tone comparison is not validated"
   }
  },
- "ledger_rows": 646,
+ "ledger_rows": 690,
  "milestones": {
   "Gate 1": {
    "done": 4,
@@ -190,7 +205,7 @@
  },
  "readiness": "Prototype",
  "schema": "tonematch.status-snapshot",
- "tasks_done": 60,
+ "tasks_done": 68,
  "technical": "Advancing",
  "version": 1
 }

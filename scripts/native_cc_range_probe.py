@@ -51,6 +51,12 @@ PROBES = [
     ("mm4", "HD2_MM4AnalogChorus", "Speed", (40, 100), None, {}),
     ("bloom", "VIC_ReverbDynBloom", "Decay", (18, 58), None, {}),
 ]
+# Block Level, rules v2 (lead ruling 2026-10-16): [-25.75, +6] dB, 0.25 dB steps, 0 dB at c = 103.
+LEVEL_PROBES = [
+    ("level_drive", "HD2_DistDerangedMaster", "Level", (0, 51, 103, 127), None, {}),
+    ("level_delay", "HD2_DelayTransistorTape", "Level", (40, 103, 120), None, {"Mix": 0.4}),
+    ("level_cab", "HD2_Cab1x12BlueBell", "Level", (1, 103), None, {}),
+]
 PRE_S, SECONDS = 3.0, 2.0
 
 
@@ -66,12 +72,18 @@ def echo_lag_ms(y: np.ndarray, start: int) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--only", default="", help="comma list of probe tags")
+    ap.add_argument("--set", choices=("time", "level"), default="time",
+                    help="time: the T072 time/rate probes; level: Block Level rules v2 (N6d)")
     a = ap.parse_args()
+    global OUT
+    if a.set == "level":
+        OUT = OUT.parent / "cc_range_probe_level"
     t0 = time.perf_counter()
     catalog = load_catalog()
     plugin, start = str(nat.locate_plugin()), nat.start_state_path().read_bytes()
     base_k = base_preset()
-    probes = [p for p in PROBES if not a.only or p[0] in a.only.split(",")]
+    probes = [p for p in (LEVEL_PROBES if a.set == "level" else PROBES)
+              if not a.only or p[0] in a.only.split(",")]
     # The probes that move @min need their own catalog view (the rule starts at the catalog min).
     presets, meta, cats = [], [], []
     for tag, mid, prm, cs, lo_over, over in probes:

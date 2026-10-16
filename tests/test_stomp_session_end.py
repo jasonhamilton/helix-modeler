@@ -296,3 +296,13 @@ def test_release_check_runs_read_only_sessions_and_reports_the_close(helper, mon
     assert all(r["release"]["release_sent"] and r["usb_reset"]["reset"] is False for r in recs)
     cmds = [ln.split()[1] for ln in helper.lines() if ln.startswith("cmd")]
     assert cmds == ["info", "info", "quit"] * 2           # health check, info, quit: nothing written
+
+
+def test_missing_close_ack_is_reported_not_silent(capsys):
+    """A session-close that one channel did not answer is printed and kept on the bridge (review 2026-10-16)."""
+    b = object.__new__(StompBridge)
+    b.release_report = {"release_sent": True, "acks": {"events": True, "data": True, "control": False}}
+    b.usb_reset, b._opened, b._wedged, b.acks_missing = "off", True, False, []
+    b._session_end_reset()
+    assert b.acks_missing == ["control"]
+    assert "did not answer the session-close on control" in capsys.readouterr().err

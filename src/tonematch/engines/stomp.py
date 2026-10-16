@@ -10,18 +10,24 @@ the engine records the pedal's current preset and backs the edit buffer up to
 compares it to the one recorded at open, and only if they differ (the buffer had unsaved edits)
 writes the backup into the edit buffer and compares again. ``restore_report`` says what happened.
 
-v0 limits (measured on firmware 3.50, docs/notes/T003-stomp-control-spike.md):
-- ``load()`` changes models, parameters and bypass on the blocks the pedal's current preset
-  already has. It does not add, remove or move blocks: a preset whose block layout differs from
-  the pedal's raises ``UnsupportedModelChange``. Load a base preset with the right layout first
-  (by hand, or with a template the human imports once).
+Load modes (``StompEngine(whole_preset=...)`` or ``TONEMATCH_STOMP_WHOLE_PRESET``):
+- ``fallback`` (default; lead 2026-10-15, layout changes T092): parameters and bypass are changed in
+  place; a model change, or a preset whose block layout differs (a block where the pedal has none,
+  an Amp+Cab against a single block, any Path B difference), is one whole write (below) with the
+  full readback. ``UnsupportedModelChange`` is raised only when the compiler or the device refuses
+  the layout (``LayoutRefused``: the read-back layout is not the one written), or when no
+  ``stompd compile`` build is configured (then model changes stay in place, as in ``off``).
+- ``off``: the v0 behaviour, in place only; a layout change raises ``UnsupportedModelChange``.
+- ``always``: every load is a whole write (proposed default, docs/DECISIONS.md 2026-10-16 T094).
 - Amp+Cab blocks are changed with ``set_model_pair``: ``set_model`` alone drops the cab.
 - The Input block's "USB 5/6" value is 6 on the Stomp (the Floor menu value 15 is silent).
-- One render at a time (``parallelism=1``); Path A/B parallel renders are untested.
 
-Whole-preset load (T018s, behind a flag: ``StompEngine(whole_preset=...)`` or
-``TONEMATCH_STOMP_WHOLE_PRESET=fallback|always``): when the in-place plan raises
-``UnsupportedModelChange`` (``fallback``), or for every load (``always``), the preset is written as
+``render_many`` (contract amendment 2026-10-16): two single-path variants that fit the DSP are
+rendered in one pedal pass, the first on Path A (USB 1/2) and the second on Path B (USB 3/4,
+topology SAB: Y split and join at HX Edit's 0.5/0.5, Path B's own output). Anything else is
+serial (``tonematch.engines.base.serial_render_many``). See :func:`two_path_fit`.
+
+Whole-preset load (T018s): the preset is written as
 an ``.hlx`` with the Input on USB 5/6, compiled offline into a device document on top of a backup
 of the current edit buffer (``stompd compile``, which keeps the device's own container: section
 table, settings, junctions, assignments, snapshots), and written into the EDIT BUFFER with one
@@ -66,7 +72,8 @@ from .stomp_bridge import BridgeError, StompBridge, helper_path, stomp_on_bus
 from .stomp_layout import ensure_sabj
 from .stomp_readback import ReadbackMismatch, check, snapshot_conflicts, sync_snapshot_controllers
 
-__all__ = ["ReadbackMismatch", "StompEngine", "compile_document", "decode_document", "reamp_hlx_dict"]
+__all__ = ["LayoutRefused", "ReadbackMismatch", "StompEngine", "compile_document", "decode_document",
+           "merge_two_path", "reamp_hlx_dict", "two_path_fit"]
 
 ROOT = Path(__file__).resolve().parents[3]
 SESSION_DIR = ROOT / "cache" / "stomp" / "session"
@@ -89,7 +96,35 @@ def _close_live_engines() -> None:
 atexit.register(_close_live_engines)
 ENV_WHOLE_PRESET = "TONEMATCH_STOMP_WHOLE_PRESET"   # off | fallback | always
 ENV_COMPILER = "TONEMATCH_STOMPD_COMPILE"           # a stompd build with the offline `compile` mode
+ENV_DSP_BUDGET = "TONEMATCH_STOMP_DSP_BUDGET"       # catalog-load limit for a two-path pass
 WHOLE_MODES = ("off", "fallback", "always")
+DEFAULT_WHOLE_MODE = "fallback"     # lead decision 2026-10-15 (T056); "always" is proposed (T094)
+# The largest catalog-estimated load (HX Edit's per-model `load`, not device-measured) known to
+# render correctly as one two-path pass on this pedal: K0 on Path A + B00's Amp+Cab on Path B,
+# 65.8 (cache/stomp/twopath/dual.hlx, -72.9 / -52.6 dB against single renders, T063). HX Edit's
+# own 11C is 57.8. Above it a pair renders serially.
+TWO_PATH_DSP_BUDGET = 66.0
+MAX_BLOCKS = 8               # the HX Stomp's block limit, both paths together
+OUT_B_USB34 = 6              # outputB.@output: Path B's own output to USB 3/4 (stompd notes, T063)
+PATH_PAIRS = {"A": (1, 2), "B": (3, 4)}
+
+
+class LayoutRefused(ReadbackMismatch, UnsupportedModelChange):
+    """A whole write landed with another layout than the one written (the device re-derived it:
+    a block missing or moved, another model, the topology or a junction changed)."""
+
+
+class SilentPath(EngineError):
+    """A path came back silent for a non-silent input."""
+
+
+LAYOUT_MARKERS = ("no block at device slot", " model ", " cab ", "the file has no block there", "path topology",
+                  "the device has no", "attaches before", "whole-preset write")
+
+
+def layout_mismatches(diff) -> list[str]:
+    """The read-back mismatches that mean the layout itself did not land (not a value)."""
+    return [m for m in diff.mismatches if any(k in m for k in LAYOUT_MARKERS)]
 
 
 def supports(exe: Path, mode: str) -> bool:
@@ -235,6 +270,13 @@ def plan_load(preset, chain: dict) -> dict:
             t.update(cab=cs.model_id, cab_params=_sound_params(cs), cab_slot=ci)
         targets[pos] = t
     dev = _block_slots(chain)
+    want_b = sorted(p for p in targets if p > 10)
+    have_b = sorted(p for p in dev if p > 10)
+    if want_b or have_b:
+        # In place never touches the junctions or Path B's own output, and a bypassed Path B still
+        # passes dry signal into the join (SABJ): any Path B on either side is a layout change.
+        raise UnsupportedModelChange(f"Path B differs or is in use (preset {want_b}, pedal {have_b}): "
+                                     "two-path layouts are written whole")
     missing = sorted(set(targets) - set(dev))
     if missing:
         raise UnsupportedModelChange(
@@ -245,6 +287,124 @@ def plan_load(preset, chain: dict) -> dict:
             raise UnsupportedModelChange(f"slot {pos} is an Amp+Cab on the pedal but a single block in the preset")
     bypass = sorted(p for p, s in dev.items() if p not in targets and s["enabled"])
     return {"targets": targets, "bypass": bypass}
+
+
+# --------------------------------------------------------------------------- two-path passes (S1)
+
+
+def _dsp_budget() -> float:
+    try:
+        return float(os.environ.get(ENV_DSP_BUDGET, TWO_PATH_DSP_BUDGET))
+    except ValueError:
+        return TWO_PATH_DSP_BUDGET
+
+
+def _main_blocks(preset) -> list:
+    """Blocks that take a cell on the row (an Amp+Cab's cab rides with its amp)."""
+    return [s for s in preset.slots if s.model_id is not None and not (s.key or "").startswith("cab")]
+
+
+def two_path_fit(a, b, costs: dict | None = None, budget: float | None = None) -> str | None:
+    """Why two presets cannot share one pedal pass (Path A + Path B), or None when they can.
+
+    Both must be single-path (no Path B block, topology A), together at most MAX_BLOCKS blocks,
+    every block with a known catalog load, and the catalog-estimated load of both at most the
+    budget (``TWO_PATH_DSP_BUDGET``, override ``TONEMATCH_STOMP_DSP_BUDGET``). Pure."""
+    from tonematch import preset as P
+
+    from .stomp_layout import path_b_blocks, topology
+
+    for tag, pre in (("first", a), ("second", b)):
+        if not hasattr(pre, "to_hlx_dict"):
+            return f"the {tag} variant is not a preset"
+        d = pre.to_hlx_dict()
+        if path_b_blocks(d) or topology(d) not in ("A", ""):
+            return f"the {tag} variant is not single-path (topology {topology(d)}, Path B {path_b_blocks(d)})"
+        if any(s.position is None or not 0 <= int(s.position) < MAX_BLOCKS for s in _main_blocks(pre)):
+            return f"the {tag} variant has a block without a row position"
+    if getattr(b, "snapshot_controlled", None):
+        return "the second variant has snapshot-varying values (Path B runs block values only)"
+    n = len(_main_blocks(a)) + len(_main_blocks(b))
+    if n > MAX_BLOCKS:
+        return f"{n} blocks on two paths (the HX Stomp runs {MAX_BLOCKS})"
+    if costs is None:
+        try:
+            from tonematch.catalog import load_catalog
+
+            costs = P.build_dsp_costs(load_catalog())
+        except Exception as e:  # noqa: BLE001 - no catalog: cannot tell, so do not pair
+            return f"no catalog for the DSP estimate ({type(e).__name__})"
+    total, unknown = 0.0, []
+    for pre in (a, b):
+        t, u = P.dsp_total(pre, costs)
+        total += t
+        unknown += u
+    if unknown:
+        return f"no catalog load for {sorted(set(unknown))}"
+    lim = _dsp_budget() if budget is None else budget
+    if total > lim:
+        return f"estimated load {total:.1f} > {lim:.1f}"
+    return None
+
+
+def merge_two_path(a, b, catalog: dict | None = None):
+    """One Preset with ``a`` on Path A and ``b`` on Path B (SAB): Y split before cell 0 and join
+    at cell 8 with HX Edit's values, Path B fed by the split (input 0) and sent to its own
+    output, USB 3/4. ``a``'s frame (I/O, globals, snapshots) is kept; ``b``'s blocks, cabs and their
+    snapshot states are renamed onto free keys (not its controller assignments). Pure."""
+    import copy
+
+    from tonematch import preset as P
+
+    from .stomp_layout import HX_EDIT_JOIN, HX_EDIT_SPLIT_Y, JOIN, SAB, SPLIT_Y
+
+    da, db = a.to_hlx_dict(), b.to_hlx_dict()
+    tone, tb = da["data"]["tone"], db["data"]["tone"]
+    dsp, bdsp = tone.setdefault("dsp0", {}), tb.get("dsp0", {})
+    used = set(dsp)
+    ren: dict[str, str] = {}
+
+    def fresh(prefix: str) -> str:
+        n = 0
+        while f"{prefix}{n}" in used:
+            n += 1
+        used.add(f"{prefix}{n}")
+        return f"{prefix}{n}"
+
+    for k, v in bdsp.items():
+        if isinstance(v, dict) and "@model" in v and k.startswith(("block", "cab")):
+            ren[k] = fresh("cab" if k.startswith("cab") else "block")
+    for k, nk in ren.items():
+        node = copy.deepcopy(bdsp[k])
+        if nk.startswith("block"):
+            node["@path"] = 1
+            if node.get("@cab") in ren:
+                node["@cab"] = ren[node["@cab"]]
+        dsp[nk] = node
+    for n in range(8):
+        sa, sb = tone.get(f"snapshot{n}"), tb.get(f"snapshot{n}")
+        if not isinstance(sa, dict):
+            continue
+        blocks = sa.setdefault("blocks", {}).setdefault("dsp0", {})
+        sbb = ((sb or {}).get("blocks") or {}).get("dsp0") or {}
+        for k, nk in ren.items():
+            if nk.startswith("block"):
+                blocks[nk] = bool(sbb.get(k, bdsp[k].get("@enabled", True)))
+        blocks["split"] = True
+    # b's controller, footswitch and snapshot-controller entries are not carried over: Path B runs
+    # its block values (block values win, as every engine load), and a new assignment on Path B
+    # is what the compiler refuses on an assigned base. two_path_fit refuses a b whose values vary
+    # by snapshot.
+    dsp.setdefault("inputB", {})["@input"] = 0
+    ob = dsp.setdefault("outputB", {})
+    ob["@output"] = OUT_B_USB34
+    ob.setdefault("pan", 0.5)
+    ob.setdefault("gain", 0.0)
+    dsp.setdefault("split", {}).update({"@model": SPLIT_Y, "@position": 0, "@enabled": True, **HX_EDIT_SPLIT_Y})
+    dsp.setdefault("join", {}).update({"@model": JOIN, "@position": 8, "@enabled": True, **HX_EDIT_JOIN})
+    tone.setdefault("global", {})["@topology0"] = SAB
+    da["data"].setdefault("meta", {})["name"] = "tonematch dual"
+    return P.from_dict(da, catalog)
 
 
 # Values past a model's Helix.sym list, by extra index, as the .hlx names them.
@@ -327,18 +487,20 @@ class StompEngine:
 
     def __init__(self, bridge: StompBridge | None = None, calibration: reamp.Calibration | None = None,
                  session_dir: Path | None = None, whole_preset: str | None = None,
-                 compiler=None, decoder=None):
-        mode = whole_preset if whole_preset is not None else os.environ.get(ENV_WHOLE_PRESET, "off")
+                 compiler=None, decoder=None, purpose: str | None = None):
+        """``purpose`` names the session in the shared pedal lock's owner.json (tonematch.pedal_lock)."""
+        mode = whole_preset if whole_preset is not None else (os.environ.get(ENV_WHOLE_PRESET) or DEFAULT_WHOLE_MODE)
         if mode not in WHOLE_MODES:
             raise EngineError(f"whole_preset must be one of {WHOLE_MODES}, got {mode!r}")
         self.whole_preset = mode
         self._compiler = compiler or compile_document
+        self._custom_compiler = compiler is not None
         # The compiled document is decoded and checked before it is written (T051). With the real
         # compiler the decoder is the same stompd-compile build; a custom compiler (tests) brings
         # its own decoder or skips this pre-write check (the post-write readback still runs).
         self._decoder = decoder or (decode_document if compiler is None else None)
         self.cal = calibration or reamp.Calibration.load()
-        self.bridge = bridge or StompBridge(allow_document_write=mode != "off")
+        self.bridge = bridge or StompBridge(allow_document_write=mode != "off", purpose=purpose or "StompEngine")
         if mode != "off" and getattr(self.bridge, "allow_document_write", True) is False:
             self.bridge.close()
             raise EngineError("whole_preset needs a bridge opened with allow_document_write=True")
@@ -388,6 +550,11 @@ class StompEngine:
         self.decay_s: dict[tuple, float] = {}   # tail key -> measured seconds to inaudible
         self._flush_after: tuple[float, float] = (0.0, 0.0)   # (seconds needed, monotonic time render ended)
         self.last_wait_s = 0.0
+        # S1: render_many bookkeeping (two-path passes and why a pair went serial).
+        self.two_path_passes = 0
+        self.serial_renders = 0
+        self.two_path_skips: list[str] = []
+        self.last_paths: dict[str, Audio] = {}
 
     # --- availability ---------------------------------------------------------------------
 
@@ -414,12 +581,15 @@ class StompEngine:
             return self._load_whole(preset, t_start)
         try:
             plan = plan_load(preset, self.chain)
-        except UnsupportedModelChange:
+        except UnsupportedModelChange as e:
             if self.whole_preset == "fallback":
+                if not self._can_compile():
+                    raise UnsupportedModelChange(f"{e} (a whole write needs {ENV_COMPILER}: a stompd build "
+                                                 "with `compile`)") from e
                 return self._load_whole(preset, t_start)
             raise
         dev = _block_slots(self.chain)
-        if self.whole_preset == "fallback" and any(
+        if self.whole_preset == "fallback" and self._can_compile() and any(
                 dev[pos].get("model_id") != t["model"] or (t["cab"] and dev[pos].get("paired_id") != t["cab"])
                 for pos, t in plan["targets"].items()):
             # A `model` command resets the block to its catalog defaults before the values are set
@@ -522,8 +692,9 @@ class StompEngine:
             pos = key_to_pos[sl.key]
             cur = dev.get(pos)
             if cur is None or cur.get("model_id") != sl.model_id:
-                raise EngineError(f"whole-preset write: slot {pos} holds {cur and cur.get('model_id')}, "
-                                  f"wanted {sl.model_id}")
+                self.preset = None
+                raise self._refused(f"whole-preset write: slot {pos} holds {cur and cur.get('model_id')}, "
+                                    f"wanted {sl.model_id}")
             prev = before.get(pos)
             if prev is None or prev.get("model_id") != sl.model_id:
                 changed_model = True
@@ -533,8 +704,9 @@ class StompEngine:
                 ci = next((j for j, c in enumerate(preset.slots) if c.key == link), None)
                 if ci is not None:
                     if cur.get("paired_id") != preset.slots[ci].model_id:
-                        raise EngineError(f"whole-preset write: slot {pos} cab is {cur.get('paired_id')}, "
-                                          f"wanted {preset.slots[ci].model_id}")
+                        self.preset = None
+                        raise self._refused(f"whole-preset write: slot {pos} cab is {cur.get('paired_id')}, "
+                                            f"wanted {preset.slots[ci].model_id}")
                     if prev is None or prev.get("paired_id") != preset.slots[ci].model_id:
                         changed_model = True
                     self.slot_map[ci] = (pos, True)
@@ -557,9 +729,28 @@ class StompEngine:
         except ReadbackMismatch as e:
             checks["readback"] = e.diff.as_dict()
             self.preset = None   # never render or tweak a preset that did not land
+            lay = layout_mismatches(e.diff)
+            if lay:
+                raise LayoutRefused(f"the device did not take the layout as written: {'; '.join(lay[:4])}",
+                                    e.diff) from e
             raise
         self.last_readback = checks["readback"]
         self.preset = preset
+
+    @staticmethod
+    def _refused(msg: str) -> LayoutRefused:
+        from .stomp_readback import ReadbackDiff
+
+        return LayoutRefused(msg, ReadbackDiff(mismatches=[msg], checked=1))
+
+    def _can_compile(self) -> bool:
+        if self._custom_compiler:
+            return True
+        try:
+            _offline_exe("compile", None)
+        except EngineError:
+            return False
+        return True
 
     def set_params(self, changes: dict[ParamRef, float]) -> None:
         if not changes:
@@ -582,11 +773,17 @@ class StompEngine:
         time.sleep(self.SETTLE_PARAM_S)
 
     def render(self, dry: Audio) -> Audio:
+        return self._render_paths(dry, ("A",))["A"]
+
+    def _render_paths(self, dry: Audio, paths: tuple[str, ...]) -> dict[str, Audio]:
+        """One pedal pass; Path A from USB 1/2 and, when asked, Path B from USB 3/4. Each path is
+        trimmed, aligned against that path's own chain (so a two-path pass and a serial render of
+        the same blocks share the jitter reference) and level-matched with the one calibration."""
         x = np.asarray(dry, dtype=np.float32)
         if x.ndim != 1:
             raise EngineError(f"render() takes mono (n,) float32, got shape {x.shape}")
         if len(x) == 0:
-            return x.copy()
+            return {p: x.copy() for p in paths}
         tail = self.cal.latency_samples / SAMPLE_RATE + self.TAIL_PAD_S
         key = self._tail_key()
         bound = self._bound_s()
@@ -595,31 +792,148 @@ class StompEngine:
             tail += bound   # record this chain's own tail once and measure where it dies
         wait = self._wait_s()
         self.last_wait_s = wait
-        rec, pre = reamp.playrec(x, self.device, pre_s=wait, tail_s=tail)
+        if paths == ("A",):
+            rec, pre = reamp.playrec(x, self.device, pre_s=wait, tail_s=tail)
+            recs = {"A": rec}
+        else:
+            rec, pre = reamp.playrec(x, self.device, pre_s=wait, tail_s=tail, in_pair=None)
+            if rec.shape[1] < 4:
+                raise EngineError(f"a two-path pass needs USB inputs 1-4; the device gave {rec.shape[1]}")
+            recs = {p: rec[:, PATH_PAIRS[p][0] - 1:PATH_PAIRS[p][1]] for p in paths}
         ended = time.monotonic()
+        monos = {p: reamp.to_mono(r, self.cal.mono) for p, r in recs.items()}
         if probe:
-            self.decay_s[key] = measure_decay_s(reamp.to_mono(rec, self.cal.mono), pre + self.cal.latency_samples,
-                                                len(x), self.DECAY_REL_DB, self.DECAY_FLOOR_DB)
+            self.decay_s[key] = max(measure_decay_s(m, pre + self.cal.latency_samples, len(x), self.DECAY_REL_DB,
+                                                    self.DECAY_FLOOR_DB) for m in monos.values())
             self._flush_after = (0.0, ended)   # the recorded tail already played out
         else:
             need = self.decay_s.get(key, bound) + self.DECAY_MARGIN_S if self.tail_mode == "measured" else bound
             self._flush_after = (need if bound > self.PRE_S else 0.0, ended)
         j = reamp.MAX_JITTER
-        y_ext = reamp.trim(reamp.to_mono(rec, self.cal.mono), pre, self.cal.latency_samples - j, len(x) + 2 * j, 0)
-        # Cancel the 0..1 sample stream-start jitter against this chain's first render of this clip.
-        key = (self._chain_key(), hash(x.tobytes()))
-        ref = self._refs.get(key)
-        if ref is None:
-            y, self.last_offset = y_ext[j:j + len(x)].copy(), 0
-            self._refs[key] = y
-        else:
-            y, self.last_offset = reamp.align(y_ext, ref, len(x), j)
-        y = (y * np.float32(10 ** (self.cal.level_gain_db / 20))).astype(np.float32)
-        if not np.all(np.isfinite(y)):
-            raise EngineError("the Stomp capture contains NaN or inf")
-        if reamp.rms_db(x) > self.SILENT_IN_DB and reamp.rms_db(y) < self.SILENT_OUT_DB:
-            raise EngineError("the Stomp returned silence for a non-silent input (Input block not on USB 5/6?)")
-        return y
+        out: dict[str, Audio] = {}
+        offsets = {}
+        for p in paths:
+            y_ext = reamp.trim(monos[p], pre, self.cal.latency_samples - j, len(x) + 2 * j, 0)
+            # Cancel the 0..1 sample stream-start jitter against this path's first render of this clip.
+            rk = (self._path_key(p), hash(x.tobytes()))
+            ref = self._refs.get(rk)
+            if ref is None:
+                y, offsets[p] = y_ext[j:j + len(x)].copy(), 0
+                self._refs[rk] = y
+            else:
+                y, offsets[p] = reamp.align(y_ext, ref, len(x), j)
+            y = (y * np.float32(10 ** (self.cal.level_gain_db / 20))).astype(np.float32)
+            if not np.all(np.isfinite(y)):
+                raise EngineError("the Stomp capture contains NaN or inf")
+            if reamp.rms_db(x) > self.SILENT_IN_DB and reamp.rms_db(y) < self.SILENT_OUT_DB:
+                raise SilentPath(f"the Stomp returned silence on Path {p} for a non-silent input "
+                                 "(Input block not on USB 5/6?)")
+            out[p] = y
+        self.last_offset = offsets[paths[0]]
+        return out
+
+    def _path_key(self, path: str) -> tuple:
+        """The blocks of one path, at the slots a single-path load puts them (Path B -10)."""
+        if path == "A":
+            return tuple(k for k in self._chain_key() if k[0] < 10)
+        return tuple((k[0] - 10,) + tuple(k[1:]) for k in self._chain_key() if k[0] > 10)
+
+    # --- render_many (contract amendment 2026-10-16) -------------------------------------------
+
+    def render_many(self, dry: Audio, variants: list) -> list[Audio]:
+        """Render ``dry`` through every variant, in order. Consecutive variants that
+        :func:`two_path_fit` accepts are rendered two per pedal pass (Path A and Path B); the rest
+        serially. A dict variant is relative to the variant before it (the loaded preset for the
+        first), as the serial fallback has it. A pair the compiler or the device refuses as one
+        pass (or that comes back silent on a path) is rendered serially and recorded in
+        ``two_path_skips``; an error of a variant on its own is raised. The loaded preset afterwards
+        is unspecified (``load`` again)."""
+        from .base import serial_render_many
+
+        variants = list(variants)
+        if not variants:
+            return []
+        resolved = self._resolve_variants(variants)
+        if not self._dual_possible():
+            self.two_path_skips.append("no document write or compiler: serial")
+            self.serial_renders += len(variants)
+            return serial_render_many(self, dry, resolved)
+        out: list[Audio] = []
+        i = 0
+        while i < len(resolved):
+            why = two_path_fit(resolved[i], resolved[i + 1]) if i + 1 < len(resolved) else "unpaired"
+            if why is None:
+                try:
+                    out.extend(self._render_pair(dry, resolved[i], resolved[i + 1]))
+                    i += 2
+                    continue
+                except (UnsupportedModelChange, ReadbackMismatch, SilentPath) as e:
+                    why = f"pair refused as one pass: {type(e).__name__}: {e}"
+            if why != "unpaired":
+                self.two_path_skips.append(f"variants {i},{i + 1}: {why}")
+            self.load(resolved[i])
+            out.append(self.render(dry))
+            self.serial_renders += 1
+            i += 1
+        return out
+
+    def _dual_possible(self) -> bool:
+        return (self.whole_preset != "off" and getattr(self.bridge, "allow_document_write", True) is not False
+                and self._can_compile())
+
+    def _render_pair(self, dry: Audio, a, b) -> list[Audio]:
+        merged = merge_two_path(a, b)
+        self._load_whole(merged, time.perf_counter())
+        ys = self._render_paths(dry, ("A", "B"))
+        self.last_paths = ys
+        self.two_path_passes += 1
+        return [ys["A"], ys["B"]]
+
+    def _resolve_variants(self, variants: list) -> list:
+        """Every variant as a whole Preset: dicts applied (in the catalog's 0..1, as set_params)
+        to the preset before them."""
+        out = []
+        base = self.preset
+        for k, v in enumerate(variants):
+            if isinstance(v, dict):
+                if base is None:
+                    raise EngineError(f"variant {k}: parameter changes before any preset (load() first)")
+                base = self._with_changes(base, v)
+            else:
+                base = v
+            out.append(base)
+        return out
+
+    def _with_changes(self, preset, changes: dict) -> object:
+        """A copy of ``preset`` with ``changes`` (ParamRef -> 0..1) in native units: the pedal's
+        own range when the slot is loaded with that model, else the catalog's."""
+        import copy
+
+        p = copy.deepcopy(preset)
+        dev = _block_slots(self.chain)
+        cat_models = None
+        for (slot, name), v in changes.items():
+            if not 0 <= slot < len(p.slots) or p.slots[slot].model_id is None:
+                raise EngineError(f"slot {slot} is not in the preset")
+            sl = p.slots[slot]
+            meta = None
+            if preset is self.preset and slot in self.slot_map:
+                pos, is_cab = self.slot_map[slot]
+                d = dev.get(pos, {})
+                if (d.get("paired_id") if is_cab else d.get("model_id")) == sl.model_id:
+                    meta = _param_meta(d.get("paired_params" if is_cab else "params", []), cab=is_cab).get(name)
+            if meta is None or "min" not in meta:
+                if cat_models is None:
+                    from tonematch.catalog import load_catalog
+
+                    cat_models = load_catalog()["models"]
+                cp = (cat_models.get(sl.model_id) or {}).get("params", {}).get(name)
+                if not cp or cp.get("min") is None:
+                    raise EngineError(f"slot {slot}: no parameter {name!r} with a catalog range")
+                kind = {"bool": "Switch", "stepped": "Enum"}.get(cp.get("kind"), "Continuous")
+                meta = {"min": float(cp["min"]), "max": float(cp["max"]), "kind": kind}
+            sl.params[name] = to_native(meta, v)
+        return p
 
     def _tail_key(self) -> tuple:
         """The chain plus every enabled delay/reverb block's values: what the tail depends on."""
@@ -708,7 +1022,7 @@ class StompEngine:
         return Capabilities(
             engine="stomp", firmware_version=str(self.info.get("firmware") or ""), models=models, snapshots=3,
             extras={"control_route": "usb", "param_steps": None, "build": self.info.get("build"),
-                    "whole_preset": self.whole_preset,
+                    "whole_preset": self.whole_preset, "render_many": "two-path SAB pairs, else serial",
                     "latency_samples": self.cal.latency_samples, "level_gain_db": self.cal.level_gain_db,
                     "input_usb56": self.cal.input_usb56, "original_preset": self.original,
                     "helper": str(helper_path())})

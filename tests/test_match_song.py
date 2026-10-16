@@ -517,3 +517,108 @@ def test_clip_policy_views_lengths():
     assert len(MS.clip_policy_views(sec, "spread")[0].dry) == round(1.5 * SR) * 3 < L
     with pytest.raises(ValueError):
         MS.clip_policy_views(sec, "nope")
+
+
+# ---------------------------------------------------------- N1: ranges other than [0, 1] (2026-10-16)
+
+
+def _ranged_preset():
+    from tonematch.preset import Preset, Slot
+
+    return Preset("fake", [
+        Slot("amp", "fake_amp", {"Drive": 0.4, "ChVol": 0.5, "Level": -3.0, "Hum": 0.0}, True),
+        Slot("cab", "fake_cab", {"LowCut": 120.0, "Distance": 0.5}, True),
+        Slot("delay", "fake_delay", {"Time": 0.5, "Mix": 0.3, "Feedback": 0.2}, True),
+        Slot("mod", "fake_mod", {"Rate": 3.0, "Depth": 0.5}, True),
+        Slot("reverb", "fake_rev", {"Decay": 2.0, "Mix": 0.2, "Tail": 99.0}, True),
+    ])
+
+
+def _ranged_template():
+    keys = ["0:Drive", "0:ChVol", "0:Level", "0:Hum", "1:LowCut", "1:Distance", "2:Time", "2:Mix",
+            "2:Feedback", "3:Rate", "3:Depth", "4:Decay", "4:Mix", "4:Tail"]
+    ranges = {"0:Drive": [0, 1], "0:ChVol": [0, 1], "0:Level": [-60, 6], "1:LowCut": [20, 1000],
+              "1:Distance": [0, 1], "2:Time": [0, 1.27], "3:Rate": [0, 5.08], "4:Decay": [0.1, 6.45],
+              "4:Tail": [0, 10]}
+    return SimpleNamespace(map={k: "cc" for k in keys}, ranges=ranges, verified=set(keys))
+
+
+def test_derive_free_uses_template_ranges_not_only_unit_range():
+    free = MS.derive_free(_ranged_preset(), _ranged_template(), None)
+    assert {(2, "Time"), (3, "Rate"), (4, "Decay"), (1, "LowCut"), (0, "ChVol")} <= set(free)
+    assert (0, "Level") not in free and (0, "Hum") not in free      # fixed on purpose
+    assert (4, "Tail") not in free                                  # 99 is outside its 0-10 range
+    assert "Time" not in MS.FIXED_PARAMS
+
+
+def test_derive_free_respects_frozen_verified_and_catalog_kind():
+    pre, tpl = _ranged_preset(), _ranged_template()
+    assert (3, "Rate") not in MS.derive_free(pre, tpl, None, {("mod", "Rate"): 1.0})
+    tpl.verified.discard("2:Time")
+    assert (2, "Time") not in MS.derive_free(pre, tpl, None)
+    cat = {"models": {"fake_amp": {"params": {"Drive": {"kind": "switch", "min": 0, "max": 1}}}}}
+    assert (0, "Drive") not in MS.derive_free(pre, _ranged_template(), cat)
+
+
+def test_derive_free_falls_back_to_catalog_range_without_template_ranges():
+    pre = _ranged_preset()
+    tpl = SimpleNamespace(map=_ranged_template().map)               # no ranges, no verified
+    cat = {"models": {"fake_delay": {"params": {"Time": {"kind": "continuous", "min": 0.0, "max": 2.0}}}}}
+    free = MS.derive_free(pre, tpl, cat)
+    assert (2, "Time") in free
+    assert (1, "LowCut") not in free            # 120 is outside the [0, 1] default
+
+
+def test_make_space_scales_each_parameter_by_its_own_range():
+    pre, tpl = _ranged_preset(), _ranged_template()
+    cand = MS.Cand("T", pre, tpl, MS.derive_free(pre, tpl, None))
+    sp = MS.make_space(cand)
+    j = {r: k for k, r in enumerate(sp.refs)}
+    t, d = j[(2, "Time")], j[(0, "Drive")]
+    assert (sp.lo[t], sp.hi[t]) == (0.0, 1.27) and (sp.lo[d], sp.hi[d]) == (0.0, 1.0)
+    u = np.full(sp.n, 0.5)
+    v = sp.from_unit(u)
+    assert abs(v[t] - 0.635) < 0.0051 and abs(v[d] - 0.5) < 0.0041
+    # equal unit steps move each parameter by its own range fraction
+    v2 = sp.from_unit(np.full(sp.n, 0.75))
+    assert abs((v2[t] - v[t]) / 1.27 - (v2[d] - v[d]) / 1.0) < 0.01
+    assert np.all(sp.to_unit(v) >= 0) and np.all(sp.to_unit(v) <= 1)
+    # Time lands on the 10 ms grid
+    for x in (0.1, 0.33, 0.9):
+        uu = np.full(sp.n, x)
+        assert abs(sp.from_unit(uu)[t] / 0.01 - round(sp.from_unit(uu)[t] / 0.01)) < 1e-6
+    assert abs(sp.start[t] - 0.5) < 0.0051      # the start is snapped onto the grid
+
+
+def test_prior_is_neutral_in_each_parameters_own_range():
+    pre, tpl = _ranged_preset(), _ranged_template()
+    sp = MS.make_space(MS.Cand("T", pre, tpl, MS.derive_free(pre, tpl, None)))
+    pr = MS.make_prior(sp, 1.0)
+    mid = {r: float(sp.lo[k] + 0.5 * (sp.hi[k] - sp.lo[k])) for k, r in enumerate(sp.refs)}
+    assert pr.penalty(mid) == pytest.approx(0.0)
+    one_sd = {r: mid[r] + 0.3 * float(sp.hi[k] - sp.lo[k]) for k, r in enumerate(sp.refs)}
+    assert pr.penalty(one_sd) == pytest.approx(1.0)
+
+
+# ------------------------------------------------------------- N4: time-variant blocks (2026-10-16)
+
+
+def test_build_candidates_excludes_time_variant_unless_allowed(tmp_path, monkeypatch):
+    import tonematch.catalog as C
+    import tonematch.engines.native as N
+    import tonematch.preset as P
+
+    (tmp_path / "t.hlx").write_text("{}")
+    (tmp_path / "tdir").mkdir()
+    pre = _ranged_preset()
+    monkeypatch.setattr(MS, "TEMPLATE_SETS", {"T": ("t.hlx", "tdir")})
+    monkeypatch.setattr(C, "native_unavailable", lambda: set())
+    monkeypatch.setattr(P, "read_hlx", lambda f, c: pre)
+    monkeypatch.setattr(N.ChainTemplate, "load_variants", classmethod(lambda cls, d: {N.chain_key(pre): [_ranged_template()]}))
+    monkeypatch.setattr(MS, "pick_template", lambda variants, p: variants[0])
+    cands, notes = MS.build_candidates(tmp_path, None, None, None, time_variant={"other"})
+    assert len(cands) == 1 and not notes and "time-variant" not in cands[0].note
+    cands, notes = MS.build_candidates(tmp_path, None, None, None, time_variant={"fake_rev"})
+    assert cands == [] and "time-variant" in notes[0] and "fake_rev" in notes[0]
+    cands, notes = MS.build_candidates(tmp_path, None, None, None, allow_time_variant=True, time_variant={"fake_rev"})
+    assert len(cands) == 1 and "unreliable" in cands[0].note

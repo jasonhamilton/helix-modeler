@@ -55,6 +55,9 @@ class BridgeError(EngineError):
     """The helper reported an error, timed out or exited."""
 
 
+NO_DEVICE_TEXT = "no HX device found"   # stompd's error when nothing is on USB
+
+
 POWER_CYCLE_MESSAGE = (
     "The HX Stomp is not answering on USB. Switch the pedal off and on (pull its 9V adapter for a "
     "few seconds and plug it back in), wait until it has finished booting and shows a preset, then "
@@ -165,7 +168,30 @@ class StompBridge:
 
     def __init__(self, binary: Path | None = None, open_timeout_s: float = 20.0,
                  allow_document_write: bool = False, health_check: bool = True,
-                 usb_reset: str | None = None, audio_busy: Callable[[], bool] | None = None) -> None:
+                 usb_reset: str | None = None, audio_busy: Callable[[], bool] | None = None,
+                 purpose: str | None = None, lock: bool | None = None, device_check: bool | None = None) -> None:
+        """``lock`` and ``device_check`` default to on for the real helper (``binary`` None) and
+        off for an explicit binary (tests' fake helpers). With them on, the HX Stomp must be on USB
+        (``pedal_lock.require_device``) and the shared pedal lock is held for the whole session
+        (re-entrant: a script that already holds it for its batch keeps one hold)."""
+        from .. import pedal_lock
+
+        real = binary is None
+        self._pedal_lock = None
+        if real if device_check is None else device_check:
+            pedal_lock.require_device()
+        if real if lock is None else lock:
+            self._pedal_lock = pedal_lock.PedalLock(purpose or "stomp control session").acquire()
+        try:
+            self._open(binary, open_timeout_s, allow_document_write, health_check, usb_reset, audio_busy)
+        except BaseException:
+            if self._pedal_lock is not None:
+                self._pedal_lock.release()
+            raise
+
+    def _open(self, binary, open_timeout_s, allow_document_write, health_check, usb_reset, audio_busy) -> None:
+        from .. import pedal_lock
+
         self.allow_document_write = allow_document_write
         self._backups: set[str] = set()
         self.usb_reset = usb_reset_mode(usb_reset)
@@ -174,35 +200,54 @@ class StompBridge:
         self._wedged = False      # the pedal did not answer: a reset cannot help, only the 9V
         self._ended = False
         self.release_report: dict[str, Any] | None = None   # the helper's `closed` event
+        self.acks_missing: list[str] = []
         self.reset_report: dict[str, Any] | None = None     # what close() did about a USB reset
         exe = binary or helper_path()
         if exe is None:
             raise BridgeError(f"stompd helper not found; it is built outside this repo (see docs/notes/stompd.md), "
                               f"then set {ENV_HELPER} to its path")
         self._exe = Path(exe)
-        self._proc = subprocess.Popen([str(exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        self._lock = threading.Lock()
+        while True:
+            try:
+                ready = self._start(open_timeout_s)
+                break
+            except BridgeError as e:
+                if NO_DEVICE_TEXT not in str(e) and NO_DEVICE_TEXT not in self._stderr_tail():
+                    raise
+                # stompd's "no HX device found": the same plain message as the USB check.
+                if not (pedal_lock.interactive() and pedal_lock.ask_retry()):
+                    raise pedal_lock.DeviceMissing(announce=not pedal_lock.interactive(),
+                                                   detail={"stompd": self._stderr_tail()[-300:]}) from None
+        self.ready: dict[str, Any] = ready
+        self._opened = True
+        if health_check:
+            self.health_check()
+
+    def _start(self, open_timeout_s: float) -> dict[str, Any]:
+        """Launch the helper and wait for its ready line."""
+        self._proc = subprocess.Popen([str(self._exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE, text=True, bufsize=1)
         self._lines: queue.Queue[str | None] = queue.Queue()
         self._stderr: collections.deque[str] = collections.deque(maxlen=200)
         self._dead: str | None = None
         threading.Thread(target=self._pump, daemon=True).start()
-        threading.Thread(target=self._pump_stderr, daemon=True).start()
-        self._lock = threading.Lock()
+        self._stderr_thread = threading.Thread(target=self._pump_stderr, daemon=True)
+        self._stderr_thread.start()
         try:
             ready = self._next(open_timeout_s)
         except BridgeError as e:
             self._kill()
+            self._stderr_thread.join(timeout=1.0)
             if "did not answer" in str(e):   # no ready line at all: the pedal hangs the open
                 raise PowerCycleNeeded(str(e)) from None
             raise
         if not ready.get("ok") or ready.get("event") != "ready":
             self._kill()
+            self._stderr_thread.join(timeout=1.0)
             raise BridgeError(f"stompd did not open the device: {ready} {self._stderr_tail()} "
                               "(is HX Edit running? it holds the control interface)")
-        self.ready: dict[str, Any] = ready
-        self._opened = True
-        if health_check:
-            self.health_check()
+        return ready
 
     def health_check(self, timeout_s: float | None = None) -> dict[str, Any]:
         """Pre-run check: `info` must answer within a few seconds. On no answer (or a dead
@@ -304,8 +349,12 @@ class StompBridge:
         self._dead = self._dead or "closed"
         if not self._ended:
             self._ended = True
-            self._collect_closed(2.0)   # a killed helper may still have reported (EOF ends this early)
-            self._session_end_reset()
+            try:
+                self._collect_closed(2.0)   # a killed helper may still have reported (EOF ends this early)
+                self._session_end_reset()
+            finally:
+                if self._pedal_lock is not None:
+                    self._pedal_lock.release()   # after the reset: the pedal is free only now
 
     def _collect_closed(self, timeout_s: float) -> None:
         """Read the helper's remaining lines until its `closed` report or EOF."""
@@ -336,6 +385,12 @@ class StompBridge:
         """The T059 fallback: re-enumerate the pedal's USB after the session, per `usb_reset`."""
         rep: dict[str, Any] = {"mode": self.usb_reset, "released": self.released, "reset": False}
         self.reset_report = rep
+        acks = (self.release_report or {}).get("acks") or {}
+        missing = sorted(ch for ch, ok in acks.items() if not ok)
+        self.acks_missing = missing   # channels whose session-close went unanswered
+        if self._opened and missing:   # never let a missing session-close answer go silent (review 2026-10-16)
+            print(f"stompd: the pedal did not answer the session-close on {', '.join(missing)}. "
+                  "If its blocks cannot be edited, unplug and replug its USB cable.", file=sys.stderr)
         if self.usb_reset == "off":
             rep["why"] = "off"
             return

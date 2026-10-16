@@ -15,6 +15,7 @@ import numpy as np
 
 from tonematch.engines.base import EngineError, UnsupportedModelChange
 from tonematch.search.cmaes import CMAES
+from tonematch.search.pool import chain_time_variant, time_variant_models, warn_if_time_variant
 from tonematch.search.space import ParamSpace, Prior
 from tonematch.search.types import Budget, LossKitLike, Plan, RankedPreset, Section
 
@@ -206,12 +207,15 @@ def _steps(engine):
 def match(section: Section, engine, losskit: LossKitLike, budget: Budget | None = None, *,
           candidates: list, free: dict[tuple, list] | None = None, prior: Prior | None = None,
           validator: Callable | None = None, beam: int = 2, beam_frac: float = 0.35,
-          bounds: dict | None = None) -> list[RankedPreset]:
+          bounds: dict | None = None, allow_time_variant: bool = False,
+          time_variant: set[str] | None = None) -> list[RankedPreset]:
     """Rank candidate chains by tuning each briefly, refining the best `beam`, then a final check.
 
     candidates: whole-chain Presets from the seed stages (predictor, retrieval). Trials are grouped
     by chain, so `engine.load` is called once per chain per phase. A chain the engine cannot load
-    (UnsupportedModelChange) is skipped and noted.
+    (UnsupportedModelChange) is skipped and noted. Chains with a time-variant block (library index
+    flag; `time_variant` overrides the set) are dropped from the pool unless `allow_time_variant`;
+    when allowed, a warning is logged and noted that the null-based loss is unreliable for them.
     """
     budget = budget or Budget()
     plan = plan_budget(engine, budget)
@@ -222,8 +226,16 @@ def match(section: Section, engine, losskit: LossKitLike, budget: Budget | None 
     for p in candidates:
         uniq.setdefault(_key(p), p)  # one trial group per chain
     skipped: list[str] = []
+    warned: list[str] = []
     live: list[dict] = []
+    tv = time_variant_models() if time_variant is None else set(time_variant)
     for key, p in uniq.items():
+        bad_tv = chain_time_variant(p, tv)
+        if bad_tv and not allow_time_variant:
+            skipped.append(f"{key}: time-variant block(s) {', '.join(bad_tv)} excluded (allow_time_variant=False)")
+            continue
+        if bad_tv:
+            warn_if_time_variant(p, tv, f"chain {key}", emit=warned.append)
         bad = _violations(validator, p)
         if bad:
             skipped.append(f"{key}: invalid ({'; '.join(bad)})")
@@ -286,4 +298,5 @@ def match(section: Section, engine, losskit: LossKitLike, budget: Budget | None 
     ranked.sort(key=lambda r: r.score)
     for r in ranked:
         r.notes.extend(f"skipped {s}" for s in skipped)
+        r.notes.extend(w for w in warned if str(r.chain) in w)
     return ranked

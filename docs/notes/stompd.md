@@ -145,4 +145,31 @@ A second build, `cache/stomp/bin/stompd-compile` (source kept locally in `cache/
 
 So dual passes (two chains per render, 2.0x throughput) now equal single-path renders. Ledger rows [2026-10-16T01:06:38](../../ledger/runs.csv?plain=1#L304 "parity · stomp · stomp-two-path · null_vs_hxedit_db = -9.3 (first of 4 rows at this time)") (4 rows) (`stomp-two-path`). Two earlier runs of the same script (00:55Z and 01:00Z) found the device-side fields. In the 01:00Z run the topology code was still 0, so the attach was re-derived (-5.3 dB). Superseded.
 
-Open: the `Scale` value of HD2_DelaySimpleDelay (in Native's catalog) has no device parameter, so the full readback of 11C reports it as missing. That is not a two-path issue, and the block is off in 11C.
+Resolved 2026-10-16 ([T093](../../board/TASKS.md#t093 "S4 engine push: Simple Delay Scale reported missing on 11C")): the `Scale` value of HD2_DelaySimpleDelay is `stereo_only` in the catalog and 11C's delay is mono, so the device stores no Scale. See "Engine push" below.
+
+## Engine push ([T090](../../board/TASKS.md#t090 "S3 engine push: device check")-[T095](../../board/TASKS.md#t095 "Engine-push pedal session"), 2026-10-16, fw 3.80)
+
+**Pedal lock and device check ([T090](../../board/TASKS.md#t090 "S3 engine push: device check")).** `src/tonematch/pedal_lock.py`. Each `StompBridge` session first checks the device: the HX Stomp must be on USB (macOS: IOUSB "HX Stomp", or VID 0x0E41 / PID 0x4246; Linux: sysfs). Then it takes `cache/stomp/pedal.lock/`, which is re-entrant in one process and inherited by child processes through `TONEMATCH_PEDAL_LOCK_TOKEN`. Batch scripts hold the lock for the whole run with `pedal_lock.session(purpose)`.
+
+| Item | Value |
+|---|---|
+| owner.json | pid, agent, host, purpose, created_utc, heartbeat_utc (every 30 s), token, argv |
+| Stale, removed without asking, only if ALL hold | owner pid dead (same host); no `stompd` in two `ps` checks 5 s apart; heartbeat older than 120 s; no fresh (60 s) intent from a live pid in `pedal.intent/` |
+| Otherwise | interactive: shows owner.json, age and the checks, asks; non-interactive: exit 75 (`LockHeld`) with instructions. A lock without owner.json (legacy mkdir) always goes to the user |
+| Removal | rename aside, re-check owner.json, delete; one JSON line in `pedal.lock.log` (who, why, the checks) |
+| Device missing | "HX Stomp not detected over USB: check the cable and power"; interactive retry/abort; non-interactive exit 69 (`DeviceMissing`), never loops; stompd's "no HX device found" gives the same |
+| CLI | `python -m tonematch.pedal_lock status`, `break [--yes]`, `device` |
+
+**render_many ([T091](../../board/TASKS.md#t091 "S1 engine push: StompEngine.render_many")).** `StompEngine.render_many(dry, variants)`, called through `tonematch.engines.base.render_many`. `two_path_fit(a, b)` decides whether a pair fits. `merge_two_path(a, b)` builds the SAB preset: a's frame, b's blocks renamed onto Path B, Split Y at @0 and Join at @8 at 0.5/0.5, `inputB` 0, `outputB` 6 (USB 3/4), and no controller assignments for b. One `playrec` records all inputs; Path A comes from USB 1/2 and Path B from USB 3/4, each trimmed and level-matched with the one calibration and aligned against that path's own jitter reference. Pairs that do not fit, or that are refused, render serially (`two_path_skips`). Hardware, control only: K+A and C+K merged, 84 of 84 read back, 1.2-1.9 s per pair load. The audio comparison is still open.
+
+**Layout-changing loads ([T092](../../board/TASKS.md#t092 "S2 engine push: layout-changing loads through the whole-preset…")).** The default is now `fallback`. `plan_load` treats any Path B block on either side as a layout change. A layout the device re-derives raises `LayoutRefused` (`ReadbackMismatch` + `UnsupportedModelChange`); a value mismatch stays a plain `ReadbackMismatch`.
+
+**Readback ([T093](../../board/TASKS.md#t093 "S4 engine push: Simple Delay Scale reported missing on 11C")).** `stomp_readback.stereo_only_params`: a file value that the catalog marks `stereo_only`, on a block with `@stereo` false, is info, not missing. 11C (selected read-only) gives 84 of 84. The device's mono Simple Delay values are Time, Feedback, Mix, Level, SyncSelect1, TempoSync1 and extra 0 (trails). Delay Mix and Time: exact after a whole write, after `set_params`, and 3 s later.
+
+**Timing ([T094](../../board/TASKS.md#t094 "S5 engine push: whole_preset default proposal"), 2026-10-16).** Parameter-only load: 0.27-0.35 s in place, 1.42-1.62 s whole. The whole load splits into backup 0.04-0.23 s, compile 0.25-0.32 s and op-21 write 0.62-0.91 s. The write was 0.29 s on 2026-10-15; the cause of the slowdown is not known.
+
+**Session [T095](../../board/TASKS.md#t095 "Engine-push pedal session").**
+- `scripts/stomp_push_session.py [--control-only]`, runs `cache/stomp/hw/20261016T180156Z-push` and `20261016T182912Z-push`.
+- CoreAudio streams failed on the whole Mac (AUHAL err 35, PortAudio -9986). A blocking `sd.playrec` then hung forever, so `reamp.duplex` now polls the stream with a deadline: the stream length plus `STREAM_GRACE_S` (10 s).
+- The read-only select of 11C and back left 3 bytes of a non-chain field different (msgpack keys 9/10/11: 0/0/false against 255/65280/true). Both forms occur in 04C backups since 2026-10-15. The chain signature was equal, so the backup was not written back.
+

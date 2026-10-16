@@ -14,7 +14,8 @@
                   printing the helper's session-close report; no write, no select. The human then
                   checks the pedal's blocks can be edited. USB reset off unless --usb-reset says so
 
-Every subcommand starts and ends on 04C and byte-diffs the buffer against base04C.bin. A pedal that
+Every subcommand runs inside one tonematch.pedal_lock.session (device check, shared lock with
+owner.json), so no other agent gets the pedal between its bridge sessions. Every subcommand starts and ends on 04C and byte-diffs the buffer against base04C.bin. A pedal that
 does not answer stops the run with the power-cycle message (StompBridge health check). Results under
 cache/stomp/hw/<stamp>-<cmd>/ (summary.json, WAVs, documents).
 """
@@ -627,10 +628,13 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if subprocess.run(["pgrep", "-f", "HX Edit.app/Contents/MacOS/HX Edit"], capture_output=True, check=False).stdout.strip():
         sys.exit("HX Edit is running: quit it first (it holds the control interface)")
-    try:
-        return {"restore04c": cmd_restore04c, "delay-readback": cmd_delay_readback, "settle": cmd_settle,
-                "snapshot-recall": cmd_snapshot_recall, "verify": cmd_verify, "dual-path": cmd_dual_path,
-                "dual-bisect": cmd_dual_bisect, "release-check": cmd_release_check}[a.cmd](a)
+    from tonematch import pedal_lock
+
+    try:   # device check, then the shared pedal lock for the whole command
+        with pedal_lock.session(f"stomp_hw {a.cmd}"):
+            return {"restore04c": cmd_restore04c, "delay-readback": cmd_delay_readback, "settle": cmd_settle,
+                    "snapshot-recall": cmd_snapshot_recall, "verify": cmd_verify, "dual-path": cmd_dual_path,
+                    "dual-bisect": cmd_dual_bisect, "release-check": cmd_release_check}[a.cmd](a)
     except PowerCycleNeeded as e:
         print(str(e), file=sys.stderr)
         return 3

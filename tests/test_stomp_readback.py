@@ -396,3 +396,21 @@ def test_parity_records_the_readback_and_skips_a_preset_that_did_not_land(tmp_pa
     assert rb["K"]["readback"]["ok"] is True and rb["A"]["readback"]["ok"] is False
     assert any("ReadbackMismatch" in e for e in s["errors"])
     assert (tmp_path / "o" / "raw" / "K_stomp.wav").exists() and not (tmp_path / "o" / "raw" / "A_stomp.wav").exists()
+
+
+def test_stereo_only_param_on_a_mono_block_is_not_missing(monkeypatch):
+    """11C's Simple Delay is mono; HX Edit still writes Scale (stereo_only in the catalog)."""
+    from tonematch import catalog as C
+    from tonematch.engines import stomp_readback as rb
+
+    monkeypatch.setattr(rb, "_STEREO_ONLY", {})
+    monkeypatch.setattr(C, "load_catalog", lambda *a, **k: {"models": {"HD2_DelaySimpleDelay": {"params": {
+        "Time": {"min": 0, "max": 8}, "Scale": {"min": 0, "max": 1, "stereo_only": True}}}}})
+    dev = [{"i": 0, "sym": "Time", "value": 0.401, "min": 0.0, "max": 8.0, "kind": "Continuous"}]
+    for stereo, missing in ((False, []), (True, ["d.Scale: in the file, no such parameter on the device"])):
+        diff = rb.ReadbackDiff()
+        node = {"@model": "HD2_DelaySimpleDelay", "@stereo": stereo, "Time": 0.401, "Scale": 0.75}
+        rb._compare_params("d", node, node, dev, diff)
+        assert diff.missing == missing
+        assert diff.checked == 1
+        assert any("stereo-only" in u for u in diff.unspecified) is (not stereo)

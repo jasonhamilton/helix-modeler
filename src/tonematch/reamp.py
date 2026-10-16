@@ -19,6 +19,7 @@ import json
 import os
 import sys
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -259,11 +260,37 @@ def duplex(play: np.ndarray, out_channels: tuple[int, ...], device: int | None =
         try:
             rec = sd.playrec(buf, samplerate=SR, device=(dev, dev), dtype="float32", channels=None,
                              input_mapping=list(range(1, n_in + 1)), output_mapping=list(range(1, n_out + 1)),
-                             latency=PA_LATENCY, blocking=True)
+                             latency=PA_LATENCY, blocking=False)
+            # Never block without a limit (T095: with CoreAudio failing, a blocking playrec waited
+            # forever for a stream that never ran). The stream must end within its own length
+            # plus STREAM_GRACE_S.
+            deadline = time.monotonic() + len(buf) / SR + STREAM_GRACE_S
+            while _stream_active(sd):
+                if time.monotonic() > deadline:
+                    sd.stop()
+                    raise ReampError(f"the audio stream did not finish within {len(buf) / SR + STREAM_GRACE_S:.1f} s "
+                                     "(CoreAudio or the HX Stomp's audio interface is not running; replug the "
+                                     "USB cable, or restart the Mac's audio service)")
+                time.sleep(0.01)
+            if hasattr(sd, "wait"):
+                sd.wait()   # returns at once now; raises the stream's own error, if any
         except BaseException:
             sd.stop()  # Ctrl-C mid-take: silence the outputs before re-raising
             raise
     return np.asarray(rec, np.float32)
+
+
+STREAM_GRACE_S = 10.0
+
+
+def _stream_active(sd) -> bool:
+    get = getattr(sd, "get_stream", None)
+    if get is None:      # a stand-in without stream objects (tests): playrec already returned the take
+        return False
+    try:
+        return bool(get().active)
+    except RuntimeError:   # no stream any more: finished
+        return False
 
 
 def playrec(mono: np.ndarray, device: int | None = None, pre_s: float = PRE_S, tail_s: float = TAIL_S,

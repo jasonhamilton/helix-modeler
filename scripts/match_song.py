@@ -46,7 +46,11 @@ N_FFT, HOP = 2048, 512                      # the separator's mask grid (tonemat
 LABEL = "unadmitted loss"
 DI_PEAK_DBFS = -12.5                        # same DI level convention as scripts/parity_null.py
 # Power-supply and hum minutiae: not worth search dimensions, and they invite odd settings.
-FIXED_PARAMS = {"Hum", "Ripple", "Bias", "BiasX", "Time", "Offset", "Spread", "Level"}
+# "Time" is NOT here any more (N1, 2026-10-16): delay Time is searched on the template's 10 ms grid.
+# "Level" (a block's output level, dB) stays fixed: loudness is calibrated by the level guard and by
+# the amp/channel volume (ChVol, which stays free), and a free block Level only trades against them
+# without changing the tone. Offset and Spread stay fixed as before (minutiae).
+FIXED_PARAMS = {"Hum", "Ripple", "Bias", "BiasX", "Offset", "Spread", "Level"}
 # Parity findings: parameters whose Native 3.82 render does not match the Stomp fw 3.50, frozen at the
 # given value in Stomp-verified mode (default). Add future findings here: (category, param) -> value.
 # Read from the per-engine policy (src/tonematch/param_policy.json); first entry: cab EarlyReflections 0.0
@@ -362,10 +366,24 @@ class Cand:
     note: str = ""
 
 
+def param_range(template, catalog_param, key: str) -> tuple[float, float]:
+    """(lo, hi) a free parameter moves over: the template's CC range (what set_params scales by),
+    else the catalog's min/max, else [0, 1]."""
+    r = (getattr(template, "ranges", None) or {}).get(key)
+    if r is not None:
+        return float(r[0]), float(r[1])
+    if catalog_param and catalog_param.get("min") is not None and catalog_param.get("max") is not None:
+        return float(catalog_param["min"]), float(catalog_param["max"])
+    return 0.0, 1.0
+
+
 def derive_free(preset, template, catalog, frozen=None) -> list:
-    """Free parameters: mapped to an automation control, numeric, catalog range exactly [0, 1] (the
-    CC maps [0, 1]; others such as cab Distance or Level would be mis-scaled), not in FIXED_PARAMS,
-    and not on a bypassed delay (the template's bypass state cannot be changed through CC)."""
+    """Free parameters: numeric and continuous, mapped to an automation control (and CC-verified when
+    the template says which are), not in FIXED_PARAMS or the frozen policy, not on a bypassed delay /
+    reverb / mod block (the template's bypass state cannot be changed through CC), and whose value
+    lies inside its range. The range is the template's own (`param_range`), so delay Time (0-1.27 s),
+    LFO rates, reverb Decay and Hz parameters are free; make_space and set_params scale by the same
+    range. Without a template (fake engines) the catalog range, or [0, 1], applies."""
     out = []
     models = (catalog or {}).get("models", {})
     for i, s in enumerate(preset.slots):
@@ -374,15 +392,17 @@ def derive_free(preset, template, catalog, frozen=None) -> list:
         for name, v in (s.params or {}).items():
             if name in FIXED_PARAMS or (s.category, name) in (frozen or {}) or isinstance(v, bool) or not isinstance(v, (int, float)):
                 continue
-            if template is not None and f"{i}:{name}" not in template.map:
+            key = f"{i}:{name}"
+            if template is not None and key not in template.map:
                 continue
             ver = getattr(template, "verified", None)
-            if ver and f"{i}:{name}" not in ver:   # CC not verified to move the render: baked into the state
+            if ver and key not in ver:   # CC not verified to move the render: baked into the state
                 continue
             pd = models.get(s.model_id, {}).get("params", {}).get(name) if catalog else None
-            if pd is not None and (pd.get("min"), pd.get("max")) != (0.0, 1.0):
-                continue
-            if pd is None and not 0.0 <= v <= 1.0:
+            if pd is not None and pd.get("kind", "continuous") != "continuous":
+                continue                 # switches and enums are not a continuous search dimension
+            lo, hi = param_range(template, pd, key)
+            if hi <= lo or not lo - 1e-9 <= v <= hi + 1e-9:
                 continue
             out.append((i, name))
     return out
@@ -410,11 +430,15 @@ def freeze(preset, frozen):
     return preset
 
 
-def build_candidates(root: Path, catalog, only: list[str] | None = None, frozen=None) -> tuple[list[Cand], list[str]]:
-    """Candidates for every template set that exists on disk. Returns (cands, notes on what is missing)."""
+def build_candidates(root: Path, catalog, only: list[str] | None = None, frozen=None,
+                     allow_time_variant: bool = False, time_variant: set | None = None) -> tuple[list[Cand], list[str]]:
+    """Candidates for every template set that exists on disk. Returns (cands, notes on what is missing).
+    A chain holding a time-variant library block (renders differently on every pass) is left out unless
+    `allow_time_variant`; when kept, its note says the null-based loss is unreliable (N4, 2026-10-16)."""
     from tonematch.catalog import native_unavailable
     from tonematch.engines.native import ChainTemplate, chain_key
     from tonematch.preset import read_hlx
+    from tonematch.search.pool import chain_time_variant, time_variant_models, warn_if_time_variant
 
     bad = native_unavailable()   # every candidate is searched on Native (lead, 2026-10-16)
     cands, notes = [], []
@@ -430,12 +454,20 @@ def build_candidates(root: Path, catalog, only: list[str] | None = None, frozen=
         if refused:
             notes.append(f"{name}: {refused} not available on Helix Native (refused models), not searched")
             continue
+        tv = time_variant_models() if time_variant is None else set(time_variant)
+        tvm = chain_time_variant(preset, tv)
+        if tvm and not allow_time_variant:
+            notes.append(f"{name}: time-variant block(s) {tvm} excluded (--allow-time-variant keeps them), not searched")
+            continue
         tpl = pick_template(ChainTemplate.load_variants(d).get(chain_key(preset), []), preset)
         if tpl is None:
             notes.append(f"{name}: {tdir} holds no template for this chain at its frozen values, not searched")
             continue
-        cands.append(Cand(name, preset, tpl, derive_free(preset, tpl, catalog, frozen),
-                          f"{hlx} + {tdir}"))
+        note = f"{hlx} + {tdir}"
+        warn_if_time_variant(preset, tv, f"chain {name}", emit=lambda m: None)
+        if tvm:
+            note += f"; time-variant {tvm}: the null-based loss is unreliable for this chain"
+        cands.append(Cand(name, preset, tpl, derive_free(preset, tpl, catalog, frozen), note))
     return cands, notes
 
 
@@ -606,12 +638,17 @@ def rebase_level_reference(engine, kit, results, section, log=print) -> tuple[fl
 
 
 def make_prior(space, weight: float, mean: float = 0.5, std: float = 0.3):
-    """Weak neutral Gaussian prior (MAP) over the free parameters: mean 0.5, std 0.3, loss + weight * mean z^2.
+    """Weak neutral Gaussian prior (MAP) over the free parameters: mean 0.5, std 0.3 of each parameter's
+    own range (so 0.5 and 0.3 for a 0-1 knob), loss + weight * mean z^2.
     NOT fit on factory or community presets (none is available locally); it only keeps the search
     off the corners of the knob range unless the loss clearly wants them."""
     from tonematch.search import Prior
 
-    return Prior({r: mean for r in space.refs}, {r: std for r in space.refs}, weight) if weight > 0 else None
+    if weight <= 0:
+        return None
+    w = {r: float(space.hi[j] - space.lo[j]) for j, r in enumerate(space.refs)}
+    return Prior({r: float(space.lo[j]) + mean * w[r] for j, r in enumerate(space.refs)},
+                 {r: std * w[r] for r in space.refs}, weight)
 
 
 def apply_values(preset, space, values, ndigits: int | None = None):
@@ -1127,9 +1164,11 @@ def make_native_engine(preroll: int):
 
 
 def make_stomp_engine():
+    """The bridge inside does the USB device check and holds the shared pedal lock
+    (tonematch.pedal_lock) for the engine's whole life; DeviceMissing / LockHeld exit with their codes."""
     from tonematch.engines.stomp import StompEngine
 
-    return StompEngine()
+    return StompEngine(purpose="match_song (Stomp)")
 
 
 def jsonable(o):
@@ -1183,10 +1222,14 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
     missing: list[str] = []
     if cands is None:
         only = args.chains.split(",") if args.chains else None
-        cands, missing = build_candidates(ROOT, catalog, only, NATIVE_FROZEN if args.native_only else STOMP_FROZEN)
+        cands, missing = build_candidates(ROOT, catalog, only, NATIVE_FROZEN if args.native_only else STOMP_FROZEN,
+                                          allow_time_variant=getattr(args, "allow_time_variant", False))
     for n in missing:
         log(f"missing: {n}")
     log("candidates: " + ", ".join(f"{c.name}({len(c.free or [])} dims)" for c in cands))
+    for c in cands:
+        if "time-variant" in c.note:
+            log(f"WARNING {c.name}: contains a time-variant block; the null-based loss is unreliable")
     if args.dry_run:
         log("dry run: stopping before any render")
         return 0
@@ -1326,6 +1369,9 @@ def parse(argv=None):
     ap.add_argument("--note", help="free text appended to report.md (e.g. which rank the human preferred)")
     ap.add_argument("--rewrite-hlx", metavar="RUN_DIR",
                     help="only rewrite the top-3 .hlx files of an existing run from its result.json")
+    ap.add_argument("--allow-time-variant", action="store_true",
+                    help="keep chains with time-variant blocks (HD2_ReverbOcto, VIC_DelayGlitch, "
+                         "Victoria_ShufflingDelay) in the pool; their null-based loss is unreliable")
     ap.add_argument("--native-only", action="store_true",
                     help="leave Stomp-parity-frozen parameters free; report.md says 'Stomp will differ'")
     ap.add_argument("--engine", choices=("native", "stomp"), default="native",

@@ -166,3 +166,43 @@ def test_objective_not_constant_with_real_kit_on_proxy_chain(tmp_path):
     assert out[0].loss_label == "unadmitted loss" and out[0].clip_s == 2.0
     p = write_report(sec, out, plan_budget(eng, bud), bud, tmp_path)
     assert "unadmitted loss" in p.read_text() and "clip length 2.0 s" in p.read_text()
+
+
+# ------------------------------------------------------------- N4: time-variant blocks (2026-10-16)
+
+
+def test_pool_filter_and_index_flags():
+    from tonematch.search.pool import filter_pool, time_variant_models
+
+    idx = {"models": {"A": {"time_variant": True}, "B": {"ref": True}, "C": {"time_variant": False}}}
+    tv = time_variant_models(idx)
+    assert tv == {"A"}
+    assert filter_pool(["A", "B", "C"], tv=tv) == ["B", "C"]
+    assert filter_pool(["A", "B"], allow_time_variant=True, tv=tv) == ["A", "B"]
+    assert time_variant_models({"models": {}}) == set()
+
+
+def test_warn_names_the_models_and_logs(caplog):
+    import logging
+
+    from tonematch.search.pool import warn_if_time_variant
+
+    seen = []
+    with caplog.at_level(logging.WARNING, logger="tonematch.search"):
+        bad = warn_if_time_variant(fake_preset(), {"fake_drive"}, "target", emit=seen.append)
+    assert bad == ["fake_drive"] and "null-based loss is unreliable" in caplog.text and seen
+    assert warn_if_time_variant(fake_preset(), {"nothing"}) == []
+
+
+def test_match_excludes_time_variant_chain_by_default_and_warns_when_allowed():
+    sec = _section(fake_preset(0.3, 0.7, 0.6))
+    eng = FakeEngine(engine_name="native")
+    out = match(sec, eng, SpectralStubLoss(), B(max_renders=40), candidates=[fake_preset()],
+                time_variant={"fake_drive"})
+    assert out == [] and eng.renders == 0
+    out = match(sec, eng, SpectralStubLoss(), B(max_renders=40), candidates=[fake_preset(), fake_preset(delay=(0.3, 0.3))],
+                time_variant={"fake_delay"})
+    assert out and all("fake_delay" not in str(r.chain) for r in out)
+    out = match(sec, FakeEngine(engine_name="native"), SpectralStubLoss(), B(max_renders=40),
+                candidates=[fake_preset()], time_variant={"fake_drive"}, allow_time_variant=True)
+    assert out and any("null-based loss is unreliable" in n for n in out[0].notes)

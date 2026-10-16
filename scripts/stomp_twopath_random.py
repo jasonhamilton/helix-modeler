@@ -14,7 +14,7 @@ Time-based blocks go last. Settings as parity_spot.build: defaults; EQ continuou
 
   gen   offline: draw the chain (--seed), write cache/stomp/twopath_random/<seed>/{single,dual}.hlx,
         validate for fw 3.80, compile both onto an 04C backup and decode (junctions, block positions)
-  run   pedal, one session: refuses if HX Edit runs; takes cache/stomp/pedal.lock (mkdir); scratch slot
+  run   pedal, one session: refuses if HX Edit runs; device check + shared pedal lock (tonematch.pedal_lock); scratch slot
         04C as base; whole writes with document readback; --repeats renders each; restores the original
         preset (readback + byte check); always releases the lock. Then the nulls and ledger rows.
 """
@@ -49,7 +49,6 @@ from tonematch.engines.stomp_readback import readback_diff
 STOMP = ROOT / "cache" / "stomp"
 OUT = STOMP / "twopath_random"
 NEW = STOMP / "bin" / "stompd-compile"
-LOCK = STOMP / "pedal.lock"
 DI = ROOT / "fixtures" / "smoke" / "di_2s.wav"
 SCRATCH = (0, 11, "Smoke Known")
 USB56 = 6
@@ -189,10 +188,10 @@ def cmd_run(a) -> int:
         sys.exit("set TONEMATCH_STOMPD to the USB helper (cache/stomp/bin/stompd)")
     src = OUT / str(a.seed)
     gen = json.loads((src / "gen.json").read_text())
-    try:
-        LOCK.mkdir(parents=True)
-    except FileExistsError:
-        sys.exit(f"pedal lock held ({LOCK}): not run")
+    from tonematch import pedal_lock
+
+    pedal_lock.require_device()       # DeviceMissing / LockHeld exit with their own codes and messages
+    hold = pedal_lock.PedalLock("stomp_twopath_random run").acquire()
     run_dir = STOMP / "hw" / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-twopath-random"
     docs = run_dir / "documents"
     res: dict = {"seed": a.seed, "chain": gen["chain"], "errors": [], "renders": 0}
@@ -257,11 +256,8 @@ def cmd_run(a) -> int:
     except Exception as e:  # noqa: BLE001 - engine open failed
         res["errors"].append(f"open {type(e).__name__}: {e}")
     finally:
-        try:
-            LOCK.rmdir()
-        except OSError:
-            subprocess.run(["rm", "-rf", str(LOCK)], check=False)
-        res["lock_released"] = not LOCK.exists()
+        hold.release()
+        res["lock_released"] = not pedal_lock.lock_dir().exists()
         res["wall_clock_s"] = round(time.perf_counter() - t_start, 1)
 
     def pairs(x: str, y: str) -> list[float]:

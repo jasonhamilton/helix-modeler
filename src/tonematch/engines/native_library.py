@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 
 from .native import (
@@ -36,7 +37,10 @@ from .native import (
 
 # v1.1 (T072, 2026-10-16): v1 with the delay, reverb, modulation and other templates whose time
 # or rate params get a narrower CC range (``native.narrow_range``) re-captured. v1 stays on disk.
-VERSION = "block-library-v1.1"
+# v1.2 (engine push N6d, 2026-10-16): v1.1 with the 278 templates holding a -60..+6 dB Block Level
+# re-captured under cc-range-v2 (Level on [-25.75, +6] dB). VIC_DelayGlitch has no v1.2 template
+# (time-variant across hosts). v1 and v1.1 stay on disk. TONEMATCH_NATIVE_LIBRARY picks another.
+VERSION = os.environ.get("TONEMATCH_NATIVE_LIBRARY") or "block-library-v1.2"
 # Breadth first (human, 2026-10-15/16): Distortion, Delay, Reverb; then Dynamics, EQ, Modulation;
 # then amps, cabs and the rest. Within a tier the categories are interleaved one model at a time.
 TIERS = (("drive", "delay", "reverb"), ("comp", "eq", "mod"), ("amp", "cab", "other"))
@@ -134,6 +138,49 @@ def block_preset(model_id: str, catalog: dict | None = None, base=None, frozen=N
             if s.category == cat and name in (s.params or {}):
                 s.params[name] = v
     return p
+
+
+# Measured on Native 3.82 (T048, ``native_block_library.py time-variant``): the same host cannot
+# repeat a render of these (same-host repeat null -68.3, -6.5 and -11.3 dB on v1.1), so they
+# cannot be scored by a null or exact-render loss. Kept as the fallback when no index is cached;
+# the index flag ``time_variant`` is the measurement and is always unioned in.
+TIME_VARIANT_NATIVE_382 = frozenset({"HD2_ReverbOcto", "VIC_DelayGlitch", "Victoria_ShufflingDelay"})
+
+
+def time_variant_models(version: str = VERSION) -> frozenset[str]:
+    """Model ids whose Native render does not repeat (random or free-running blocks): the
+    library index's ``time_variant`` flags plus ``TIME_VARIANT_NATIVE_382``. The one source for
+    search (opt-in model choice), benchmark (excluded from null-based parity) and tone-metrics."""
+    idx = load_index(version)
+    return TIME_VARIANT_NATIVE_382 | {m for m, e in idx.get("models", {}).items() if e.get("time_variant")}
+
+
+def is_time_variant(model_id: str, version: str = VERSION) -> bool:
+    """True when ``model_id``'s Native render is time-variant (see ``time_variant_models``)."""
+    return model_id in time_variant_models(version)
+
+
+def fingerprint_dir(version: str = VERSION) -> Path:
+    """Block-probe fingerprints of this library (T047, ``scripts/native_block_fingerprints.py``)."""
+    return cache_dir().parent / "probe" / "fingerprints" / version
+
+
+def fingerprint_index(version: str = VERSION) -> dict:
+    """``index.json`` of the fingerprints: model -> category, template, and per grid setting its
+    params, CC values and summary scalars (empty ``models`` if not computed yet)."""
+    try:
+        return json.loads((fingerprint_dir(version) / "index.json").read_text())
+    except (OSError, ValueError):
+        return {"models": {}}
+
+
+def fingerprint_set(model_id: str, version: str = VERSION) -> dict | None:
+    """The full fingerprint set of ``model_id`` (schema ``tonematch.block-fingerprint-set`` v1;
+    each setting holds a ``tonematch.block-fingerprint`` v1), or None."""
+    try:
+        return json.loads((fingerprint_dir(version) / f"{model_id}.json").read_text())
+    except (OSError, ValueError):
+        return None
 
 
 def load_index(version: str = VERSION) -> dict:

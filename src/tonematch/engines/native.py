@@ -555,7 +555,10 @@ def catalog_ranges(preset, catalog: dict | None = None) -> dict[str, tuple[float
 # state). Over the catalog range, delay Time 0-8 s moves in 62.99 ms steps and an LFO Speed
 # 0-15 Hz in 0.118 Hz steps. These rules give time-like and rate params a narrower range;
 # a value outside it keeps the catalog range (``cc_ranges``), so no preset loses its value.
-CC_RANGE_RULES_VERSION = "cc-range-v1"
+# v2 (lead ruling 2026-10-16): Block Level -60..+6 dB goes to [-25.75, +6], 0.25 dB steps with
+# 0 dB on the grid (c = 103); v1 gave 0.52 dB steps and 0 dB snapped to -0.236 dB.
+CC_RANGE_RULES_VERSION = "cc-range-v2"
+BLOCK_LEVEL_RANGE_DB = (-25.75, 6.0)
 DELAY_TIME_SPAN_S = 1.27            # 10 ms per CC step: half a step (5 ms) is inside the 2 %
 #                                     delay-time tolerance from 250 ms up (T066)
 DELAY_NOT_ECHO_TIMES = frozenset({"Attack", "Decay", "DynAttack", "DynRel"})
@@ -579,6 +582,9 @@ def narrow_range(category: str, name: str, p: dict) -> tuple[float, float] | Non
     - reverb Decay in seconds (display ``time_sec_DynamicHall``): [lo, lo + 127 s], s in
       ``DECAY_STEPS_S``, top at least 2 x default.
 
+    - Block Level (v2; param ``Level``, display ``volume``, catalog range exactly [-60, +6] dB):
+      ``BLOCK_LEVEL_RANGE_DB`` = [-25.75, +6], 0.25 dB steps with 0 dB at c = 103.
+
     Pre-delays (0-0.2 s: 1.57 ms steps, half a step 0.79 ms against a 5 ms tolerance) and every
     other param keep the catalog range. A narrowed range is never wider than the catalog's."""
     lo, hi = p.get("min"), p.get("max")
@@ -587,6 +593,8 @@ def narrow_range(category: str, name: str, p: dict) -> tuple[float, float] | Non
     lo, hi = float(lo), float(hi)
     disp = str(p.get("display") or "")
     dflt = float(p.get("default") or lo) if isinstance(p.get("default"), (int, float)) else lo
+    if name == "Level" and disp == "volume" and (lo, hi) == (-60.0, 6.0):
+        return BLOCK_LEVEL_RANGE_DB
     if category == "delay" and disp.startswith("time_ms") and name not in DELAY_NOT_ECHO_TIMES:
         top = lo + DELAY_TIME_SPAN_S
         return (lo, round(top, 6)) if top < hi - 1e-9 else None
@@ -694,6 +702,23 @@ def cc_value(lo: float, hi: float, c: int) -> float:
     -71 dB. Computed in float32, as the plugin stores it."""
     n = np.float32(c) / np.float32(CC_STEPS)
     return float(np.float32(lo) + n * (np.float32(hi) - np.float32(lo)))
+
+
+def cc_norm(v: float, lo: float, hi: float) -> float:
+    """The normalized CC command for value ``v`` on an assignment over [lo, hi], clipped to
+    [0, 1]. A value at lo or hi to within float32 rounding (1e-6 of the span: ``cc_value`` works
+    in float32, so ``cc_value(lo, hi, 0)`` is float32(lo)) is sent as exactly 0.0 or 1.0, so an
+    exact-lo command lands on CC 0, never on a tiny positive value (N6a, 2026-10-16). The host
+    steps every value away and back before setting it, so an exact 0.0 is always sent (T043)."""
+    span = float(hi) - float(lo)
+    if span == 0:
+        return 0.0
+    tol = 1e-6 * abs(span)
+    if abs(float(v) - float(lo)) <= tol:
+        return 0.0
+    if abs(float(v) - float(hi)) <= tol:
+        return 1.0
+    return float(np.clip((float(v) - float(lo)) / span, 0.0, 1.0))
 
 
 def verify_preroll_s(preset) -> float:
@@ -1219,6 +1244,23 @@ class NativeEngine:
     # docstring); with the host's state reset a host holds ~2-3 GB steady, and each
     # Hardware-Compatibility-mode reload (reload_with_state) adds ~1.6 GB. 0 disables.
     MEM_LIMIT_MB = 5120.0
+    # Delay lines (and reverb tails) survive the host's state reset, so a chain holding a block of
+    # ``TAIL_CATEGORIES`` gets this much silence before each render instead of PREROLL; see
+    # docs/notes/native-spike.md (Pre-roll for tail blocks) for the tail cut-off measurement.
+    TAIL_PREROLL = 3 * SAMPLE_RATE
+
+    @property
+    def preroll(self) -> int:
+        """Samples of silence before every reset render: the constructor's ``preroll`` if given,
+        else TAIL_PREROLL for a loaded chain with a delay, reverb or "other" block, else PREROLL."""
+        if self._preroll_fixed is not None:
+            return self._preroll_fixed
+        cats = {c for c, m in (self.current_chain or ()) if m}
+        return self.TAIL_PREROLL if cats & TAIL_CATEGORIES else self.PREROLL
+
+    @preroll.setter
+    def preroll(self, value: int | None) -> None:
+        self._preroll_fixed = None if value is None else int(value)
 
     def __init__(self, plugin_path: str | Path | None = None, plugin_name: str | None = None,
                  *, calibration_db: float = 0.0, block_size: int = 512,
@@ -1226,6 +1268,10 @@ class NativeEngine:
                  preroll: int | None = None, reset_mode: str | None = None, flush_s: float = 2.0,
                  autocapture: bool | None = None, mem_limit_mb: float | None = None,
                  start_state: bytes | None = None):
+        self._init_kw = {"plugin_name": plugin_name, "calibration_db": calibration_db,
+                          "block_size": block_size, "templates_dir": templates_dir, "route": route,
+                          "preroll": preroll, "reset_mode": reset_mode, "flush_s": flush_s,
+                          "mem_limit_mb": mem_limit_mb, "start_state": start_state}
         p = plugin_path or os.environ.get("TONEMATCH_NATIVE_PLUGIN") or locate_plugin()
         if p is None:
             raise EngineError("Helix Native not found. Install it (your own licence) or set TONEMATCH_NATIVE_PLUGIN.")
@@ -1233,10 +1279,11 @@ class NativeEngine:
         if is_stadium(p):
             raise EngineError("Helix Stadium Native is not supported; install original Helix Native 3.8x.")
         self.plugin = p
+        self._init_kw["plugin_path"] = p
         self.plugin_name = plugin_name
         self.calibration_db = float(calibration_db)
         self.block_size = int(block_size)
-        self.preroll = self.PREROLL if preroll is None else int(preroll)
+        self._preroll_fixed = None if preroll is None else int(preroll)
         self.reset_mode = reset_mode or os.environ.get("TONEMATCH_NATIVE_RESET", "reset")
         if self.reset_mode not in self.RESET_MODES:
             raise EngineError(f"reset_mode must be one of {self.RESET_MODES}, got {self.reset_mode!r}")
@@ -1274,6 +1321,9 @@ class NativeEngine:
         self.last_reset_via: str | None = None  # how the host reset the last render
         self._loaded_state: bytes | None = None  # last state sent to the host (restored on recycle)
         self._host_params: dict[str, float] = {}  # host params set since that state
+        self._loaded_preset = None                 # last preset load()ed (render_many's base)
+        self._params_since_load: dict[ParamRef, float] = {}
+        self._many_pool: NativeRenderPool | None = None  # render_many's extra hosts (lazy)
 
     # --- availability ---------------------------------------------------------------------
 
@@ -1319,6 +1369,7 @@ class NativeEngine:
         self.last_unmapped = unmapped  # these stay at the template's captured values
         if changes:
             self.set_params(changes)
+        self._loaded_preset, self._params_since_load = preset, {}
 
     def _match_template(self, preset, key) -> tuple[ChainTemplate | None, str]:
         """The template whose baked values (state-fixed, not host-settable) equal the preset's.
@@ -1433,9 +1484,10 @@ class NativeEngine:
             if host_name is None:
                 raise EngineError(f"{k} is not assigned to an automation knob/switch in template {tpl.name!r}")
             lo, hi = tpl.ranges.get(k, [0.0, 1.0])
-            values[host_name] = float(np.clip((float(v) - lo) / ((hi - lo) or 1.0), 0.0, 1.0))
+            values[host_name] = cc_norm(float(v), float(lo), float(hi))
         self.host.call("set_params", values=values)
         self._host_params.update(values)
+        self._params_since_load.update(changes)
 
     def render(self, dry: Audio) -> Audio:
         x = np.asarray(dry, dtype=np.float32)
@@ -1500,7 +1552,84 @@ class NativeEngine:
         return steps or None
 
     def close(self) -> None:
+        if self._many_pool is not None:
+            pool, self._many_pool = self._many_pool, None
+            pool.close()
         self.host.close()
+
+    # --- render_many (contract amendment 2026-10-16) ---------------------------------------
+
+    def render_many(self, dry: Audio, variants: list) -> list[Audio]:
+        """Render ``dry`` through each variant on this host plus a lazily opened pool of extra
+        hosts (``many_hosts``), results in ``variants`` order and equal to
+        ``base.serial_render_many`` on this engine (every render is a reset render, so which host
+        ran it and what it ran before do not matter).
+
+        A ``Preset`` variant is loaded; a dict is applied on top of the last ``Preset`` before it
+        and every dict in between (or, before any, on the preset loaded now), exactly as the
+        serial calls accumulate. Every ``Preset`` is matched to a template before anything is
+        rendered, so an ``UnsupportedModelChange`` is raised up front (autocapture, if on, runs
+        first). After the call this engine's loaded state is unspecified."""
+        from .base import serial_render_many
+
+        variants = list(variants)
+        jobs: list[tuple[object, dict]] = []
+        base, acc = self._loaded_preset, dict(self._params_since_load)
+        for v in variants:
+            if isinstance(v, dict):
+                if base is None:
+                    raise EngineError("render_many: a parameter variant before any load()")
+                acc = {**acc, **v}
+            else:
+                base, acc = v, {}
+            jobs.append((base, acc))
+        if self.route == "state":
+            return serial_render_many(self, dry, variants)
+        for p in {id(b): b for b, _ in jobs}.values():
+            if self._match_template(p, chain_key(p))[0] is None:
+                if self.autocapture:
+                    self._autocapture(p)
+                else:
+                    self.load(p)  # raises UnsupportedModelChange with the full reason
+        n = min(len(jobs), self.many_hosts())
+        if n <= 1:
+            return serial_render_many(self, dry, variants)
+        if not self.plugin.startswith("builtin:") and self._plugin_latency is None:
+            self.load(jobs[0][0])  # measure the pass-through latency once, here, for every host
+            self.latency()
+        pool = self._render_pool(n)
+        pool_jobs = [RenderJob(dry=dry, preset=b, params=ps) for b, ps in jobs]
+        engines = pool.engines
+        pool.engines = [self] + engines[: n - 1]
+        try:
+            return pool.render_batch(pool_jobs, on_error="raise")
+        finally:
+            pool.engines = engines
+
+    # Hosts render_many may use, this engine's own included (``TONEMATCH_NATIVE_MANY_HOSTS``,
+    # default the pool's DEFAULT_WORKERS), capped by memory (``max_hosts_by_memory``) and CPUs-1.
+    def many_hosts(self) -> int:
+        env = os.environ.get("TONEMATCH_NATIVE_MANY_HOSTS")
+        want = int(env) if env else NativeRenderPool.DEFAULT_WORKERS
+        if self.plugin.startswith("builtin:"):
+            return max(1, want)
+        return max(1, min(want, max_hosts_by_memory(), max(1, (os.cpu_count() or 2) - 1)))
+
+    def _render_pool(self, n: int) -> NativeRenderPool:
+        """At least ``n - 1`` extra engines configured like this one, sharing its templates
+        and its measured latency (so every host trims renders identically)."""
+        lat = self._plugin_latency
+        pool = self._many_pool
+        if pool is None or pool.workers < n - 1:
+            if pool is not None:
+                pool.close()
+            kw = {k: v for k, v in self._init_kw.items() if v is not None}
+            pool = self._many_pool = NativeRenderPool(workers=n - 1, autocapture=False, **kw)
+        for e in pool.engines:
+            e.templates, e._variants = self.templates, self._variants
+            if lat is not None:
+                e._plugin_latency = lat
+        return pool
 
     def __enter__(self):
         return self

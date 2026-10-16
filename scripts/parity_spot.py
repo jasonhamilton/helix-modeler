@@ -7,8 +7,8 @@ topped up. Hum and Ripple 0 everywhere; cab EarlyReflections 0 (the Stomp policy
   gen      offline: write cache/parity/spot380/hlx/<name>.hlx (K with one block changed), validate them for
            firmware 3.80, cut the DIs, write manifest.json
   native   Native first (no pedal): NativeRenderPool, ensure_templates, one batch of renders
-  stomp    pedal, ONE batched session: takes cache/stomp/pedal.lock (mkdir), whole-preset loads into the
-           scratch slot, restores the original preset with readback and a byte diff, removes the lock
+  stomp    pedal, ONE batched session: takes the shared pedal lock (tonematch.pedal_lock), whole-preset loads into the
+           scratch slot, restores the original preset with readback and a byte diff, releases the lock
   analyse  nulls, echo metrics, ledger rows (kind=parity, dataset parity-spot-fw380)
 
 Dual-path passes are not used (single-path whole-preset renders only).
@@ -45,7 +45,6 @@ RAW = OUT / "raw"
 SNAPPED_MARK = OUT / "snapped_stomp.json"
 TEMPLATES = ROOT / "cache" / "native" / "templates_files" / "spot380"
 DATASET = "parity-spot-fw380"
-LOCK = ROOT / "cache" / "stomp" / "pedal.lock"
 NULL_PASS_DB = -30.0
 ECHO_LEVEL_TOL_DB = 2.0
 
@@ -248,17 +247,26 @@ def hx_edit_running() -> bool:
     return bool([p for p in r.stdout.split() if p not in mine])
 
 
+_HOLD = None   # this batch's hold on the shared pedal lock (tonematch.pedal_lock)
+
+
 def take_lock(wait_s: float, poll_s: float = 60.0) -> bool:
-    t0 = time.time()
-    while True:
-        try:
-            LOCK.mkdir(parents=True)
-            return True
-        except FileExistsError:
-            if time.time() - t0 > wait_s:
-                return False
-            print(f"pedal lock held; waiting {poll_s:.0f} s", flush=True)
-            time.sleep(poll_s)
+    """Device check, then the shared pedal lock (owner.json, heartbeat, stale checks) for the whole batch.
+    Raises pedal_lock.DeviceMissing / LockHeld (distinct exit codes) instead of returning False."""
+    global _HOLD
+    from tonematch import pedal_lock
+
+    if _HOLD is None:
+        pedal_lock.require_device()
+        _HOLD = pedal_lock.PedalLock(f"{Path(sys.argv[0]).name} stomp batch", wait_s=wait_s, poll_s=poll_s).acquire()
+    return True
+
+
+def release_lock() -> None:
+    global _HOLD
+    if _HOLD is not None:
+        _HOLD.release()
+        _HOLD = None
 
 
 def cmd_stomp(a) -> int:
@@ -332,10 +340,7 @@ def cmd_stomp(a) -> int:
     finally:
         (run_dir / "summary.json").write_text(json.dumps(res, indent=1, default=str))
         (OUT / "stomp_summary.json").write_text(json.dumps(res, indent=1, default=str))
-        try:
-            LOCK.rmdir()
-        except OSError:
-            subprocess.run(["rm", "-rf", str(LOCK)], check=False)
+        release_lock()
     print(json.dumps({k: res.get(k) for k in ("restore_report", "session_close", "bytes_equal_backup", "errors")},
                      default=str))
     return 1 if res["errors"] or not res.get("bytes_equal_backup") else 0

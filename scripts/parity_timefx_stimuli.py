@@ -14,7 +14,7 @@ This adds:
 
 Presets are the T060 files (cache/parity/spot380/hlx: ER_000 = the effect slot off, the reference for each
 engine's own block input; Rev_ x6; Mod_ x5) plus Del_DelaySimpleDelay600. The Native side renders first
-(pool of at most 2 hosts); the pedal side is ONE batched session (lock by mkdir, scratch slot, restore with
+(pool of at most 2 hosts); the pedal side is ONE batched session (shared pedal lock, tonematch.pedal_lock, scratch slot, restore with
 readback and byte diff). The Stomp renders each model twice (the repeat floor), Native once.
 
   gen      offline: write hlx + stimuli + manifest under cache/parity/timefx-stimuli/
@@ -58,7 +58,6 @@ HLX = OUT / "hlx"
 HLX_SNAPPED = OUT / "hlx_snapped"   # what the Stomp loads: Native's CC-grid values (parity method rule)
 RAW = OUT / "raw"
 DATASET = "parity-timefx-stimuli-fw380"
-LOCK = PS.LOCK
 REF = "ER_000"
 REVERBS = ["Rev_ReverbRoom", "Rev_ReverbPlate", "Rev_Reverb63Spring", "Rev_ReverbChamber", "Rev_ReverbHall", "Rev_ReverbGanymede"]
 UNRESOLVED_REVERBS = REVERBS[:4]
@@ -300,10 +299,7 @@ def cmd_stomp(a) -> int:
         res["session_wall_clock_s"] = round(time.perf_counter() - t_all, 1)
         (run_dir / "summary.json").write_text(json.dumps(res, indent=1, default=str))
         (OUT / "stomp_summary.json").write_text(json.dumps(res, indent=1, default=str))
-        try:
-            LOCK.rmdir()
-        except OSError:
-            subprocess.run(["rm", "-rf", str(LOCK)], check=False)
+        PS.release_lock()
     print(json.dumps({k: res.get(k) for k in ("restore_report", "session_close", "bytes_equal_backup", "errors", "session_wall_clock_s")},
                      default=str))
     return 1 if res["errors"] or not res.get("bytes_equal_backup") else 0

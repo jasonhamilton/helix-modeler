@@ -310,6 +310,16 @@ def main() -> int:
         p.error("give --calibrate, --user-di [--play <song>], or <dry.wav> --out <wet.wav>")
     if a.play and not a.user_di:
         p.error("--play needs --user-di")
+    if a.user_di and a.dry_run:
+        return _run(a)          # no audio device, no pedal
+    from tonematch import pedal_lock
+
+    # device check, then the shared pedal lock for the whole run: the audio uses the pedal even with --no-bridge
+    with pedal_lock.session("reamp_capture " + ("calibrate" if a.calibrate else "user-di" if a.user_di else "capture")):
+        return _run(a)
+
+
+def _run(a) -> int:
     if a.user_di:
         bridge = None
         if not a.no_bridge and stomp_bridge.helper_path() is not None:

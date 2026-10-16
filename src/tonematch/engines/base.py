@@ -54,6 +54,33 @@ class Engine(Protocol):
     def close(self) -> None: ...
 
 
+def serial_render_many(engine: Engine, dry: Audio, variants: list) -> list[Audio]:
+    """The serial form of ``render_many`` (amendment 2026-10-16): for each variant, ``load`` it
+    if it is a ``Preset``, else ``set_params`` it on the currently loaded preset (so consecutive
+    dicts accumulate, exactly as calling the engine by hand); then ``render``. Results are in
+    ``variants`` order; any ``EngineError`` (``UnsupportedModelChange`` included) is raised."""
+    out: list[Audio] = []
+    for v in variants:
+        if isinstance(v, dict):
+            engine.set_params(v)
+        else:
+            engine.load(v)
+        out.append(engine.render(dry))
+    return out
+
+
+def render_many(engine: Engine, dry: Audio, variants: list) -> list[Audio]:
+    """Render ``dry`` through every variant, in order (contracts/engine-interface.md, amendment
+    2026-10-16). Callers always go through this helper: it uses the engine's own
+    ``render_many`` when it has one (Native: the render pool; Stomp: two-path passes), else
+    ``serial_render_many``. The engine's loaded state afterwards is unspecified: ``load`` again
+    before relying on it."""
+    own = getattr(type(engine), "render_many", None)
+    if own is None:
+        return serial_render_many(engine, dry, list(variants))
+    return engine.render_many(dry, list(variants))
+
+
 # Preset lives in tonematch.preset (owned by the preset agent, see contracts/preset-schema.md).
 # It is referenced by name here to keep the engine package free of a hard import at type-check time.
 try:  # pragma: no cover

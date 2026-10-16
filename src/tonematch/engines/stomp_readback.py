@@ -149,6 +149,26 @@ def _extra_key(node: dict, extra: int) -> str | None:
     return None
 
 
+_STEREO_ONLY: dict[str, frozenset] = {}
+
+
+def stereo_only_params(model_id: str | None) -> frozenset:
+    """Catalog parameters marked ``stereo_only`` for a model (Simple Delay's ``Scale``). A mono
+    block has no such value on the device: HX Edit still writes it into the .hlx (11C, T093)."""
+    if not model_id:
+        return frozenset()
+    if not _STEREO_ONLY:
+        try:
+            from tonematch.catalog import load_catalog
+
+            for mid, m in load_catalog()["models"].items():
+                _STEREO_ONLY[mid] = frozenset(k for k, p in (m.get("params") or {}).items()
+                                              if isinstance(p, dict) and p.get("stereo_only"))
+        except Exception:  # noqa: BLE001 - no catalog: nothing is excused, every missing value fails
+            _STEREO_ONLY["_"] = frozenset()
+    return _STEREO_ONLY.get(model_id, frozenset())
+
+
 def _compare_params(where: str, node: dict, want: dict, dev_params: list[dict], diff: ReadbackDiff) -> None:
     seen = set()
     for p in dev_params or []:
@@ -171,10 +191,14 @@ def _compare_params(where: str, node: dict, want: dict, dev_params: list[dict], 
         got = float(p["value"])
         if not same_value(p, got, w):
             diff.mismatches.append(f"{where}.{pid}: device {got:.6g} != file {w:.6g} (tol {_tol(p):.2g}, {p.get('kind')})")
+    mono_skip = stereo_only_params(node.get("@model")) if not node.get("@stereo") else frozenset()
     for pid, v in node.items():
         if pid.startswith("@") and pid not in ("@mic", "@trails"):
             continue
         if pid not in seen and _num(v) is not None:
+            if pid in mono_skip:
+                diff.unspecified.append(f"{where}.{pid} = {v}: stereo-only, the mono block has no such value")
+                continue
             diff.missing.append(f"{where}.{pid}: in the file, no such parameter on the device")
 
 
