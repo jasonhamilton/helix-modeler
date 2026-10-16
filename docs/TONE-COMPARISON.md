@@ -1,8 +1,8 @@
 # How the Tone Comparison Works
 
-*Last updated: 2026-10-16. Kept current by `tone-metrics` (comparison methods and trust results) and the lead (search, hardware check), whenever any of these details change; see "Keeping this document current" at the end.*
+*Last updated: 2026-10-16 (second pass with purpose-made test signals; third pass: flanger and phaser closed). Kept current by `tone-metrics` (comparison methods and trust results) and the lead (search, hardware check), whenever any of these details change; see "Keeping this document current" at the end.*
 
-The matcher plays candidate presets through Helix Native and scores each one against the song's separated guitar using a set of spectral and dynamic measurements. It keeps adjusting the settings to lower that score. Those measurements are not yet trustworthy: none has passed its trust check. So the score points roughly the right way but cannot tell close candidates apart, and your ear is still the judge.
+The matcher plays candidate presets through Helix Native and scores each one against the song's separated guitar using a set of spectral and dynamic measurements. It keeps adjusting the settings to lower that score. Those measurements are not yet trustworthy: none has passed its trust check. On real Helix sounds (tested 2026-10-16) the score tells clearly different chains apart some of the time, but when the notes played differ from the target it cannot tell close settings apart at all. Your ear is still the judge.
 
 ## At a glance
 
@@ -39,7 +39,7 @@ The score is built from separate measurements, called terms. Each one is a dista
 | `crest_flatness_hnr` (distortion) | Is the amount and kind of gain the same? | Per 2048-sample frame: crest factor (peak over RMS in dB; clipping lowers it), spectral flatness from 150 Hz to 8 kHz (distortion fills the gaps between harmonics and raises it), and harmonic-to-noise ratio from the autocorrelation peak. The median and spread of each across frames. | Level | Yes (weight 1, provisional) |
 | `envelope` (dynamics) | Are compression, sag, gating and note attack the same? | Two level envelopes (10 ms and 2 ms). Note onsets are found by spectral flux across quarter-octave bands. From those: per-note attack time, decay slope and overshoot, sustain slope, dynamic range and noise floor. | Level, rhythm | Yes (weight 1, provisional) |
 | `mrstft` (fine detail) | Does the spectrum match moment by moment? | Short-time FFTs at 512, 2048 and 8192 samples. Spectral convergence plus the mean log-magnitude difference, averaged over the three sizes. | Level only | No: it needs a sample-aligned DI of the same performance |
-| `embed_afxrep` (learned) | Does a trained effects model think the processing is the same? | A neural network (AFx-Rep, from the ST-ITO paper) turns each clip into 512 numbers. Distance is 1 minus the cosine similarity. | Level, notes (by training) | No: weight 0, scored below the others |
+| `embed_afxrep` (learned) | Does a trained effects model think the processing is the same? | A neural network (AFx-Rep, from the ST-ITO paper) turns each clip into 512 numbers. Distance is 1 minus the cosine similarity. | Level, notes (by training) | No: weight 0. About 0.11 s per 10 s clip on the CPU, half a Native render |
 
 The combined score is the weighted sum of the active terms. Today that is the three provisional terms, at weight 1 each. The project's default weights are all 0 until a term passes its trust check, so any score you see is explicitly labelled "unadmitted".
 
@@ -89,7 +89,7 @@ The same null test was run on 47 more files, one block changed at a time in the 
 | EQ | 5 | 5 | -30.5 to -40.6 dB |
 | Distortion | 5 | 2 | Scream 808 -30.9 and Kinky Boost -33.5 pass; Heavy Dist -25.7, Bitcrusher -27.4 and Triangle Fuzz -28.6 are close but miss |
 | Reverb | 6 | 0 | -5.9 to -22.8 dB; the pedal repeats itself to -77.7 dB (Room), so the difference is real: reverb tails are not the same algorithm settings-for-settings |
-| Delay | 5 | echo level 5 of 5 | Echoes are as loud on both (within 0.5 dB) but arrive at slightly different times: Native is about 3 ms later per echo (0.8% of the delay time) on four models and about 2 ms earlier on Adriatic Delay, so the waveforms cannot null (-5 to -12 dB). Delays are judged by echo level and timing, not by null |
+| Delay | 5 | echo level 5 of 5 | Echoes are as loud on both (within 0.5 dB) but arrive at slightly different times: Native is about 3 ms later per echo (0.8% of the delay time) on four models and about 2 ms earlier on Adriatic Delay (this was Native's 63 ms step in delay time, see the second pass below, not a difference between the engines), so the waveforms cannot null (-5 to -12 dB). Delays are judged by echo level and timing, not by null |
 | Modulation | 6 | 0 | -1.0 to -9.0 dB; the pedal does not repeat itself (-1.5 dB on a chorus rendered twice) because its LFO starts at a random point, so modulation cannot be judged by a null at all |
 
 Cab Early Reflections on firmware 3.80, same cab and clip: 0 gives -28.1 dB, 0.25 gives -12.1, 0.5 gives -6.6 and 1.0 gives -1.0 dB. That is the same pattern as on firmware 3.50, so upgrading did not fix it and Early Reflections stays held at 0 for anything bound for the pedal.
@@ -107,26 +107,66 @@ A null is the wrong test for effects that move in time. A delay whose clock runs
 | Reverb (6) | Decay time per octave (early decay and full decay), when the reverb starts after the note (pre-delay), the tail's spectrum and level | Decay at 4 kHz within 2.3 % on all 6. Pre-delay differs by 5.3 ms on Hall and 4.8 ms on Chamber (Native starts earlier); at most 0.8 ms on the other four. Ganymede, which has its own modulation, decays 7 to 11 % faster on Native at 1 to 2 kHz. Low-frequency decay, the tail's spectrum and its level cannot be measured precisely enough from a 2 s tail of a guitar clip |
 | Modulation (6) | How fast the effect wobbles (rate), how deep, and the sound with the wobble averaged out | Tremolo matches (6.73 vs 6.76 Hz, depth 9.0 vs 9.2 dB). Chorus rate matches (1.78 vs 1.76 Hz) and so does its averaged sound; its depth may be about 25 % deeper on Native but this clip cannot confirm it. Vibrato agrees too (6.80 vs 6.76 Hz, depth 23 vs 24 cents) but the reading is just below the confidence bar. Flanger and phaser wobble too slowly for 4 s; the MM4 chorus gives no steady reading on this clip |
 
-**What this means for now (a proposal to the lead, not yet accepted):** Native can stand in for the Stomp on amps, cabs, dynamics, EQ, drives, delays and tremolo. Reverbs, other modulation, bitcrusher-type drives and long delays still need the Stomp. Two short test signals for the next pedal session would settle most "unresolved" rows: a 10 s steady tone for modulation and a noise burst with 6 s of silence for reverb.
+**What this means for now (a proposal to the lead, not yet accepted):** Native can stand in for the Stomp on amps, cabs, dynamics, EQ, drives, delays and tremolo. Reverbs, other modulation, bitcrusher-type drives and long delays still need the Stomp. Two short test signals for the next pedal session would settle most "unresolved" rows: a 10 s steady tone for modulation and a noise burst with 6 s of silence for reverb. (That session has now been run; see the next section, which also corrects the delay finding above.)
+
+### Second pass with purpose-made test signals ([T066b](../board/TASKS.md#t066b "Parity probe session closing the T066 open questions"), firmware 3.80, 2026-10-16)
+
+One pedal session and one Native batch rendered a noise burst followed by 6 s of silence (for reverb), two 10 s steady tones at 330 Hz and 1 kHz and a real guitar note held for about 4 s (for modulation), and a second delay time. Each effect was rendered twice on the Stomp, so the Stomp's own repeatability is known, and once on Native. A difference only counts when it is larger than what the measurement itself can tell apart: for reverbs, how much two different-but-equally-long reverbs would differ in one burst; for modulation, how much the Stomp differs from itself.
+
+**The delay finding is corrected.** Native does not take a knob value exactly: every setting reaches it through a 128-step control, so a delay time can only be a multiple of 63 ms (its range is 0 to 8 s). Asked for 375 ms, Native plays 378 ms (that was the "0.8 % late"); asked for 600 ms, it plays 630 ms (5 % late); asked for 200 ms, 189 ms. The Stomp plays exactly what the file says (600.0002 ms). So the lateness is not a difference between the engines, and the planned correction of 1.0079 on export is not needed and would add an error. When the search finishes, the preset holds the value Native actually played, and the Stomp plays that same value exactly. What is real is the coarse step: Native's search can only place a delay time to within about 31 ms, which is a design question for the search.
+
+The same stepping explains the modulation speeds that looked different. The Deluxe Phaser was asked for 0.20 Hz and Native plays 0.236 Hz (+18 %); the measured difference was +18 %. The MM4 chorus was asked for 1.59 Hz and Native plays 1.535 Hz (-3.4 %); measured -3.4 %. After allowing for the stepping, both are equal to within 0.03 %.
+
+| Block | What was measured | Result |
+| --- | --- | --- |
+| Reverb: Room, Plate, '63 Spring, Chamber | Full decay time per octave band; when the reverb starts | Decay within the 5 % tolerance everywhere it can be measured (2 and 4 kHz on Room and Chamber; 0.5, 1 and 4 kHz on Plate; 0.5 to 4 kHz on '63 Spring); at the lower octaves the measurement is too noisy to tell. The reverb starts within 0.8 ms on both engines. Nothing is outside tolerance |
+| Reverb: Hall | Same | Decay and start match from 1 kHz up (within 1.1 %); at 250 Hz Native's decay is 8.2 % shorter, outside tolerance. The 5 ms difference in when it starts seen in the first pass was an artefact of the guitar clip: with a noise burst it is 0.0 ms |
+| Reverb: Ganymede (modulated) | Same | Native decays 11 % faster at 500 Hz and 1 kHz and 6 % slower at 4 kHz: outside tolerance. The Stomp does not repeat itself exactly on this one either (up to 6.7 %) |
+| Every reverb | Early decay, spectrum and level of the tail | Still cannot be judged: two reverbs of identical length differ by 7 to 110 % (early decay), 3 to 6 dB (spectrum) and 1.2 to 1.8 dB (level) in one burst. What was measured (level within 0.7 dB, spectrum shape within 1.4 to 4.1 dB) is inside that noise |
+| Modulation: 70s Chorus, Bubble Vibrato, MM4 Analog Chorus | Speed, depth of pitch swing, level at the tone | Match on both steady tones and on the real guitar note. Speed within 0.5 % (MM4 3.4 %, none after the stepping), pitch swing within 2 cents, level within 0.4 dB. The Stomp repeats itself within 0.1 % in speed |
+| Modulation: Gray Flanger, Deluxe Phaser | Same | Cannot be called yet: at their default settings they cycle every 6.1 s and 5.0 s, so 10 s holds fewer than the 2 cycles needed. For what it is worth the Flanger agrees (speed within 0.9 %, depth within 0.6 dB), and the Phaser's difference in speed is exactly the stepping described above |
+| Delay at a second time (600 ms) | Echo times, levels, decay | Echo levels within 0.2 dB and the same decay on both; times differ only by the stepping |
+
+**What this means for now (a proposal to the lead, not yet accepted):** Native can stand in for the Stomp on Room, Plate, '63 Spring and Chamber reverbs, on Hall above 500 Hz, on 70s Chorus, Bubble Vibrato and MM4 chorus, and on delays of any length (the exported delay time is the one Native played). Ganymede still needs the Stomp, and Hall for bass-heavy targets. Gray Flanger and Deluxe Phaser need one more short pedal session with a 20 s steady tone and the stepped values written to the Stomp file. **Result of that session (2026-10-16):** the test writes Native's stepped values into the Stomp file by itself before every pedal run (a standing rule for all comparison scripts). With 20 s tones, both engines read the Gray Flanger at 0.163 Hz (3.1 cycles) and the Deluxe Phaser at 0.236 Hz (4.6 cycles), speeds equal to within 0.1 %; the depth of the sweep differs by at most 0.45 dB and the average level at the tone by under 1 dB (0.05 dB at 1 kHz). Both pass, so the proposal to the lead is that Native can stand in for them too. Both engines used the same, older step ranges, which does not matter for this comparison. Only the default settings of each effect were measured. Earlier comparisons that asked Native for exact values (the first pass above) carry the stepping error on Native's side wherever a setting has a wide range.
 
 This test is reliable and has already caught one real mismatch. Its limit is that it checks the engines against each other, not against the song.
 
 ## Is it indicating properly?
 
-Partly. It reliably tells **very different** tones apart, but it cannot yet tell **close** tones apart, which is exactly what fine matching needs.
+Not yet. On real Helix sounds it often, but not reliably, tells **clearly different** chains apart. When the candidate's notes differ from the target's, it cannot tell **close** settings apart at all, and that is exactly what fine matching needs.
 
-**How a method is tested (the trust check).** Make a target from a known preset, then make 15 "distractors": 7 near ones (the true preset with one group of settings changed) and 8 random ones. A method passes if it ranks the true preset first. Chance is 1 in 16 (0.0625). The bar to be trusted is 0.90 per method and 0.95 for the combined score. So far this has only been run on stand-in signals (simple digital effects in code), not Helix, because the Helix test set is not rendered yet.
+**How a method is tested (the trust check).** Take a preset whose settings we know, play a DI through it in Helix Native, and call that the target. Then line up 20 candidates: the true preset plus 19 "distractors". Every candidate is played from a different DI clip than the target, because in real use the library DI never plays the same notes as the song. A method passes if it scores the true preset best. With 20 candidates, guessing gets it right 1 time in 20 (0.05). The bar `benchmark` has proposed (not yet agreed) is 0.90 for each method and 0.95 for the combined score.
 
-| Method | Rank-1, different notes | Rank-1, same notes | Notes |
-| --- | --- | --- | --- |
-| `ltas_tilt` (spectrum) | 0.13 to 0.23 | 0.29 to 0.38 | Best single method; 0.90 against random distractors only |
-| `crest_flatness_hnr` (distortion) | 0.10 | 0.30 | |
-| `envelope` (dynamics), v1 | 0.12 to 0.15 | 0.24 to 0.33 | Was 0.03 to 0.05 before the rework |
-| `mrstft` (fine detail) | 0.00 | 0.78 | Only works with the same performance, sample-aligned |
-| `embed_afxrep` (learned) | 0.07 | 0.08 | Confused by separation artifacts |
-| Combined (spectrum + distortion + dynamics) | 0.28 to 0.33 | 0.38 | Bar is 0.95; 0.95 against random distractors only |
+**The Helix test (2026-10-16, test set `helix-trust-v1`).** 40 target presets, 5 in each of drive, amp, cab, delay, reverb, dynamics, EQ and modulation, each built from the same amp and cab with one block changed. For each target the 19 distractors are:
 
-The ranges cover the separate seed sets each method was tested on.
+- 9 **near misses**: the same block with one or two knobs moved by 12-30% of their range;
+- 4 or 5 **neighbouring models**: the other blocks of the same kind (for a delay target, the other delays), at random settings;
+- 5 or 6 **random** chains with a block of another kind.
+
+That is 2,400 Native renders of 10 s each, using guitar recordings from the Guitar-TECHS library. Three ways of choosing the candidates' DI were tried:
+
+- **Different notes:** another passage of the same recording, so the same player and guitar but different notes. This is the main test for methods that do not need the same performance.
+- **Different recording:** another player, guitar or playing style.
+- **Same notes:** the target's own DI. Only here is the fine-detail method (`mrstft`) valid. The target is then passed through a stand-in for the separator (it adds bleed from other instruments and mask errors), because a clean target would be identical to the true candidate.
+
+| Method | Different notes | Different recording | Same notes, after separation stand-in | Beats random chains (different notes) | Beats near misses (different notes) |
+| --- | --- | --- | --- | --- | --- |
+| `ltas_tilt` (spectrum) | 0.03 | 0.05 | 0.35 | 0.55 | 0.03 |
+| `crest_flatness_hnr` (distortion) | 0.13 | 0.03 | 0.40 | 0.53 | 0.13 |
+| `envelope` (dynamics) | 0.05 | 0.00 | 0.15 | 0.38 | 0.08 |
+| `mrstft` (fine detail) | 0.18 (not a valid use) | 0.08 | **0.73** | 0.88 | 0.18 |
+| `embed_afxrep` (learned) | 0.15 | 0.08 | 0.08 | 0.78 | 0.15 |
+| Combined (spectrum + distortion + dynamics) | 0.05 | 0.03 | 0.33 | 0.68 | 0.05 |
+
+Each number is the share of the 40 targets where the true preset scored best. With 40 targets, a measured 0.15 could really be anywhere from about 0.07 to 0.30. **No method comes near 0.90, so none is admitted.** The earlier stand-in tests (simple digital effects written in code) had suggested 0.10-0.33 with different notes. Real Helix sounds are harder.
+
+**Why it fails.** Playing different notes through the *same* preset changes every measurement 4.5 to 10 times more than moving one or two knobs does. For the spectrum method, the note change alone moves the score by about 2.1 units (about 2 dB across the spectrum), a near miss by about 0.2, and a different model of the same block by about 1.8. So once the notes differ, a near miss is invisible and a neighbouring model is hard to separate. The learned method (`embed_afxrep`) holds up best against random chains (the note change is only about a fifth of the gap to a random chain), but it is no better on near misses.
+
+**Some distractors cannot be told apart by anyone.** 78 of the 760 distractors (10%) sound the same as the true preset: played with the same notes, the difference between them is 30 dB or more below the signal. Examples are a drive's tone knob moved slightly in front of a clean amp, or a compressor that barely engages. The report gives the rank-1 rate against audible distractors only alongside the plain rate. It is higher (for example 0.33 for `embed_afxrep` and 0.88 for `mrstft` with the same notes) but still below the bar.
+
+**What this means in use.** With a library DI, the score can find the right kind of chain (it beats random chains about half to three-quarters of the time), but it cannot fine-tune settings. Fine-tuning needs your own take of the same part, lined up with the song, so that `mrstft` can be used (0.73 here, 0.88 against audible distractors).
+
+**Cost per candidate** (10 s clip): the Native render takes 0.23 s with 3 render processes running in parallel. Scoring adds 0.008 s for spectrum, 0.012 s for dynamics, 0.034 s for distortion, 0.064 s for fine detail and 0.11 s for the learned method.
 
 **What real use has shown:**
 
@@ -136,11 +176,13 @@ The ranges cover the separate seed sets each method was tested on.
 - **It liked more delay than you did.** You found the delay much better at Mix 0.10 than at the matched 0.25.
 - **The target itself is imperfect.** You heard that the separated stem is missing fidelity, and every method compares against that stem.
 
+**How far to trust the separated stem (stress curve `sep-stress-v1`, 2026-10-16).** Guitar-TECHS DI through a plain amp stand-in, mixed with synthetic bass, drums, keys and a second guitar, separated with `htdemucs_6s` on MPS (39 mixes of 20 s, about 3 s each). Guitar SDR falls from about 21 dB (guitar alone) to 15.9 (plus bass), 15.4 (plus drums), 11.2 (plus keys) and 7.3 dB (full band with a second guitar); at guitar 6 dB below the accompaniment the full band falls to 3.9 dB. The tone terms move too: the spectrum term (`ltas_tilt`) between the true and separated stem goes from 2.0 to 2.6, and the tilt is off by 0.6 to 0.8 dB per octave, against 3.4 for a clean-versus-driven amp change. So separation error on dense mixes is as large as a clear amp change, and spectrum comparison inside the dense sections is not safe on its own. The confidence proxy barely moves (0.93 to 0.90) while SDR falls by 14 dB, so it ranks mixes but does not warn early; the masked comparison did not reduce the shift. Prefer exposed-guitar windows and the separation-consistent comparison for dense sections. Caveat: accompaniment is synthetic and the amp is a stand-in, so real songs are unmeasured.
+
 **Bottom line:** treat the score as a rough guide that finds the right neighbourhood, and your listening as the decision.
 
 ## What would make it trustworthy
 
-1. **Render the Helix test set** (180 known presets) and run the trust check on real Helix tones instead of stand-ins. No method can be admitted without it.
+1. **Make the methods ignore the notes played** well enough to see a near miss. On the Helix test, a note change moves every method 4.5 to 10 times more than a near miss does (see above). Ideas to try: compare notes of the same pitch region rather than whole-clip averages, average over several DI passages, use longer clips, and train a guitar-specific learned method on Helix renders. Each is re-checked on the Helix test set.
 2. **Probe each block** with sine sweeps, stepped sines, two-tone signals, bursts and impulses. The analysis kit is built and verified on synthetic blocks. It shows how each control changes frequency response, clipping and dynamics, so the search can start near the right settings.
 3. **Build the per-block library**, with every Stomp-compatible block captured alone. Chaining single blocks was shown to sound the same as one chain (null -67 to -79 dB). The search can then choose models, not just a few fixed chains.
 4. **Use your own aligned takes**, so the fine-detail method (`mrstft`, 0.78 with the same notes) can join the score.
@@ -154,7 +196,7 @@ All from this repository:
 - [`scripts/match_song.py`](../scripts/match_song.py): the search and the end-to-end run
 - [`scripts/parity_null.py`](../scripts/parity_null.py) and [`ledger/runs.csv`](../ledger/runs.csv) (kind `parity`): the null tests
 - [`scripts/parity_timefx.py`](../scripts/parity_timefx.py), [`src/tonematch/metrics/parity.py`](../src/tonematch/metrics/parity.py) (tolerances) and the measurements in `delay.py`, `reverb.py`, `modulation.py`, `nonlinear.py`; ledger dataset `parity-spot-fw380-timefx`: delays, reverbs, modulation and drives judged by measurement
-- [`scripts/loss_trust_check.py`](../scripts/loss_trust_check.py) and [`ledger/runs.csv`](../ledger/runs.csv) (kind `loss-trust`, dataset `proxy-dsp-v0`): the trust-check numbers
+- [`scripts/loss_trust_check.py`](../scripts/loss_trust_check.py), [`scripts/helix_trust_set.py`](../scripts/helix_trust_set.py) and [`ledger/runs.csv`](../ledger/runs.csv) (kind `loss-trust`; dataset `helix-trust-v1` for the Helix test, `proxy-dsp-v0` for the earlier stand-in tests): the trust-check numbers
 - [`docs/DECISIONS.md`](DECISIONS.md): the Early Reflections finding, the memory fix, block-serial rendering, snapshot values
 - [`reports/status/README.md`](../reports/status/README.md): the overall project status
 

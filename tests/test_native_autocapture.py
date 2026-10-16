@@ -436,6 +436,25 @@ def test_replay_check_passes_for_identical_hosts():
     assert isinstance(out[0], nat.ChainTemplate) and next(iter(st["replay_null_db"].values())) < -200
 
 
+def test_replay_refs_keep_the_in_session_render_of_passing_templates_only():
+    refs: dict = {}
+    out = nat.capture_chains([_preset()], "fake.vst3", host_factory=_factory(), replay_every=1,
+                             replay_refs=refs)
+    stem = nat.template_stem(out[0])
+    assert list(refs) == [stem] and len(refs[stem][0]) == 48000 and isinstance(refs[stem][1], dict)
+    hosts = []
+
+    def factory(plugin, plugin_name=None):
+        h = FakeHost(plugin, plugin_name)
+        h.offset = 0.5 * len(hosts)
+        hosts.append(h)
+        return h
+
+    refs2: dict = {}
+    nat.capture_chains([_preset()], "fake.vst3", host_factory=factory, replay_every=1, replay_refs=refs2)
+    assert refs2 == {}
+
+
 def test_parallel_capture_keeps_order_and_uses_one_host_per_session(monkeypatch):
     monkeypatch.setattr(nat, "max_hosts_by_memory", lambda *a, **k: 2)
     ps = []

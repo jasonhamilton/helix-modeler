@@ -1065,6 +1065,41 @@ footer{margin-top:2em;padding-top:1em;border-top:2px solid var(--line);font-size
 """
 
 
+_METRIC_AFTER_TS = re.compile(
+    r"(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00) (?P<metric>[a-z][a-z0-9_]*)\b(?: row (?P<line>\d+))?")
+_ROWS_LIST = re.compile(r"(?<=ledger rows )(\d+(?:, \d+)*)")
+
+
+def link_ledger_metrics(page: str, idx, fmt) -> str:
+    """Several ledger rows can share one timestamp (a batch of rows). The generic linker opens the first
+    of them, which sent the Stomp 10 s render figure to the 3 s row. Where a timestamp is followed by the
+    metric name and that pair names exactly one row, link that row; "row N" after the metric names the
+    line outright, and "ledger rows N, M" links each line."""
+    def row_link(text: str, line: int, row: list[str]) -> str:
+        title = f"{row[3]} · {row[4]} · {row[5]} · {row[6]} = {row[7]}"
+        return fmt(text, f"{idx.rel}/ledger/runs.csv?plain=1#L{line}", title)
+
+    by_line = {line: row for rows in idx.ledger.values() for line, row in rows}
+
+    def sub(m: re.Match) -> str:
+        rows = idx.ledger.get(m["ts"], [])
+        if m["line"]:
+            hit = [(line, row) for line, row in rows if line == int(m["line"]) and row[6] == m["metric"]]
+        else:
+            hit = [(line, row) for line, row in rows if row[6] == m["metric"]] if len(rows) > 1 else []
+        if len(hit) != 1:
+            return m.group(0)
+        return row_link(m["ts"], hit[0][0], hit[0][1]) + " " + m["metric"] + (f" row {m['line']}" if m["line"] else "")
+
+    def rows_sub(m: re.Match) -> str:
+        nums = m.group(0).split(", ")
+        if any(int(n) not in by_line for n in nums):
+            return m.group(0)
+        return ", ".join(row_link(n, int(n), by_line[int(n)]) for n in nums)
+
+    return _ROWS_LIST.sub(rows_sub, _METRIC_AFTER_TS.sub(sub, page))
+
+
 def render_html(model: dict, board_rel: str = "../../board", root: Path | None = None) -> str:
     """Render the report model as one self-contained HTML document (no JavaScript)."""
     gl = Glossary(model["glossary"])
@@ -1326,7 +1361,8 @@ def render_html(model: dict, board_rel: str = "../../board", root: Path | None =
     p.append("</main></body></html>")
     page = "\n".join(p)
     if root is not None:
-        page = evidence_links.linkify_html(page, evidence_links.Index(root, board_rel[:-len("/board")]))
+        idx = evidence_links.Index(root, board_rel[:-len("/board")])
+        page = evidence_links.linkify_html(link_ledger_metrics(page, idx, evidence_links._html_fmt), idx)
     return task_links.linkify_html(page, model.get("task_index", {}), board_rel)
 
 
@@ -1467,11 +1503,12 @@ def _engines_html(model: dict, gl) -> str:
     p.append("</tbody></table></div>")
     p.append(f"<h3>Estimated time for {en['n']} tests</h3>"
              f'<p class="muted">Each estimate is {en["n"]} times the measured time above. Where a speed-up '
-             "from running things in parallel has been measured, the second column shows it, with the "
+             "from running things in parallel has been measured, the second column shows it (Native: several "
+             "engine hosts at once; Stomp: two-path passes, one pass rendering both Path A and Path B), with the "
              "assumption it rests on listed below the table. Numbers marked \"not measured\" have no "
              "measurement behind them.</p>"
              '<div class="scroll"><table><thead><tr><th scope="col">Activity</th>'
-             '<th scope="col">Stomp, one after another</th><th scope="col">Stomp, in parallel</th>'
+             '<th scope="col">Stomp, one after another</th><th scope="col">Stomp, two-path passes</th>'
              '<th scope="col">Native, one after another</th><th scope="col">Native, in parallel</th>'
              '<th scope="col">Both or neither, one after another</th></tr></thead><tbody>')
     for r in en["estimates"]:
@@ -1531,9 +1568,10 @@ def _engines_md(doc: MdDoc, model: dict) -> None:
             mde(engine_timing.cell_text(m[c])) for c in ("stomp", "native", "any")) + " |")
     doc.h(3, f"Estimated time for {en['n']} tests", "eng-estimates")
     doc.add(f"Each estimate is {en['n']} times the measured time above. Where a speed-up from running "
-            "things in parallel has been measured, the second column shows it, with the assumption it "
+            "things in parallel has been measured, the second column shows it (Native: several engine hosts at once; "
+            "Stomp: two-path passes, one pass rendering both Path A and Path B), with the assumption it "
             "rests on listed below the table. Numbers marked \"not measured\" have no measurement behind them.",
-            "", "| Activity | Stomp, one after another | Stomp, in parallel | Native, one after another | "
+            "", "| Activity | Stomp, one after another | Stomp, two-path passes | Native, one after another | "
             "Native, in parallel | Both or neither, one after another |", "|---|---|---|---|---|---|")
     for r in en["estimates"]:
         lab, _ = _eng_label(en, r["key"])
@@ -1875,8 +1913,8 @@ def render_markdown(model: dict, root: Path | None = None, board_rel: str = "../
     doc.lines = [ln if ln != "@@TOC@@" else toc[0] for ln in doc.lines]
     page = doc.text()
     if root is not None:
-        page = evidence_links.linkify_markdown(
-            page, evidence_links.Index(root, board_rel[:-len("/board")]))
+        idx = evidence_links.Index(root, board_rel[:-len("/board")])
+        page = evidence_links.linkify_markdown(link_ledger_metrics(page, idx, evidence_links._md_fmt), idx)
     return task_links.linkify_markdown(page, model.get("task_index", {}), board_rel)
 
 
@@ -2002,6 +2040,11 @@ def main(argv: list[str] | None = None) -> int:
         mout.write_text(render_markdown(model, root, task_links.rel_prefix(root, mout.resolve().parent)),
                         encoding="utf-8")
         print(mout)
+    try:
+        if engine_timing.update_benchmarking_doc(root):
+            print("docs/BENCHMARKING.md: time-per-sample block refreshed")
+    except (OSError, ValueError) as exc:
+        print(f"status_report: could not refresh the time-per-sample table: {exc}", file=sys.stderr)
     if a.json:
         a.json.write_text(json.dumps(model, indent=1, ensure_ascii=False, default=str) + "\n",
                           encoding="utf-8")

@@ -1,0 +1,48 @@
+{
+  "name": "synthetic-v1",
+  "version": 1,
+  "seed": 20261016,
+  "sample_rate": 48000,
+  "clip_seconds": 10.0,
+  "engine": "native",
+  "regenerate": "python scripts/synthetic_v1.py generate (needs the user's Native block library and data/di; model ids are read at generation time and kept in cache/)",
+  "categories": [
+    "drive",
+    "delay",
+    "reverb",
+    "comp",
+    "eq",
+    "mod",
+    "amp",
+    "cab"
+  ],
+  "items": 96,
+  "items_per_category": 12,
+  "pool_per_category": 6,
+  "neighbours_per_item": 24,
+  "near_neighbours": 9,
+  "parameters": "continuous CC-verified block parameters on the CC grid k/127 of the template range, drawn at 0.10-0.90 of the range; Level, ChVol, compressor Gain, Hum, Ripple, cab EarlyReflections, Spread, Stereo not varied",
+  "di_clips": "Guitar-TECHS DI excerpts (data/di, CC BY 4.0): A = fit clip, C = another passage of the same recording (held-out notes); loud-frame level set to -26.7 dBFS; no song audio",
+  "mix_stems": "none in v1 (oracle isolated target, density d0); separation stress is sep-stress-v1",
+  "excluded": {
+    "other": "no Native stand-in ruling covers it (DECISIONS 2026-10-16)",
+    "time_variant": "flagged in the library index",
+    "bitcrusher": "Stomp checks it",
+    "reverb": "all but Room, Plate, 63 Spring, Chamber, Hall",
+    "mod": "all but tremolo, 70s Chorus, Bubble Vibrato, MM4 Analog Chorus"
+  },
+  "tolerance": {
+    "block_f1": 0.02,
+    "model_acc": 0.02,
+    "param_mae": 0.01,
+    "rank1_rate": 0.02,
+    "rank1_rate_audible": 0.02,
+    "loss_heldout": 0.5
+  },
+  "targets_working": {
+    "block_f1": 0.85,
+    "model_acc": 0.8,
+    "param_mae": 0.15,
+    "rank1_rate": 0.95
+  }
+}

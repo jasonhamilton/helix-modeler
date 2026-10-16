@@ -5,7 +5,8 @@ Spec: .claude/skills/synthetic-benchmark, docs/notes/synthetic-benchmark-design.
 v1 design constraints (Gate 1 findings): Native renders only chains with a GUI-captured template
 (16 knobs + 16 switches vary), the Stomp varies models in its loaded layout one render at a time.
 
-This file does NOT render. `--generate` writes labels only (to cache/synthetic/, gitignored) (no audio, no engine). `--plan` prints the
+This file does NOT render; `--render` and `--ci` point to scripts/synthetic_v1.py (exit 2) (the rendered
+synthetic-v1 set, T073). `--generate` writes labels only (to cache/synthetic/, gitignored) (no audio, no engine). `--plan` prints the
 render/wall-clock estimate. Rendering and the search loop are wired in later (T022/T023); until then
 `--render` and `--ci` exit 2 and write no ledger row. Nothing here writes a benchmark ledger row.
 """
@@ -272,14 +273,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--example", action="store_true",
                     help="write the committable EXAMPLE_-id manifest to fixtures/synthetic/")
     ap.add_argument("--plan", action="store_true", help="print render and wall-clock estimates")
-    ap.add_argument("--render", action="store_true", help="not enabled in the v1 design step")
-    ap.add_argument("--ci", action="store_true", help="not enabled until search exists")
+    ap.add_argument("--render", action="store_true", help="moved to scripts/synthetic_v1.py (exits 2)")
+    ap.add_argument("--ci", action="store_true", help="moved to scripts/synthetic_v1.py (exits 2)")
     ap.add_argument("--budget", type=int, default=150)
     ap.add_argument("--out", type=Path, default=SET_DIR)
     a = ap.parse_args(argv)
     if a.render or a.ci:
-        print("render/CI path is not enabled: needs the loss kit (T022), search (T023) and a human go "
-              "for attended Stomp batches. See docs/notes/synthetic-benchmark-design.md.", file=sys.stderr)
+        print("render/CI path moved: the rendered set is synthetic-v1 (T073). Run "
+              "`python scripts/synthetic_v1.py run ...` (needs Native; see docs/BENCHMARKING.md).", file=sys.stderr)
         return 2
     m = build_manifest()
     if a.example:

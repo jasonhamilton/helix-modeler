@@ -386,3 +386,100 @@ def test_stomp_load_uses_the_fw380_whole_load_median_and_cells_name_their_metric
     assert "whole_preset_write_s" in et.cell_text(c)                      # the row is named next to its link
     assert "ledger 2026-10-16T00:17:11+00:00 search_batch_per_trial_s_after" in et.cell_text(
         et.measure(rows)["search_test"]["stomp"])
+
+
+# ------------------------------------------------------------------ score, search run and the time-per-sample table
+
+def trust_rows():
+    note = "term={t} scoring cost per candidate: candidate features + distance; render excluded; 10 s clip"
+    rows = [row("2026-10-16T15:50:20+00:00", "native", metric="seconds_per_test", value=v, kind="loss-trust",
+                dataset="helix-trust-v1", notes=note.format(t=t))
+            for t, v in (("ltas_tilt", 0.007638), ("crest_flatness_hnr", 0.03427), ("envelope", 0.01158),
+                         ("mrstft", 0.06384), ("embed_afxrep", 0.1113))]
+    # the combined render + terms row carries a wall clock and is not a score time
+    rows.append(row("2026-10-16T15:50:20+00:00", "native", "seconds_per_test", 0.3514, kind="loss-trust",
+                    dataset="helix-trust-v1", wall=715.0, renders=2400, notes="term=render+dsp_terms: wall per candidate"))
+    return rows
+
+
+def run_rows():
+    return [
+        row("2026-10-14T21:02:08+00:00", "native", "wall_per_render_call_s", 8.8, renders=23, wall=202.3),
+        row("2026-10-16T02:26:57+00:00", "stomp", "seconds_per_trial_default", 3.8, dataset="ds-sample-intro",
+            renders=39, wall=169, notes="AFTER ... Search stage 122 s / 32 trials."),
+        row("2026-10-16T02:26:00+00:00", "stomp", "seconds_per_trial_legacy", 8.4, dataset="ds-sample-intro",
+            renders=39, wall=329),
+        row("2026-10-16T03:41:35+00:00", "native", "seconds_per_trial_full", 8.3, kind="search",
+            dataset="ds-sample-intro-cliplen", renders=39, wall=33, notes="policy full; Stomp estimate 8.3 s/trial"),
+        row("2026-10-16T03:42:22+00:00", "native", "seconds_per_trial_loudest3", 3.8, kind="search",
+            dataset="ds-sample-intro-cliplen", renders=39, wall=25),
+    ]
+
+
+def test_score_comes_from_the_trust_check_rows_when_present():
+    c = et.measure(et.index_rows(trust_rows()), None)["score"]["any"]
+    assert c["state"] == "measured"
+    assert c["seconds"] == pytest.approx(0.007638 + 0.03427 + 0.01158)
+    assert "mrstft" in c["note"] and "embed_afxrep" in c["note"]     # the terms left out are named
+    assert "row " in et.cell_text(c)                                  # the line is named: rows share one time
+
+
+def test_score_stays_not_measured_without_all_three_terms():
+    rows = [r for r in trust_rows() if "envelope" not in r["notes"]]
+    assert et.measure(et.index_rows(rows), None)["score"]["any"]["state"] == "not-measured"
+
+
+def test_search_run_uses_the_new_rows_not_the_stale_one():
+    T = et.measure(et.index_rows(run_rows()), None)["search_run"]
+    assert T["native"]["seconds"] == pytest.approx(33 / 39) and T["native"]["metric"] == "seconds_per_trial_full"
+    assert T["stomp"]["seconds"] == 3.8 and T["stomp"]["metric"] == "seconds_per_trial_default"
+    only_old = et.measure(et.index_rows(run_rows()[:1]), None)["search_run"]
+    assert only_old["native"]["state"] == "not-measured" and only_old["stomp"]["state"] == "not-measured"
+
+
+def test_stomp_10s_render_cell_names_the_clip10s_metric():
+    T = et.measure(et.index_rows(stomp380_rows()), None)
+    assert T["render_10s"]["stomp"]["metric"] == "seconds_per_render_clip10s"
+
+
+def test_time_per_sample_table_is_ledger_derived_and_marks_gaps():
+    rows = et.index_rows(new_pool_rows() + stomp380_rows() + run_rows() + trust_rows())
+    t = {r["activity"]: r for r in et.time_per_sample(rows)}
+    n6 = t["Native test, 2 s clip, 6 hosts"]["native"]
+    assert n6["seconds"] == pytest.approx(1 / 9.879) and n6["refs"]
+    assert t["Native test, 10 s clip, 1 host"]["native"]["seconds"] == pytest.approx(1 / 0.806)
+    assert t["Stomp render, 10 s clip (clip + about 0.67 s)"]["stomp"]["seconds"] == 10.6708
+    assert et.total_text(t["Native test, 2 s clip, 6 hosts"]) == f"Native {et.fmt_dur(39 / 9.879)}"
+    # no capture, separation, two-path or parity-spot rows in this ledger: all "not measured", never filled in
+    for name in ("Template capture per model (block-library-v1)", "Separation per mix (sep-stress-v1)",
+                 "Two-path pass on the Stomp (twopath-parity-fw380)", "Parity spot check per model (parity-spot-fw380)"):
+        row_ = t[name]
+        assert all(row_[c]["seconds"] is None for c in ("native", "stomp", "other")), name
+    md = et.render_time_per_sample(rows)
+    assert md.startswith(et.TPS_START) and md.rstrip().endswith(et.TPS_END)
+    assert "not measured" in md and "ledger/runs.csv?plain=1#L" in md
+
+
+def test_time_per_sample_two_path_row_does_not_invent_a_pass_time():
+    rows = et.index_rows([
+        row("2026-10-16T15:50:56+00:00", "stomp", "null_residual_db", -63.9, kind="parity",
+            dataset="twopath-parity-fw380", wall=26.4, renders=4, notes="Path A: single vs dual A")])
+    r = {x["activity"]: x for x in et.time_per_sample(rows)}["Two-path pass on the Stomp (twopath-parity-fw380)"]
+    assert r["stomp"]["seconds"] is None and "26.4 s" in r["stomp"]["note"] and r["count"]["n"] == 2.0
+
+
+def test_update_benchmarking_doc_rewrites_only_between_markers(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "ledger").mkdir()
+    (tmp_path / "docs" / "BENCHMARKING.md").write_text(
+        f"before\n{et.TPS_START}\nold\n{et.TPS_END}\nafter\n", encoding="utf-8")
+    header = "timestamp,commit,agent,kind,engine,dataset,metric,value,renders,wall_clock_s,notes\n"
+    (tmp_path / "ledger" / "runs.csv").write_text(
+        header + "2026-10-16T00:38:02+00:00,x,t,render-cost,native,smoke,renders_per_s,9.879,100,10.1,"
+                 "\"N=6 hosts; 2 s DI clip + 3 s preroll; render + MR-STFT score per test\"\n", encoding="utf-8")
+    assert et.update_benchmarking_doc(tmp_path)
+    text = (tmp_path / "docs" / "BENCHMARKING.md").read_text(encoding="utf-8")
+    assert text.startswith("before\n") and text.endswith("after\n") and "old" not in text
+    assert "[row 2](../ledger/runs.csv?plain=1#L2" in text
+    (tmp_path / "docs" / "BENCHMARKING.md").write_text("no markers\n", encoding="utf-8")
+    assert not et.update_benchmarking_doc(tmp_path)

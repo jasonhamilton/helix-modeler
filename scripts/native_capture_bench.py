@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
-import copy
 import json
 import sys
 import time
@@ -35,42 +34,16 @@ import numpy as np
 from tonematch.catalog import load_catalog
 from tonematch.engines import native as nat
 from tonematch.engines.base import SAMPLE_RATE
-from tonematch.preset import Preset, Slot, read_hlx
+from tonematch.engines.native_library import is_routing, single_block
+from tonematch.preset import Preset, read_hlx
 
 OUT = ROOT / "cache" / "native" / "capture_bench"
 K_HLX = ROOT / "cache" / "stomp" / "inject" / "K.hlx"
 C8_HLX = ROOT / "cache" / "blockserial" / "C8" / "8f50d3d2e224_BS_C8.hlx"
-BLOCK_TYPE = {"amp": 1, "cab": 2, "delay": 7, "reverb": 7}
 # Breadth before depth (human, 2026-10-15): distortion, delay, reverb first; then dynamics, EQ,
 # modulation. Amps and cabs keep their current coverage (pass --cats to include them).
 CATS = ("drive", "delay", "reverb", "comp", "eq", "mod")
 ALL_CATS = (*CATS, "other", "amp", "cab")
-
-
-def single_block(model_id: str, catalog: dict, base: Preset) -> Preset:
-    """One block at catalog defaults, mono, on path 0 (as the block library captures it)."""
-    m = catalog["models"][model_id]
-    params, extra = {}, {}
-    for name, p in (m.get("params") or {}).items():
-        if p.get("default") is not None:
-            (extra if name.startswith("@") else params)[name] = p["default"]
-    if m.get("stereo") and m.get("mono"):
-        extra["@stereo"] = False
-    extra = {k: v for k, v in extra.items() if k not in ("@cab", "@type", "@position", "@enabled")}
-    extra["@type"] = BLOCK_TYPE.get(m["category"], 0)
-    extra.setdefault("@path", 0)
-    p = copy.deepcopy(base)
-    p.name, p.snapshots = f"LIB {model_id[4:][:14]}", []
-    p.slots = [Slot(category=m["category"], model_id=model_id, params=params, enabled=True,
-                    key="block0", position=0, extra=extra)]
-    return p
-
-
-def is_routing(model_id: str) -> bool:
-    """Not blocks a file can hold alone: split, join, input and output models (path structure),
-    and the IR cabs' pan twins (``...WithPan``, the second cab of a dual cab block; dropped alone
-    Native answers "Object not found", code -1000021, 2026-10-16)."""
-    return "AppDSPFlow" in model_id or model_id.endswith("WithPan")
 
 
 def library_sample(n: int, catalog: dict, offset: int = 0, cats=CATS) -> list[Preset]:

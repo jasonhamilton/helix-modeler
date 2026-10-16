@@ -440,8 +440,7 @@ class ChainTemplate:
     def save(self, d: Path | None = None) -> Path:
         d = d or cache_dir() / "templates"
         d.mkdir(parents=True, exist_ok=True)
-        cid = chain_id([list(x) for x in self.chain])
-        stem = f"{cid}_{self.baked_hash[:10]}" if self.baked_hash else cid
+        stem = template_stem(self)
         (d / f"{stem}.state").write_bytes(self.state)
         p = d / f"{stem}.json"
         p.write_text(json.dumps({"name": self.name, "chain": [list(x) for x in self.chain],
@@ -550,6 +549,110 @@ def catalog_ranges(preset, catalog: dict | None = None) -> dict[str, tuple[float
     return out
 
 
+# Narrower CC ranges (T072, lead ruling on T066b, 2026-10-16). A MIDI CC has 128 values over
+# its assignment's @min..@max, and Native honours a per-assignment @min/@max written in the
+# dropped .hlx (bit-exact, scripts/native_cc_range_probe.py; the range is kept in the captured
+# state). Over the catalog range, delay Time 0-8 s moves in 62.99 ms steps and an LFO Speed
+# 0-15 Hz in 0.118 Hz steps. These rules give time-like and rate params a narrower range;
+# a value outside it keeps the catalog range (``cc_ranges``), so no preset loses its value.
+CC_RANGE_RULES_VERSION = "cc-range-v1"
+DELAY_TIME_SPAN_S = 1.27            # 10 ms per CC step: half a step (5 ms) is inside the 2 %
+#                                     delay-time tolerance from 250 ms up (T066)
+DELAY_NOT_ECHO_TIMES = frozenset({"Attack", "Decay", "DynAttack", "DynRel"})
+RATE_STEPS_HZ = (0.02, 0.04, 0.08)  # LFO rate ladder; the smallest whose span holds the headroom
+RATE_MIN_HI_HZ = 2.5                # every narrowed rate range reaches at least 2.5 Hz
+RATE_HEADROOM = 2.0                 # ...and at least twice the model's default rate
+DECAY_STEPS_S = (0.05, 0.1)         # reverb Decay in seconds (catalog 0.1-45.1 s)
+DECAY_HEADROOM = 2.0
+
+
+def narrow_range(category: str, name: str, p: dict) -> tuple[float, float] | None:
+    """The narrowed CC range for catalog param ``p`` (``name`` in a ``category`` block), or None
+    when the catalog range stays. Rules (``CC_RANGE_RULES_VERSION``):
+
+    - delay echo times (display ``time_ms*``; not Attack/Decay/DynAttack/DynRel): [lo, lo + 1.27 s],
+      10 ms steps (0-8 s gave 62.99 ms, 0-2 s 15.75 ms);
+    - LFO rates in Hz (display ``frequency`` or ``4VoiceChorus_Rate`` with max <= 20 Hz, names
+      with Speed or Rate): [lo, lo + 127 s] for the smallest s in ``RATE_STEPS_HZ`` whose top
+      reaches max(2.5 Hz, 2 x default); fast-default LFOs (trem, vibrato, rotary) keep the
+      catalog range, whose step is already under 2 % of their rate;
+    - reverb Decay in seconds (display ``time_sec_DynamicHall``): [lo, lo + 127 s], s in
+      ``DECAY_STEPS_S``, top at least 2 x default.
+
+    Pre-delays (0-0.2 s: 1.57 ms steps, half a step 0.79 ms against a 5 ms tolerance) and every
+    other param keep the catalog range. A narrowed range is never wider than the catalog's."""
+    lo, hi = p.get("min"), p.get("max")
+    if p.get("kind") != "continuous" or lo is None or hi is None:
+        return None
+    lo, hi = float(lo), float(hi)
+    disp = str(p.get("display") or "")
+    dflt = float(p.get("default") or lo) if isinstance(p.get("default"), (int, float)) else lo
+    if category == "delay" and disp.startswith("time_ms") and name not in DELAY_NOT_ECHO_TIMES:
+        top = lo + DELAY_TIME_SPAN_S
+        return (lo, round(top, 6)) if top < hi - 1e-9 else None
+    if (disp in ("frequency", "4VoiceChorus_Rate") and hi <= 20.0
+            and ("Speed" in name or "Rate" in name)):
+        need = max(RATE_MIN_HI_HZ, RATE_HEADROOM * dflt)
+        for s in RATE_STEPS_HZ:
+            top = lo + CC_STEPS * s
+            if top >= need:
+                return (lo, round(top, 6)) if top < hi - 1e-9 else None
+        return None
+    if category == "reverb" and disp == "time_sec_DynamicHall":
+        for s in DECAY_STEPS_S:
+            top = lo + CC_STEPS * s
+            if top >= DECAY_HEADROOM * dflt:
+                return (lo, round(top, 6)) if top < hi - 1e-9 else None
+    return None
+
+
+def cc_ranges(preset, catalog: dict | None = None, narrow: bool = True) -> dict[str, tuple[float, float]] | None:
+    """The CC range each continuous param of ``preset`` is assigned over at capture: the catalog
+    range (``catalog_ranges``), narrowed by ``narrow_range`` when ``narrow`` and the preset's
+    own value lies inside the narrowed range. Templates record the result in ``ranges``."""
+    out = catalog_ranges(preset, catalog)
+    if out is None or not narrow:
+        return out
+    if catalog is None:
+        from tonematch.catalog import load_catalog
+
+        catalog = load_catalog()
+    models = catalog.get("models", catalog)
+    for i, s in enumerate(preset.slots):
+        m = models.get(s.model_id or "", {})
+        for name, v in (s.params or {}).items():
+            ref = f"{i}:{name}"
+            p = (m.get("params") or {}).get(name)
+            if ref not in out or not p or isinstance(v, bool) or not isinstance(v, (int, float)):
+                continue
+            nr = narrow_range(s.category or m.get("category", ""), name, p)
+            if nr is not None and nr[0] - 1e-9 <= float(v) <= nr[1] + 1e-9:
+                out[ref] = nr
+    return out
+
+
+def out_of_range(tpl: ChainTemplate, preset, tol: float = 1e-6) -> list[str]:
+    """CC-driven params of ``preset`` whose value lies outside ``tpl``'s assignment range: the
+    CC would clamp them, so ``tpl`` cannot render ``preset`` (narrowed ranges, T072)."""
+    bad = []
+    live = set(tpl.verified) & set(tpl.map)
+    for i, s in enumerate(preset.slots):
+        for name, v in (s.params or {}).items():
+            ref = f"{i}:{name}"
+            if ref not in live or ref not in tpl.ranges or isinstance(v, bool) or not isinstance(v, (int, float)):
+                continue
+            lo, hi = tpl.ranges[ref]
+            span = abs(hi - lo) or 1.0
+            if not lo - tol * span <= float(v) <= hi + tol * span:
+                bad.append(ref)
+    return bad
+
+
+def range_width_key(tpl: ChainTemplate) -> float:
+    """Sum of log widths of ``tpl``'s CC ranges: smaller is a finer grid (template choice)."""
+    return float(sum(np.log(max(abs(hi - lo), 1e-12)) for lo, hi in tpl.ranges.values()))
+
+
 def _capture_doc(preset, catalog, bypass_ccs: bool):
     """The drop file for ``preset``: snapshots synced, bypass and param CCs assigned."""
     from .native_setlist import assign_ccs
@@ -557,7 +660,7 @@ def _capture_doc(preset, catalog, bypass_ccs: bool):
     key = chain_key(preset)
     cid = chain_id([list(k) for k in key])
     d = sync_hlx_snapshots(preset.to_hlx_dict())  # block values win (lead, 2026-10-15)
-    ranges = catalog_ranges(preset, catalog)
+    ranges = cc_ranges(preset, catalog)
     # Bypass CCs first (phase 2, 2026-10-15): one capture then serves every bypass pattern of
     # the chain, so they get first claim on the 90 free CCs.
     targets = [(i, "@enabled") for i, s in enumerate(preset.slots) if bypass_ccs and s.model_id]
@@ -649,13 +752,16 @@ def capture_key(preset, catalog=None, bypass_ccs: bool = True) -> str:
     capture would bake if all of its CC-mapped params verify (``capture_missing`` dedupe)."""
     from .native_setlist import assign_ccs
 
-    ranges = catalog_ranges(preset, catalog)
+    ranges = cc_ranges(preset, catalog)
     targets = [(i, "@enabled") for i, s in enumerate(preset.slots) if bypass_ccs and s.model_id]
     targets += [(i, n) for i, s in enumerate(preset.slots) for n in (s.params or {})
                 if ranges is None or f"{i}:{n}" in ranges]
-    _, amap, _, _ = assign_ccs(sync_hlx_snapshots(preset.to_hlx_dict()), targets, ranges=ranges)
+    _, amap, rng, _ = assign_ccs(sync_hlx_snapshots(preset.to_hlx_dict()), targets, ranges=ranges)
     _, h = baked_fingerprint(preset, amap, list(amap))
-    return chain_id([list(k) for k in chain_key(preset)]) + h
+    # Two presets share a capture only if their CC ranges agree too (a value outside a narrowed
+    # range keeps the catalog range, T072).
+    rh = hashlib.sha1(json.dumps(rng, sort_keys=True).encode()).hexdigest()[:8]
+    return chain_id([list(k) for k in chain_key(preset)]) + h + rh
 
 
 def capture_chain(preset, plugin: str, **kw) -> ChainTemplate:
@@ -692,7 +798,8 @@ def capture_chains(presets: list, plugin: str, *, plugin_name: str | None = None
                    verify_mode: str = "auto", truth_min_ccs: int = 8,
                    truth_threshold_db: float = -50.0, replay_every: int = 10,
                    replay_threshold_db: float = -90.0, poll_s: float = 0.1, stable_polls: int = 2,
-                   settle_s: float = 0.3, replay_host=None, max_sessions: int = 3, **_) -> list:
+                   settle_s: float = 0.3, replay_host=None, max_sessions: int = 3,
+                   replay_refs: dict | None = None, **_) -> list:
     """Capture several chains in ONE host and ONE editor session (phase 3 speed-up).
 
     The host opens directly in ``start_state`` (no ``reload_with_state``, which leaks ~1.3 GB),
@@ -717,6 +824,10 @@ def capture_chains(presets: list, plugin: str, *, plugin_name: str | None = None
     Returns one ``ChainTemplate`` or ``UnsupportedModelChange`` per preset, in order.
     ``host_factory(plugin, plugin_name)`` must return an object with ``call``/``close`` like
     ``HostProcess`` (tests pass a fake); it is then given the start state by reload.
+    ``replay_refs`` (a dict, optional) receives ``template_stem(t) -> (render, host values)`` for
+    every replayed template whose fresh-host replay passed: the in-session render of
+    ``test_signal(1.0)`` after a 3 s pre-roll, kept so a later fresh host can null against it
+    (T048 block library smoke).
     """
     st = stats if stats is not None else {}
     tick = time.perf_counter()
@@ -894,7 +1005,15 @@ def capture_chains(presets: list, plugin: str, *, plugin_name: str | None = None
             for i, ref_y, vals in replay:
                 y = _render_state(h2, out[i].state, vals, 3.0)
                 nd = null_db(y, ref_y) if np.any(ref_y) else -300.0
-                st.setdefault("replay_null_db", {})[out[i].name] = round(nd, 1)
+                # A non-finite render (NaN from Native, seen on 5 of 73 chains in one session,
+                # 2026-10-16, T072) fails the check: NaN compares False both ways, so such
+                # templates were kept with a wrong ``verified`` list and no ref.
+                if not np.isfinite(nd) or not (np.all(np.isfinite(y)) and np.all(np.isfinite(ref_y))):
+                    nd = 0.0
+                rn = st.setdefault("replay_null_db", {})
+                rn[out[i].name if out[i].name not in rn else f"{out[i].name} {template_stem(out[i])}"] = round(nd, 1)
+                if nd <= replay_threshold_db and replay_refs is not None:
+                    replay_refs[template_stem(out[i])] = (ref_y, vals)
                 if nd > replay_threshold_db:
                     _discard(out[i], templates_dir)
                     out[i] = UnsupportedModelChange(
@@ -946,7 +1065,7 @@ def _capture_kw(loc: dict) -> dict:
     names = ("plugin_name", "start_state", "templates_dir", "host_factory", "verify_ccs", "catalog",
              "bypass_ccs", "load_timeout_s", "known_live", "verify_mode", "truth_min_ccs",
              "truth_threshold_db", "replay_every", "replay_threshold_db", "poll_s", "stable_polls",
-             "settle_s", "replay_host", "max_sessions")
+             "settle_s", "replay_host", "max_sessions", "replay_refs")
     return {k: loc[k] for k in names}
 
 
@@ -958,10 +1077,15 @@ def _next_capture_index() -> int:
         return i
 
 
+def template_stem(tpl: ChainTemplate) -> str:
+    """File stem ``ChainTemplate.save`` uses: ``<chain id>[_<baked hash[:10]>]``."""
+    cid = chain_id([list(x) for x in tpl.chain])
+    return f"{cid}_{tpl.baked_hash[:10]}" if tpl.baked_hash else cid
+
+
 def _discard(tpl: ChainTemplate, d: Path | None) -> None:
     d = d or cache_dir() / "templates"
-    cid = chain_id([list(x) for x in tpl.chain])
-    stem = f"{cid}_{tpl.baked_hash[:10]}" if tpl.baked_hash else cid
+    stem = template_stem(tpl)
     for suf in (".json", ".state"):
         (d / f"{stem}{suf}").unlink(missing_ok=True)
 
@@ -1206,16 +1330,23 @@ class NativeEngine:
         cands = self._variants.get(key, [])
         if not cands:
             return None, "no template captured for this structure"
-        diffs = []
+        diffs, ok = [], []
         for t in cands:
             if not t.baked_hash:
                 diffs.append(f"{t.name!r} has no baked-value fingerprint (captured before the fix)")
                 continue
             vals, h = baked_fingerprint(preset, t.map, t.verified)
             if h == t.baked_hash:
-                return t, ""
+                bad = out_of_range(t, preset)
+                if not bad:
+                    ok.append(t)
+                    continue
+                diffs.append(f"{t.name!r} cannot reach {bad[:6]} (outside its CC range)")
+                continue
             d = sorted(k for k in set(vals) | set(t.baked) if vals.get(k) != t.baked.get(k))
             diffs.append(f"{t.name!r} differs in baked {d[:6]}")
+        if ok:  # the finest CC grid wins (narrowed ranges, T072); ties keep the stored order
+            return min(ok, key=range_width_key), ""
         return None, "; ".join(diffs[:4])
 
     CAPTURE_SESSIONS = 2  # parallel editor sessions for capture_missing (measured, phase 3)

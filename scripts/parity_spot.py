@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import parity_null as PN
+import parity_snap as SNAP
 import stomp_fw380 as F
 
 from tonematch import catalog as C
@@ -39,7 +40,9 @@ from tonematch import preset as P
 SR = 48_000
 OUT = ROOT / "cache" / "parity" / "spot380"
 HLX = OUT / "hlx"
+HLX_SNAPPED = OUT / "hlx_snapped"   # what the Stomp loads: Native's CC-grid values (parity method rule)
 RAW = OUT / "raw"
+SNAPPED_MARK = OUT / "snapped_stomp.json"
 TEMPLATES = ROOT / "cache" / "native" / "templates_files" / "spot380"
 DATASET = "parity-spot-fw380"
 LOCK = ROOT / "cache" / "stomp" / "pedal.lock"
@@ -269,11 +272,17 @@ def cmd_stomp(a) -> int:
             sys.exit(f"set {var}")
     if hx_edit_running():
         sys.exit("HX Edit is running: quit it first")
-    if not take_lock(a.lock_wait_s):
-        sys.exit("pedal lock not obtained in time")
     cat = C.load_catalog("current")
     mf = manifest()
     todo = [it for it in mf["items"] if not a.only or it["name"] in a.only or it["category"] in a.only]
+    # parity method rule: the Stomp plays the value Native's CC grid gives (needs the Native templates; offline, before the pedal)
+    try:
+        snap = SNAP.snap_dir([it["name"] for it in todo], HLX, HLX_SNAPPED, TEMPLATES, cat)
+    except LookupError as e:
+        sys.exit(f"cannot snap to Native's grid: {e}")
+    print(f"snapped {sum(1 for v in snap.values() if v['moves'])} of {len(snap)} presets to Native's CC grid", flush=True)
+    if not take_lock(a.lock_wait_s):
+        sys.exit("pedal lock not obtained in time")
     run_dir = ROOT / "cache" / "stomp" / "hw" / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-spot380"
     run_dir.mkdir(parents=True, exist_ok=True)
     res: dict = {"results": {}, "errors": []}
@@ -290,7 +299,7 @@ def cmd_stomp(a) -> int:
                 r = res["results"].setdefault(name, {})
                 try:
                     t0 = time.perf_counter()
-                    eng.load(P.read_hlx(ROOT / it["hlx"], cat))
+                    eng.load(P.read_hlx(HLX_SNAPPED / f"{name}.hlx", cat))
                     w = eng.whole_writes[-1]
                     r.update(load_s=round(time.perf_counter() - t0, 2), readback_ok=w["checks"]["readback"].get("ok"),
                              document_ok=w["checks"].get("document", {}).get("ok"))
@@ -303,6 +312,9 @@ def cmd_stomp(a) -> int:
                             sf.write(str(RAW / f"{name}__{d}__stomp{suffix}.wav"), y, reamp.SR, subtype="FLOAT")
                             r[f"render_s_{d}{suffix}"] = round(time.perf_counter() - t1, 2)
                             r[f"rms_db_{d}{suffix}"] = round(reamp.rms_db(y), 2)
+                    marks = json.loads(SNAPPED_MARK.read_text()) if SNAPPED_MARK.exists() else {}
+                    marks[name] = True        # parity_timefx.py reads this: these Stomp renders played Native's grid values
+                    SNAPPED_MARK.write_text(json.dumps(marks, indent=1))
                     print(name, json.dumps(r), flush=True)
                 except SystemExit:
                     raise

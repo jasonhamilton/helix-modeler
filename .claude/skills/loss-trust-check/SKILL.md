@@ -15,6 +15,24 @@ Script: `scripts/loss_trust_check.py --term <name> [--all]` (owner: `tone-metric
 4. `rank1_rate` over the set, plus the rate on the held-out-notes subset (same tone, different notes), which tests content invariance.
 5. Threshold: the value `benchmark` set in `docs/DECISIONS.md` (until set, report only). Pass means the term may carry a non-zero default weight in `contracts/loss-kit.md`.
 
+## Helix mode (`helix-trust-v1`, real Native renders)
+
+Build once, then score. `scripts/helix_trust_set.py gen` (seed 4101: 40 known chains from the T060 block
+library, 5 per category; 19 distractors each: 9 near = same model with 1-2 knobs moved, the other
+models of the category, random chains), `add-di` (DI C: another passage of DI A's recording), and
+`render` (NativeRenderPool, at most 3 hosts, and never more than 6 `native_host` processes on the
+machine counting other agents'; resumable; closes every host). Then
+`scripts/loss_trust_check.py --helix --term ltas_tilt crest_flatness_hnr envelope mrstft embed_afxrep --jobs 2 [--ledger]`.
+Subsets are `<target>/<candidate DI>`: target `clean` (oracle stem) or `sep` (the proxy separator
+applied to the Helix render); candidate DI `heldout_notes` (C: same recording, other notes; the
+admission subset for no-DI terms), `other_di` (B: another recording), `same_notes` (A; the admission
+subset for `mrstft`, only with `sep`). Reported per term: rank-1, rank-1 against each distractor kind,
+rank-1 against audible distractors only (null to the truth above -30 dB on the same notes), the
+margin (best distractor minus truth, over the median distractor; positive = ranked first) and per
+category. Ledger `--engine native --dataset helix-trust-v1`: `rank1_rate` per term and subset,
+`seconds_per_test` per term, `seconds_per_embedding` for AFx-Rep. Changing a term's scales on this set
+spends it: register new seeds in `docs/DECISIONS.md` first (`gen --seed`).
+
 ## Proxy mode (until synthetic-v1 exists)
 
 `scripts/loss_trust_check.py --proxy --all [--ledger]` runs the same procedure on offline numpy/scipy

@@ -135,3 +135,40 @@ def distortion_verdict(d: dict, tol: dict | None = None) -> dict:
         "level": _ok(d["level_diff_db"], t["level_db"]),
     }
     return {"checks": checks, "pass": all(v is not False for v in checks.values()) and checks["core_bands"] is True}
+
+
+def sine_modulation_verdict(c: dict, kind: str, *, cycles: float, confidence: float, floor: dict | None = None,
+                            tol: dict | None = None, min_cycles: float = MIN_CYCLES) -> dict:
+    """Verdict for the sustained-sine measurements of `tonematch.metrics.sine_mod` (T066b). Same
+    tolerances as `modulation_verdict` (rate 5 %, level swing 1 dB, pitch swing max(3 cents, 10 %), mean
+    level 1 dB). `kind`: "tremolo", "sweep" (phaser, flanger: level swing judged) or "pitch" (chorus,
+    vibrato: pitch swing judged). `floor`: the Stomp's own differences between two renders of the same
+    file ({"rate_diff_pct", "level_swing_diff_db", "pitch_swing_diff_cents", "mean_level_diff_db"}, absolute
+    values). A measure whose floor exceeds its tolerance cannot be judged at the JND: inside
+    FLOOR_MARGIN times the floor it is unresolved, beyond it failed. Fewer than `min_cycles` LFO cycles (MIN_CYCLES, 2; the sine analysis also reports the verdict at 1.5,
+    the least an autocorrelation peak needs, as indicative only) or a
+    rate confidence under MIN_CONFIDENCE in either render: nothing is resolved."""
+    t = tol or TOLERANCES["modulation"]
+    if not math.isfinite(cycles) or cycles < min_cycles or confidence < MIN_CONFIDENCE:
+        return {"checks": {}, "unresolved": ["rate", "depth", "mean_level"], "pass": False, "resolved": False}
+    fl = floor or {}
+    depth_key = "pitch_swing_diff_cents" if kind == "pitch" else "level_swing_diff_db"
+    depth_tol = (max(t["pitch_depth_cents"], t["pitch_depth_pct"] / 100 * abs(c["pitch_swing_ref_cents"]))
+                 if kind == "pitch" else t["amp_depth_db"])
+    specs = (("rate", c["rate_diff_pct"], t["rate_pct"], fl.get("rate_diff_pct", 0.0)),
+             ("depth", c[depth_key], depth_tol, fl.get(depth_key, 0.0)),
+             ("mean_level", c["mean_level_diff_db"], t["spectrum_level_db"], fl.get("mean_level_diff_db", 0.0)))
+    checks: dict = {}
+    unresolved: list[str] = []
+    for name, v, tol_v, fv in specs:
+        if v is None or not math.isfinite(v):
+            unresolved.append(name)
+        elif fv > tol_v:
+            if abs(v) <= FLOOR_MARGIN * fv:
+                unresolved.append(name)
+            else:
+                checks[name] = False
+        else:
+            checks[name] = _ok(v, tol_v)
+    return {"checks": checks, "unresolved": unresolved, "pass": all(v is True for v in checks.values()) and not unresolved,
+            "resolved": True}

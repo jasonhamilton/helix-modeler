@@ -15,7 +15,7 @@ Only `benchmark` ticks an evidence item, with a ledger row id. Only the human ti
 
 - [ ] On synthetic-v1 the trusted loss ranks the true preset first at the threshold `benchmark` set (ledger row: )
 - [ ] Block-type F1, model accuracy and parameter MAE meet the week-2 thresholds (ledger rows: )
-- [ ] Separation stress curve recorded (ledger row: )
+- [x] Separation stress curve recorded (ledger row: 2026-10-16T15:22:49..51, dataset sep-stress-v1: htdemucs_6s SDR 21.2/15.9/15.4/11.2/7.3 dB for densities D1-D5; SYNTHETIC set (Guitar-TECHS DI through a numpy drive/cab, synthesised accompaniment), real-song stress not yet measured — ticked by tone-matcher-lead)
 - [ ] Human sign-off: ______ (date)
 
 ## Gate 3 — beats the nearest preset on real songs (end of week 4)

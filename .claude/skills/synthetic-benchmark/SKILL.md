@@ -5,7 +5,7 @@ description: Run the synthetic recovery benchmark with known answers: load or re
 
 # synthetic-benchmark
 
-Script: `scripts/synthetic_benchmark.py [--generate] [--ci] [--budget N] [--seeded]` (owner: `benchmark`).
+Script: `scripts/synthetic_v1.py generate|run [--items N] [--budget R] [--weights FILE] [--shard k/n] [--ledger]` (owner: `benchmark`, T073; `synthetic_benchmark.py --ci` only points to it). synthetic-v1 is 96 one-block presets from the Native block library; see docs/BENCHMARKING.md "Synthetic recovery set". The generation steps below describe the earlier chain design and are superseded by that section.
 
 ## Generate (`--generate`, or when `fixtures/synthetic/` is missing)
 

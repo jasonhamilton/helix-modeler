@@ -392,41 +392,53 @@ def t_trust(ctx: Ctx) -> Result:
     return evaluate_trust(json.loads(out.read_text()), prev_m)
 
 
+SYNTH_SET = ROOT / "cache" / "synthetic-v1"
+SYNTH_SUITE_ITEMS = 8           # the CI subset: one item per category, round-robin order
+SYNTH_SUITE_BUDGET = 100        # search renders per item in the suite run
+SYNTH_TARGETS = {"block_f1": 0.85, "model_acc": 0.80, "param_mae": 0.15, "rank1_rate": 0.95}
+
+
 def synthetic_gate(what: str) -> Result | None:
-    manifest = ROOT / "cache" / "synthetic" / "manifest.json"
-    renders = ROOT / "cache" / "synthetic" / "renders"
-    labels = ROOT / "cache" / "synthetic" / "labels.json"
-    if not manifest.exists():
-        return Result(NA, f"not available: the synthetic set is not generated ({what})")
-    if not renders.exists() or not any(renders.iterdir()):
-        n = ""
-        if labels.exists():
-            try:
-                n = f" ({len(json.loads(labels.read_text()))} labelled items)"
-            except ValueError:
-                n = ""
-        return Result(NA, f"not available: the synthetic set has labels only{n} and no rendered "
-                          f"audio yet")
+    """None when synthetic-v1 is generated and Native is installed, else the not-available result."""
+    if not (SYNTH_SET / "manifest.json").exists():
+        return Result(NA, f"not available: synthetic-v1 is not generated ({what}); run "
+                          f"scripts/synthetic_v1.py generate")
     return None
 
 
-def _synthetic(ctx: Ctx, flag: str, what: str) -> Result:
-    gate = synthetic_gate(what)
+def t_synthetic(ctx: Ctx) -> Result:
+    gate = synthetic_gate("recovery")
     if gate:
         return gate
-    r = ctx.run(["scripts/synthetic_benchmark.py", flag], timeout=3600)
-    if r.rc == 2:
-        return Result(NA, "not available: " + _tail(r.err or r.out))
-    last = (r.out.strip().splitlines() or [""])[-1]
-    return Result(PASS if r.rc == 0 else FAIL, "" if r.rc == 0 else _tail(r.err + r.out), last)
-
-
-def t_synthetic(ctx: Ctx) -> Result:
-    return _synthetic(ctx, "--ci", "recovery")
+    if ctx.probes.native_hosts() + 1 > 6:
+        return Result(SKIPPED, f"skipped: {ctx.probes.native_hosts()} Native host processes are already "
+                               f"running (limit 6 with this one)")
+    tag = "suite"
+    args = ["scripts/synthetic_v1.py", "run", "--items", str(SYNTH_SUITE_ITEMS), "--budget",
+            str(SYNTH_SUITE_BUDGET), "--tag", tag, "--redo"]
+    if not ctx.no_ledger:
+        args.append("--ledger")
+    r = ctx.run(args, timeout=7200)
+    if r.rc == 3:
+        return Result(SKIPPED, "skipped: too many Native host processes: " + _tail(r.err))
+    summary = SYNTH_SET / "runs" / tag / "summary.json"
+    if r.rc not in (0, 1) or not summary.exists():
+        return Result(FAIL, _tail(r.err + r.out) or f"exit {r.rc}")
+    s = json.loads(summary.read_text())
+    metrics = [{"name": m, "value": round(s[m], 4), "unit": "fraction" if m != "loss_heldout" else "loss"}
+               for m in ("block_f1", "model_acc", "param_mae", "rank1_rate", "rank1_rate_audible",
+                         "loss_heldout") if m in s]
+    key = (f"{s['items']} items, one-block presets: block F1 {s['block_f1']:.2f}, model accuracy "
+           f"{s['model_acc']:.2f} (chance {s['model_acc_chance']:.2f}), setting error {s['param_mae']:.2f}, "
+           f"true preset first {s.get('rank1_rate', float('nan')):.2f}; {s['weights']}; targets not frozen")
+    if r.rc == 1:
+        return Result(FAIL, "regression against the previous run: " + _tail(r.err), key, metrics)
+    return Result(PASS, "", key, metrics)
 
 
 def t_stress(ctx: Ctx) -> Result:
-    return _synthetic(ctx, "--stress", "stress")
+    return Result(NA, "not available: the density-stress variant of synthetic-v1 is not built; the "
+                      "separation curve is recorded separately as sep-stress-v1")
 
 
 PROBE_RE = re.compile(r"(\d+)/(\d+) checks pass \((\d+) blocks\)")
@@ -504,8 +516,10 @@ SPECS = [
          f"(seeds {', '.join(map(str, TRUST_SEEDS))}); the 0.90 / 0.95 admission rule needs Helix audio",
          t_trust),
     Spec("synthetic_recovery", "Synthetic recovery (CI subset)",
-         "Can the matcher recover known presets from their sound?",
-         "the Gate 2 targets listed below", t_synthetic),
+         f"Can the matcher recover known presets from their sound? {SYNTH_SUITE_ITEMS} of the 96 "
+         f"synthetic-v1 items, one host, {SYNTH_SUITE_BUDGET} search renders each, provisional loss weights",
+         "no metric falls beyond its tolerance below the previous run of the same subset; Gate 2 "
+         "targets are not applied to the subset", t_synthetic),
     Spec("separation_stress", "Separation stress",
          "How fast does accuracy fall as the mix gets denser?",
          "recorded as a curve, not gated", t_stress),

@@ -116,7 +116,7 @@ def not_needed(why: str) -> dict:
 # --------------------------------------------------------------------------- measurements
 
 CAPTURE_METRIC = re.compile(r"capture", re.IGNORECASE)
-CAPTURE_EXCLUDE = re.compile(r"(null|_db|_mb|bytes|count|ok)", re.IGNORECASE)
+CAPTURE_EXCLUDE = re.compile(r"(null|_db|_mb|bytes|count|ok|batch)", re.IGNORECASE)
 
 
 POOL_METRICS = ("renders_per_s", "pool_renders_per_s")
@@ -225,6 +225,36 @@ def scan_match_reports(root: Path) -> list[dict]:
     return out
 
 
+SCORE_DSP_TERMS = ("ltas_tilt", "crest_flatness_hnr", "envelope")
+SCORE_OTHER_TERMS = ("mrstft", "embed_afxrep")
+
+
+def score_terms(rows: list[dict]) -> dict[str, dict]:
+    """Newest scoring-cost row of each term in the trust check (dataset helix-trust-v1, metric
+    seconds_per_test, no render). Empty unless all three signal-processing terms are present."""
+    out: dict[str, dict] = {}
+    for r in rows:
+        if r.get("kind") != "loss-trust" or r.get("metric") != "seconds_per_test" or (_f(r.get("value")) or 0) <= 0:
+            continue
+        if (_f(r.get("wall_clock_s")) or 0) > 0:      # the combined render-plus-terms row is not a score time
+            continue
+        m = re.match(r"term=(\w+) scoring cost", r.get("notes", ""))
+        if m and (m[1] not in out or (r["timestamp"], r["_line"]) > (out[m[1]]["timestamp"], out[m[1]]["_line"])):
+            out[m[1]] = r
+    return out if all(t in out for t in SCORE_DSP_TERMS) else {}
+
+
+def search_run_rows(rows: list[dict]) -> dict:
+    """The newest full-excerpt Native search-run row (ds-sample-intro-cliplen, policy full) and the newest
+    default-policy Stomp row (ds-sample-intro, seconds_per_trial_default)."""
+    nat = newest(rows, lambda r: r.get("engine") == "native" and r.get("dataset") == "ds-sample-intro-cliplen"
+                 and r.get("metric") == "seconds_per_trial_full" and (_f(r.get("wall_clock_s")) or 0) > 0
+                 and (_f(r.get("renders")) or 0) > 0)
+    st = newest(rows, lambda r: r.get("engine") == "stomp" and r.get("dataset") == "ds-sample-intro"
+                and r.get("metric") == "seconds_per_trial_default" and (_f(r.get("value")) or 0) > 0)
+    return {"native": nat, "stomp": st}
+
+
 def measure(rows: list[dict], root: Path | None = None) -> dict:
     """Every measured per-test time, by key then engine ('stomp', 'native', 'any')."""
     up = stomp_upgrade_ts(rows)
@@ -318,11 +348,27 @@ def measure(rows: list[dict], root: Path | None = None) -> dict:
         if vf else missing("no verification row"))
     put("verify", "native", not_needed("not applicable: verification runs on the pedal"))
 
-    # one score of a candidate (loss), independent of the engine
+    # one score of a candidate, independent of the engine: the tone-metrics trust check writes
+    # seconds_per_test rows (dataset helix-trust-v1, one per scoring term, render excluded). The three
+    # signal-processing terms the search pipeline adds to a render are summed; the other terms are named
+    # in the note and not included. No rows, no number.
     sc = newest(rows, lambda r: r.get("metric") in ("seconds_per_score", "score_s", "loss_s_per_candidate")
                 and (_f(r.get("value")) or 0) > 0)
+    terms = score_terms(rows)
     if sc:
         put("score", "any", cell(sc, float(sc["value"]), "score one candidate against a target", up))
+    elif terms:
+        parts = [terms[t] for t in SCORE_DSP_TERMS]
+        extra = [f"{t} {fmt_dur(float(terms[t]['value']))} (ledger {terms[t]['timestamp']} "
+                 f"{terms[t]['metric']} row {terms[t]['_line']})" for t in SCORE_OTHER_TERMS if t in terms]
+        put("score", "any", cell(
+            parts[0], sum(float(r["value"]) for r in parts),
+            "score one candidate: the three signal-processing terms added (render excluded, target cached)", up,
+            note="loudness-shape tilt " + fmt_dur(float(parts[0]["value"])) + " + crest/flatness/harmonics "
+                 + fmt_dur(float(parts[1]["value"])) + " + envelope " + fmt_dur(float(parts[2]["value"]))
+                 + " (ledger rows " + ", ".join(str(r["_line"]) for r in parts) + "); not included: "
+                 + ("; ".join(extra) if extra else "other terms"),
+            rows=[r["_line"] for r in parts], line_hint=True))
     else:
         # no ledger row, no number: a local search-run report is not evidence
         put("score", "any", missing("no scoring-time record"))
@@ -344,20 +390,26 @@ def measure(rows: list[dict], root: Path | None = None) -> dict:
     else:
         put("parity", "any", missing("no suite parity step"))
 
-    # a search run's wall-clock per render call
-    for eng in ("stomp", "native"):
-        r = newest(rows, lambda x, eng=eng: x.get("kind") == "render-cost" and x.get("engine") == eng
-                   and x.get("metric") == "wall_per_render_call_s" and (_f(x.get("value")) or 0) > 0)
-        if r:
-            newer = [x for x in rows if x.get("kind") == "render-cost" and x.get("engine") == eng
-                     and x.get("metric") == "seconds_per_render" and x["timestamp"] > r["timestamp"]]
-            c = cell(r, float(r["value"]), "search run, wall-clock per render call (host start included)", up,
-                     renders=r.get("renders"))
-            if newer:
-                c["note"] = (f"older than {len(newer)} newer render-cost rows, so probably overstated")
-            put("search_run", eng, c)
-        else:
-            put("search_run", eng, missing("no search-run row"))
+    # a search run, per trial: the ds-sample-intro-cliplen run (Native) and the ds-sample-intro run on the
+    # pedal. The Native figure is the run's wall clock divided by its renders (host start included); the
+    # row's own value is a Stomp estimate and is not used. The old 2026-10-14 wall_per_render_call_s rows
+    # (search_smoke, before the speed work) are no longer shown.
+    sr = search_run_rows(rows)
+    if sr["native"]:
+        r, run_s = sr["native"], _f(sr["native"].get("wall_clock_s"))
+        put("search_run", "native", cell(
+            r, run_s / float(r["renders"]), "search run, wall clock per trial (host start included)", up,
+            renders=r.get("renders"), note=f"{fmt_dur(run_s)} for {r['renders']} renders, full 7.5 s excerpt policy; "
+                                           "the row's 8.3 s is a Stomp estimate and is not used"))
+    else:
+        put("search_run", "native", missing("no Native search-run row"))
+    if sr["stomp"]:
+        r = sr["stomp"]
+        put("search_run", "stomp", cell(
+            r, float(r["value"]), "search run, seconds per trial on the pedal (3 s search clip)", up,
+            renders=r.get("renders"), note=f"{fmt_dur(_f(r.get('wall_clock_s')))} for {r['renders']} renders"))
+    else:
+        put("search_run", "stomp", missing("no Stomp search-run row"))
 
     # preset load or model change
     r = rc("stomp", "whole_preset_load_s", "whole_preset_write_s")
@@ -498,6 +550,8 @@ def cell_text(c: dict | None) -> str:
     parts = [f"{fmt_dur(c['seconds'])} (measured {c['date']}"]
     if c.get("ts"):
         parts[0] += f", ledger {c['ts']}" + (f" {c['metric']}" if c.get("metric") else "")
+        if c.get("line_hint") and c.get("line"):       # rows that share a time and a metric: name the line
+            parts[0] += f" row {c['line']}"
     elif c.get("source") and c["source"] != "ledger":
         parts[0] += f", {c['source']}"
     parts[0] += ")"
@@ -530,7 +584,8 @@ ASSUMPTIONS = {
     "pooltest": "Native: a search test is a render plus its score; the pool figures count both together "
                 "(tests per second, 3 s pre-roll included), so no separate scoring time is added",
     "poolscore": "Native: only the renders run in parallel; scoring stays one after another",
-    "dual": "Stomp: two chains per pass (Path A + B) double throughput. The gain of 2.0 was measured on fw 3.50; "
+    "dual": "Stomp, in parallel means two-path passes: one pass renders two chains at once (Path A + B), so the "
+            "throughput doubles. The gain of 2.0 was measured on fw 3.50; "
             "the dual-path-only comparison rule was lifted on 2026-10-16 after the T063 layout fix (ledger "
             "2026-10-16T01:06:38+00:00), but the gain is not re-measured on fw 3.80",
     "session": "Stomp: one engine session serves the whole batch, so the session overhead is paid once, "
@@ -1053,3 +1108,321 @@ def build(cfg: dict, ledger: list[dict], root: Path | None) -> dict:
                   "mem_gb": T["pool"]["native"].get("mem_gb"), "ts": T["pool"]["native"]["ts"]}
                  if T.get("pool", {}).get("native", {}).get("state") == "measured" else None),
     }
+
+
+# --------------------------------------------------------------------------- docs/BENCHMARKING.md: time per sample
+
+TPS_START = "<!-- time-per-sample:start -->"
+TPS_END = "<!-- time-per-sample:end -->"
+LEDGER_HREF = "../ledger/runs.csv?plain=1#L{line}"
+
+
+def load_ledger(path: Path) -> list[dict]:
+    """Ledger rows as dicts with `_line` = the physical line the row starts on (header is line 1)."""
+    import csv
+    out: list[dict] = []
+    with path.open(encoding="utf-8", newline="") as fh:
+        rd = csv.reader(fh)
+        head: list[str] = []
+        prev = 0
+        for i, row in enumerate(rd):
+            start, prev = prev + 1, rd.line_num
+            if i == 0:
+                head = row
+                continue
+            if row:
+                out.append(dict(zip(head, row), _line=start))
+    return out
+
+
+def _md_cell(x: str) -> str:
+    return x.replace("|", "\\|").replace("\n", " ")
+
+
+def _ref_md(r: dict) -> str:
+    title = (f"{r.get('timestamp', '')[:16].replace('T', ' ')} · {r.get('kind', '')} · {r.get('engine', '')} · "
+             f"{r.get('dataset', '')} · {r.get('metric', '')} = {r.get('value', '')}")
+    return f'[row {r["_line"]}]({LEDGER_HREF.format(line=r["_line"])} "{_md_cell(title)}")'
+
+
+def _fig(seconds: float | None, refs: list[dict], note: str = "") -> dict:
+    return {"seconds": seconds, "refs": refs, "note": note, "kind": "measured" if seconds is not None else "none"}
+
+
+def _na(why: str) -> dict:
+    return {"seconds": None, "refs": [], "note": why, "kind": "na"}
+
+
+def _unmeasured(why: str = "") -> dict:
+    return {"seconds": None, "refs": [], "note": why, "kind": "none"}
+
+
+def fig_text(f: dict) -> str:
+    if f["kind"] == "na":
+        return f["note"]
+    if f["seconds"] is None:
+        return NOT_MEASURED + (f" ({f['note']})" if f["note"] else "")
+    refs = ", ".join(_ref_md(r) for r in f["refs"])
+    return f"{fmt_dur(f['seconds'])} ({refs})" + (f"; {f['note']}" if f["note"] else "")
+
+
+def _count(n: float | None, refs: list[dict], what: str) -> dict:
+    return {"n": n, "refs": refs, "what": what}
+
+
+def time_per_sample(rows: list[dict]) -> list[dict]:
+    """The rows of the 'Time per sample' table, every figure derived from the ledger rows given.
+    A row: activity, sample, native/stomp/other (figures), count, and the total (count x time, computed,
+    never a measurement). Anything with no ledger row is 'not measured'."""
+    pts = pool_points(rows)
+    out: list[dict] = []
+
+    def add(activity: str, sample: str, native: dict, stomp: dict, other: dict | None = None,
+            count: dict | None = None, total_cols: tuple[str, ...] = ("native", "stomp", "other")) -> None:
+        out.append({"activity": activity, "sample": sample, "native": native, "stomp": stomp,
+                    "total_cols": total_cols,
+                    "other": other or _na("-"), "count": count or _count(None, [], "no typical count recorded")})
+
+    # the shared run behind the typical counts: one search run on the DS-Sample intro
+    run = search_run_rows(rows)
+    nrun, srun = run["native"], run["stomp"]
+    n_renders = _f(nrun.get("renders")) if nrun else None
+    run_count = _count(n_renders, [nrun] if nrun else [],
+                       "renders in one search run")
+
+    # 1. Native test, 2 s and 10 s clips, 6 hosts and 1 host (render + MR-STFT score per test)
+    for clip in (2, 10):
+        for hosts in (DEFAULT_HOSTS, 1):
+            p = pts.get((hosts, clip))
+            what = (f"one test = one render of a {clip} s clip (+ 3 s pre-roll) and its score, "
+                    f"{'pool of ' + str(hosts) + ' hosts, throughput' if hosts > 1 else 'one host'}")
+            nat = _fig(1.0 / p["rate"], [p["row"]], f"{p['rate']:g} tests per second") if p else _unmeasured("no pool row")
+            add(f"Native test, {clip} s clip, {hosts} host{'s' if hosts > 1 else ''}", what, nat,
+                _na("not the same unit: the pedal render is below"), None, run_count)
+
+    # 2. Native search run
+    if nrun:
+        wall = _f(nrun.get("wall_clock_s"))
+        nat = _fig(wall / float(nrun["renders"]), [nrun], f"{fmt_dur(wall)} wall clock over {nrun['renders']} renders, host start included")
+    else:
+        nat = _unmeasured("no ds-sample-intro-cliplen row")
+    legacy = newest(rows, lambda r: r.get("engine") == "stomp" and r.get("dataset") == "ds-sample-intro"
+                    and r.get("metric") == "seconds_per_trial_legacy" and (_f(r.get("value")) or 0) > 0)
+    add("Search run (ds-sample-intro-cliplen), full 7.5 s excerpt per trial",
+        "one trial (render + score) in a search over the DS-Sample intro, run wall clock divided by renders",
+        nat, _fig(float(legacy["value"]), [legacy], "pedal run with the old 7.5 s clip, readback on every load") if legacy
+        else _unmeasured("no legacy row"), None, run_count)
+    l3 = newest(rows, lambda r: r.get("dataset") == "ds-sample-intro-cliplen" and r.get("engine") == "native"
+                and r.get("metric") == "seconds_per_trial_loudest3" and (_f(r.get("wall_clock_s")) or 0) > 0)
+    add("Search run (ds-sample-intro-cliplen), loudest 3 s clip per trial",
+        "the same, searching on the loudest 3 s of the excerpt",
+        _fig(_f(l3["wall_clock_s"]) / float(l3["renders"]), [l3],
+             f"{fmt_dur(_f(l3['wall_clock_s']))} wall clock over {l3['renders']} renders") if l3
+        else _unmeasured("no loudest3 row"),
+        _fig(float(srun["value"]), [srun], f"pedal default (3 s clip, readback every 10, measured tails), "
+                                         f"{fmt_dur(_f(srun.get('wall_clock_s')))} over {srun['renders']} renders") if srun
+        else _unmeasured("no default row"), None, run_count)
+
+    # 3. template capture per model (block-library-v1)
+    cap = newest(rows, lambda r: r.get("dataset") == "block-library-v1" and r.get("metric") == "capture_per_chain_s"
+                 and (_f(r.get("value")) or 0) > 0)
+    add("Template capture per model (block-library-v1)",
+        "one Stomp model captured once into a Native template (the pedal takes the model directly)",
+        _fig(float(cap["value"]), [cap], "3 parallel sessions, every control checked") if cap else _unmeasured("no row"),
+        _na("not needed: the pedal takes the model directly"), None,
+        _count(_f(cap.get("renders")), [cap], "models in the library") if cap else None)
+
+    # 4. separation per mix
+    sep = newest(rows, lambda r: r.get("dataset") == "sep-stress-v1" and r.get("metric") == "seconds_per_mix"
+                 and (_f(r.get("value")) or 0) > 0)
+    m = re.search(r"mean over (\d+) mixes of (\d+) s", sep.get("notes", "")) if sep else None
+    add("Separation per mix (sep-stress-v1)",
+        f"one {m[2] + ' s ' if m else ''}mix split into stems (no engine involved)",
+        _na("no engine"), _na("no engine"),
+        _fig(float(sep["value"]), [sep], "mean of the run; machine learning model on the Mac GPU") if sep
+        else _unmeasured("no row"),
+        _count(float(m[1]), [sep], "mixes in the stress set") if m else None)
+
+    # 5. Stomp renders (stomp-speed), clip + about 0.67 s of tail
+    speed = {c: newest(rows, lambda r, c=c: r.get("dataset") == "stomp-speed"
+                       and r.get("metric") == f"seconds_per_render_clip{c}s" and (_f(r.get("value")) or 0) > 0)
+             for c in (2, 3, 4, 10)}
+    nat2 = newest(rows, lambda r: r.get("kind") == "render-cost" and r.get("engine") == "native"
+                  and r.get("metric") == "seconds_per_render" and (_f(r.get("value")) or 0) > 0)
+    nat10 = newest(rows, lambda r: r.get("kind") == "render-cost" and r.get("engine") == "native"
+                   and r.get("metric") == "seconds_per_10s_render" and (_f(r.get("value")) or 0) > 0)
+    scount = _count(_f(srun.get("renders")) if srun else None, [srun] if srun else [],
+                    "renders in one default search run on the pedal")
+    for c in (2, 3, 4, 10):
+        r = speed[c]
+        nat = _unmeasured("render alone not measured for this clip length")
+        if c == 2 and nat2:
+            nat = _fig(float(nat2["value"]), [nat2], "render alone")
+        if c == 10 and nat10:
+            nat = _fig(float(nat10["value"]), [nat10], "render alone, older flow that reset the engine every render")
+        add(f"Stomp render, {c} s clip (clip + about 0.67 s)",
+            f"one {c} s test clip played through a preset on the pedal and recorded (fw 3.80)",
+            nat, _fig(float(r["value"]), [r], "median of 3") if r else _unmeasured("no stomp-speed row"), None, scount,
+            total_cols=("stomp",))
+
+    # 6. Stomp search trial
+    t3 = newest(rows, lambda r: r.get("metric") == "search_batch_per_trial_s_after" and r.get("engine") == "stomp"
+                and (_f(r.get("value")) or 0) > 0)
+    t10 = newest(rows, lambda r: r.get("metric") == "search_batch_per_trial_s_before" and r.get("engine") == "stomp"
+                 and (_f(r.get("value")) or 0) > 0)
+    ntr = re.search(r"Search stage [\d.]+ s / (\d+) trials", srun.get("notes", "")) if srun else None
+    tcount = _count(float(ntr[1]), [srun], "trials in the search stage of one default run") if ntr else None
+    add("Stomp search trial (3 s clip, speed options)",
+        "one candidate: parameters changed in place, rendered on the pedal, render side only (no score)",
+        _na("see the Native test and search-run rows"),
+        _fig(float(t3["value"]), [t3], "readback every 10 loads, measured tails") if t3 else _unmeasured("no row"), None, tcount)
+    add("Stomp search trial (10 s clip, before the speed options)",
+        "the same with a 10 s clip, readback on every load, worst-case tails",
+        _na("see the Native test and search-run rows"),
+        _fig(float(t10["value"]), [t10], "for comparison with the row above") if t10 else _unmeasured("no row"),
+        None, tcount)
+
+    # 7. verify finalist, preset load, session
+    vf = newest(rows, lambda r: r.get("metric") == "verify_batch_per_finalist_s_after" and r.get("engine") == "stomp")
+    add("Verify one finalist on the pedal",
+        "one finalist written whole to the pedal and rendered twice on 10 s clips (one session)",
+        _na("verification runs on the pedal"),
+        _fig(float(vf["value"]), [vf]) if vf else _unmeasured("no row"), None,
+        _count(3.0, [], "finalists verified per song section (the status report's verify_top3 job, a design choice, not a ledger count)"))
+    wl = newest(rows, lambda r: r.get("engine") == "stomp" and r.get("metric") == "whole_preset_write_s"
+                and "whole load() median" in r.get("notes", ""))
+    wm = re.search(r"whole load\(\) median ([\d.]+) s", wl["notes"]) if wl else None
+    nl = newest(rows, lambda r: r.get("engine") == "native" and r.get("metric") == "hc_mode_switch_load_s"
+                and re.search(r"same-mode load [\d.]+ s", r.get("notes", "")))
+    nm = re.search(r"same-mode load ([\d.]+) s", nl["notes"]) if nl else None
+    add("Preset load",
+        "one generated preset loaded: written whole to the pedal, or a stored template loaded into Native",
+        _fig(float(nm[1]), [nl], f"same mode; a mode change reloads the engine, {fmt_dur(float(nl['value']))}") if nm
+        else _unmeasured("no row"),
+        _fig(float(wm[1]), [wl], f"whole load(); the write alone is {fmt_dur(float(wl['value']))}") if wm
+        else _unmeasured("no row"))
+    so = newest(rows, lambda r: r.get("metric") == "session_overhead_per_test_new_s" and r.get("engine") == "stomp")
+    add("Session overhead",
+        "opening the pedal engine, restoring the original preset and byte-checking it, paid once per batch",
+        _na("no pedal session"),
+        _fig(float(so["value"]), [so], "once per batch") if so else _unmeasured("no row"), None,
+        _count(1.0, [so], "once per batch (one engine for the whole batch)") if so else None)
+
+    # 8. two-path pass
+    tp = newest(rows, lambda r: r.get("dataset") == "twopath-parity-fw380" and r.get("engine") == "stomp"
+                and (_f(r.get("wall_clock_s")) or 0) > 0 and "superseded" not in r.get("notes", ""))
+    note = ""
+    if tp:
+        w, nr = _f(tp["wall_clock_s"]), _f(tp.get("renders"))
+        note = (f"the whole comparison (2 single-path renders + 2 two-path passes = {int(nr)} renders) took {fmt_dur(w)}, "
+                f"{fmt_dur(w / nr)} per render with the preset writes and session included; a pass alone is not timed")
+    add("Two-path pass on the Stomp (twopath-parity-fw380)",
+        "one pass renders both paths at once, so one pass gives two renders (Path A on USB 1/2, Path B on USB 3/4)",
+        _na("the pedal only"),
+        _fig(None, [tp] if tp else [], note) if tp else _unmeasured("no row"), None,
+        _count(2.0, [tp], "renders per pass") if tp else None)
+
+    # 9. parity spot check per model
+    par = [r for r in rows if r.get("dataset") == "parity-spot-fw380" and r.get("metric") == "null_residual_db"
+           and "preset=" in r.get("notes", "")]
+    wall = [r for r in par if (_f(r.get("wall_clock_s")) or 0) > 0]
+    pc = _count(float(len(par)), par[:1], "presets compared in the spot check") if par else None
+    add("Parity spot check per model (parity-spot-fw380)",
+        "one preset rendered on both engines, then the two recordings aligned and compared",
+        _unmeasured("no wall clock recorded in the ledger") if not wall else
+        _fig(sum(float(r["wall_clock_s"]) for r in wall) / len(wall), wall[:1]),
+        _unmeasured("no wall clock recorded in the ledger") if not wall else _na("same run"), None, pc)
+
+    # 10. score
+    terms = score_terms(rows)
+    if terms:
+        t3s = [terms[t] for t in SCORE_DSP_TERMS]
+        total = sum(float(r["value"]) for r in t3s)
+        other = ", ".join(f"{t} {fmt_dur(float(terms[t]['value']))} ({_ref_md(terms[t])})" for t in SCORE_OTHER_TERMS if t in terms)
+        sc = _fig(total, t3s, "three signal-processing terms added, render excluded" + (f"; not included: {other}" if other else ""))
+    else:
+        sc = _unmeasured("no helix-trust-v1 seconds_per_test rows")
+    add("Score one candidate (helix-trust-v1)",
+        "one rendered candidate compared with the target (candidate features and distance, target cached)",
+        _na("included in the Native test rows"), _na("not measured on the pedal side"), sc)
+    return out
+
+
+def total_text(row: dict) -> str:
+    """count x time for each engine column that has a measured time and a count; computed, not measured."""
+    c = row["count"]
+    if c["n"] is None:
+        return "no typical count recorded"
+    bits = []
+    for col, name in (("native", "Native"), ("stomp", "Stomp"), ("other", "")):
+        if col not in row.get("total_cols", ("native", "stomp", "other")):
+            continue
+        f = row[col]
+        if f["seconds"] is not None:
+            bits.append((f"{name} " if name else "") + fmt_dur(f["seconds"] * c["n"]))
+    return "; ".join(bits) if bits else NOT_MEASURED
+
+
+def count_text(row: dict) -> str:
+    c = row["count"]
+    if c["n"] is None:
+        return "not recorded"
+    refs = ", ".join(_ref_md(r) for r in c["refs"])
+    return f"{fmt_count(c['n'])} ({c['what']}" + (f"; {refs}" if refs else "") + ")"
+
+
+def render_time_per_sample(rows: list[dict]) -> str:
+    """The Markdown block placed between the time-per-sample markers in docs/BENCHMARKING.md."""
+    t = time_per_sample(rows)
+    out = [TPS_START,
+           "<!-- Generated by scripts/engine_timing.py --render-doc from ledger/runs.csv. Do not edit by hand. -->",
+           "",
+           ("Every figure below is read from a ledger row (the link on each figure opens it). A \"sample\" is one "
+            "unit of the activity. **Total** is the typical count times the time per sample: it is computed, not "
+           "measured. Where the ledger has no measurement the cell says \"not measured\"; nothing is estimated "
+           "to fill a gap. Native pool figures are throughput at the 6-host cap (1 divided by tests per second), "
+           "and a Native test is a render plus its score; a Stomp render is the render only, so the two are "
+           "different units and are not subtracted from each other. Pedal figures are on firmware 3.80."),
+           "",
+           ("| Activity | One sample is | Native, per sample | Stomp, per sample | No engine, per sample "
+            "| Typical count | Total |"),
+           "|---|---|---|---|---|---|---|"]
+    for r in t:
+        out.append("| " + " | ".join(_md_cell(x) for x in (
+            r["activity"], r["sample"], fig_text(r["native"]), fig_text(r["stomp"]), fig_text(r["other"]),
+            count_text(r), total_text(r))) + " |")
+    out += ["", TPS_END]
+    return "\n".join(out)
+
+
+def update_benchmarking_doc(root: Path) -> bool:
+    """Rewrite the block between the markers in docs/BENCHMARKING.md; False when the markers or ledger are missing."""
+    doc, led = root / "docs" / "BENCHMARKING.md", root / "ledger" / "runs.csv"
+    if not doc.is_file() or not led.is_file():
+        return False
+    text = doc.read_text(encoding="utf-8")
+    a, b = text.find(TPS_START), text.find(TPS_END)
+    if a < 0 or b < a:
+        return False
+    new = text[:a] + render_time_per_sample(load_ledger(led)) + text[b + len(TPS_END):]
+    if new != text:
+        doc.write_text(new, encoding="utf-8")
+    return True
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="Refresh the time-per-sample table in docs/BENCHMARKING.md")
+    ap.add_argument("--render-doc", action="store_true", help="rewrite the table between its markers")
+    ap.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent)
+    a = ap.parse_args(argv)
+    if a.render_doc:
+        ok = update_benchmarking_doc(a.root)
+        print("updated" if ok else "markers or ledger not found; nothing written")
+        return 0 if ok else 1
+    print(render_time_per_sample(load_ledger(a.root / "ledger" / "runs.csv")))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

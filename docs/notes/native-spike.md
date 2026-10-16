@@ -211,6 +211,54 @@ No watchdog recycles at any N; every N bit-identical to a single engine. Through
 
 **API for search:** `pool.map_generation(preset, param_sets, dry, fn)` returns `fn(render)` per setting in order (`fn` = the loss), `render_generation` returns the renders, `ensure_templates(presets)` captures what no host can load (one capture shared by all hosts), `stats()` reports hosts, footprint, recycles and canary replacements. `capture_missing` captures presets that differ only in CC-mapped params once (`capture_key`).
 
+### Single-block library (2026-10-16, [T048](../../board/TASKS.md#t048 "single-block capture of all Stomp-compatible models"))
+
+Evidence: ledger [2026-10-16T15:25:12](../../ledger/runs.csv?plain=1#L473 "render-cost · native · block-library-v1 · capture_per_chain_s = 0.563 (first of 3 rows at this time)") (3 rows) (render-cost `capture_per_chain_s`, `capture_batch_wall_clock_s`; smoke `library_replay_null_worst_db`), dataset `block-library-v1`. Run files: `cache/native/library/block-library-v1/runs/` (local).
+
+- **Coverage: 605 of 605 models.** The HX Edit 3.82 catalog has 661 Stomp models. 54 are routing blocks or IR-cab pan twins, and 2 are `native_unavailable()`. That leaves drive 61, delay 48, reverb 25, comp 17, EQ 8, mod 56, amp 224, cab 87, other 79. Captured breadth first in three tiers: drive/delay/reverb, then comp/EQ/mod, then amp/cab/other, with categories interleaved within each tier. There were 0 rejected drops and 0 new refused models.
+- **Every CC checked** (`verify_mode="auto"`, `known_live` off): 256 truth checks (worst -42.6 dB, the 2 misses fell back to per-CC), 349 per-CC. 4,911 of 5,015 CCs verified. 529 templates are fully verified; the other 73 bake 104 params (their CC did not move the render at defaults), mostly mod Spread (14), other FcHigh (8), delay Feedback (6) and amp Hum (5). The per-model list is under `unverified` in the index.
+- **Frozen policy:** `block_preset` writes Hum 0, Ripple 0 and cab EarlyReflections 0, the union of the Native and Stomp policies, before the drop. Ripple verified on all 91 amps that have it and ER on all 38 cabs that have it. Hum verified on 155 of 160. On 5 preamps (A30 Fawn Brt, Divided Duo, Essex A30, Matchstick Ch1/Ch2) the Hum CC is dead at defaults, so it is **baked at 0**. Templates therefore match presets under both `STOMP_FROZEN` and `NATIVE_FROZEN`. The exception is cabs: a Native-policy preset with a non-zero ER has to move ER by CC, which works because ER is verified on every cab.
+- **Fresh-host replay of every template** after its session: 602 at -282.7 dB or better. **3 blocks are time-variant**: `HD2_ReverbOcto`, `VIC_DelayGlitch` and `Victoria_ShufflingDelay`. Even the same host cannot repeat them (-68.3, -12.3 and -11.3 dB). They are kept with `time_variant: true`. Their CC "verification" is not meaningful, since any two renders differ, and no render of them can be nulled. Score them by distribution-level features, not by a null.
+- **Cost:** 340.8 s for 605 chains (0.563 s per chain); 19.95 s for the time-variant retry; **360.7 s in all**. By tier: 0.562 s (3 sessions), 0.845 s (2 sessions, because other agents held 4 hosts) and 0.504 s (3 sessions). v0's 0.39 s per chain checked fewer things: it replayed 1 template in 10 and trusted known-live CCs. Hosts stayed at 1.36-1.41 GB.
+- **Smoke:** 20 random templates (seed 48, time-variant excluded) loaded **by model id through `NativeEngine(templates_dir=library_templates())`** in one fresh host. 20 of 20 matched the baked fingerprint. Against their capture-session renders the worst null was -258.7 dB (DL4 Reverse, whose 1 s output is at -88 dB); the rest were -287 to -323 dB.
+
+**Layout** (`tonematch.engines.native_library`, local and gitignored; it holds Line 6 state, so never commit it):
+
+```
+cache/native/library/block-library-v1/
+  index.json              {"models": {model_id: {category, template, ccs, verified, params,
+                           unverified, frozen_verified, frozen_baked, ref, [time_variant,
+                           same_host_repeat_null_db, fresh_replay_null_db]}}, "failed": {},
+                           catalog_version, native_version, base, frozen, order}
+  templates/<stem>.json   ChainTemplate meta (map, ranges, verified, baked, baked_hash)
+  templates/<stem>.state  the captured Native state
+  refs/<stem>.npz         capture-session render of test_signal(1 s) after 3 s pre-roll + CC values
+  runs/*.json             capture / time-variant / smoke results
+```
+
+**For search:** `native_library.block_preset(model_id)` builds the single-block preset: catalog defaults, mono, frozen values written in, globals from `cache/stomp/inject/K.hlx`. `template_for(model_id)` or `library()` gives the templates, and `matches(tpl, preset)` checks the baked fingerprint. `NativeEngine(templates_dir=native_library.library_templates()).load(block_preset(m))` then drives every verified param by CC on the 128-step grid. Moving a baked param (listed under `unverified`) makes the template stale, which is the ordinary stale-template rule. Re-run with `scripts/native_block_library.py capture --sessions 3 --max-hosts 6`. The command resumes, and `--force` recaptures. Use `time-variant` for replay failures and `smoke --n 20`.
+
+**Stereo-only models** (31: reverb 12, other 8, mod 6, delay 5) were captured as they are. The host feeds mono in and folds the output, so these templates are fine for single-block search. Block-serial chaining of stereo blocks still needs a stereo host path ([T045](../../board/TASKS.md#t045 "Spike: block-serial rendering — one block per Native instance chained…")).
+
+### Narrower CC ranges for time and rate params (2026-10-16, [T072](../../board/TASKS.md#t072 "Narrower CC ranges for time-like and rate parameters"))
+
+Evidence: ledger [2026-10-16T16:04:28](../../ledger/runs.csv?plain=1#L638 "smoke · native · cc-range-v1 · delay_time_cc_step_ms_before = 62.99 (first of 4 rows at this time)") (4 rows, kind `smoke`, dataset `cc-range-v1`); `cache/native/cc_range_probe/result.json` and `library_check.json` (local). Lead ruling on [T066b](../../board/TASKS.md#t066b "Parity probe session closing the T066 open questions"): a 128-step CC over the catalog range left delay Time at 62.99 ms steps (0-8 s).
+
+- **Native honours each MIDI-CC assignment's own `@min`/`@max`.** `scripts/native_cc_range_probe.py` captures a block whose CC is assigned over a narrowed range, drives it to c/127, and nulls it against drop captures with the value written in. Narrowed grid `lo + c/127 (hi - lo)`: -311 to -318 dB on 18 settings (Simple Delay Time [0, 1.27] at c = 19..127; Simple Delay with `@min` moved to 0.25, so both ends are tested; Vintage Digital Time and Rate; Deluxe Phaser Rate; MM4 Chorus Speed; Dynamic Bloom Decay; one Bloom setting at -139 dB, float rounding of 1.0 s). Full-range hypothesis: -3.3 to -28.3 dB, so it is clearly wrong. An impulse's first echo lands at `lo + c/127 (hi - lo)` to 0.000 ms on all 9 Simple Delay settings (190-1270 ms). A fresh host replaying the state alone gives the same values, so the range is stored in the captured state.
+- **Rules** (`native.narrow_range`, version `CC_RANGE_RULES_VERSION = "cc-range-v1"`; applied by `native.cc_ranges` at capture):
+
+| Params | Catalog | Narrowed | Step before -> after |
+|---|---|---|---|
+| Delay echo times (`time_ms*` display, not Attack/Decay/DynAttack/DynRel) | 0-8, 0-4, 0-2, 0.02-1.8 s | [lo, lo + 1.27 s] | 62.99 / 31.5 / 15.75 / 14.0 ms -> 10 ms |
+| LFO rates in Hz (`frequency` display, max <= 20 Hz, name has Speed/Rate) | 0-15, 0-10, 0.1-8 Hz | [lo, lo + 127 s], s = 0.02, 0.04 or 0.08 Hz, the smallest that reaches max(2.5 Hz, 2 x default) | 0.118 / 0.079 / 0.062 Hz -> 0.02-0.08 Hz |
+| Reverb Decay in s (`time_sec_DynamicHall`) | 0.1-45.1 s | [0.1, 6.45] (default 2 s) or [0.1, 12.8] (default 4 s) | 0.354 s -> 0.05 / 0.1 s |
+| Unchanged: pre-delays (0-0.2 s: 1.57 ms steps against a 5 ms tolerance), fast LFOs (trem 7.55 Hz, vibrato 6.36 Hz, rotary: the 0.118 Hz step is under 2 % of the rate), 0-1 knobs, levels | | | |
+
+  Examples: Deluxe Phaser Rate [0, 2.54] puts 0.2 Hz on the grid (c = 10; it used to snap to 0.2362); MM4 Chorus Speed [0, 5.08]; delay mod Rate [0.1, 2.64]. In all, 84 params on 74 Stomp models are narrowed by the rules.
+- **No preset loses its value.** If a preset's value lies outside the narrowed range, that param keeps the catalog range at capture (`cc_ranges`), and `capture_key` includes the ranges. A template now refuses any preset whose CC-driven value lies outside its range: `out_of_range` is checked in `_match_template` and `native_library.matches`, so `load()` raises `UnsupportedModelChange` "outside its CC range" instead of clamping silently. When several templates match, the finest grid wins (`range_width_key`). Ranges live in the template meta (`ranges`, as before). `set_params`, `moved_preset`, `match_song.make_space` and `ParamSpace` already read per-template ranges, and `cc_value(lo, hi, c)` takes them as arguments.
+- **block-library-v1.1** (`native_library.VERSION`): a copy of v1 with the 73 affected templates re-captured (`scripts/native_block_library.py capture --narrowed --sessions 2`, 92.8 s). DL4 Reverse is not among them: its default Time of 2.0 s lies outside [0, 1.27]. The index records `cc_ranges` (narrowed refs) and `cc_range_rules` per model. 71 non-time-variant models loaded by model id through `NativeEngine`: 71 of 71 matched, worst -276.7 dB against their capture refs. VIC_DelayGlitch and Victoria_ShufflingDelay stay `time_variant`. v1 is still on disk.
+- **Two capture bugs fixed along the way.** (1) In one session, 5 of 73 chains produced non-finite renders. NaN compares false both ways, so their replay check neither passed nor failed: the templates were kept with 1 of N CCs verified and no ref. The replay check now fails non-finite renders. The 5 were re-captured and are fine (10/10, 15/15, 11/11, 6/8, 7/7, as in v1). (2) `time-variant` discarded a template that repeated in its host *and* now passed the fresh replay (HD2_DelayADT, whose first replay was -41.5 dB and next ones -312 dB). Such templates are now kept.
+
 ## Routes, in order (after [T018n](../../board/TASKS.md#t018n "Hands-off Native loading"))
 
 1. **C', in-process drop + MIDI-CC map** (macOS VST3, hands-off). `scripts/native_drop_load.py <hlx> --cc --start-state ...` captures a template per chain; then `load()` plus `set_params` drive up to 90 parameters per chain through `cc_<n>`. `load()` still raises `UnsupportedModelChange` for an uncaptured chain. The proposal is that the engine (or the render service) calls the drop capture itself, see DECISIONS.

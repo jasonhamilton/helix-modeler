@@ -57,6 +57,16 @@ def load(name: str, di: str, eng: str, rep: bool = False) -> np.ndarray | None:
     return x.mean(axis=1)
 
 
+def stomp_on_grid(names: list[str]) -> dict[str, bool]:
+    """{model: True} when its Stomp render was made from Native's snapped CC-grid values (scripts/parity_snap.py; the
+    marker is written by parity_spot.py stomp), else False (the T060 renders)."""
+    try:
+        marks = json.loads((OUT / "snapped_stomp.json").read_text())
+    except (OSError, ValueError):
+        marks = {}
+    return {n: bool(marks.get(n)) for n in names}
+
+
 def chain_matches_ref(name: str) -> bool:
     """True when the preset's amp and cab (everything before the effect slot) equal the reference's,
     so ER_000's render is that engine's input to the effect block."""
@@ -347,6 +357,11 @@ def main(argv=None) -> int:
                 print(f"{n:28s} {x['class']:14s} null {d['null_db']:.1f} <10k {d['null_db_below_hz']['10000']:.1f} "
                       f"core {d['core_band_diff_max_abs_db']:.2f} harm {d.get('harmonic_diff_max_abs_db', float('nan')):.2f} "
                       f"lvl {d['level_diff_db']:+.2f}", flush=True)
+    res["stomp_on_native_grid"] = on_grid = stomp_on_grid(pick)
+    off = [n for n, v in on_grid.items() if not v]
+    if off:      # parity method rule: these Stomp renders used requested values, not Native's CC-grid values (noted, not voided)
+        print(f"NOTE: {len(off)} of {len(on_grid)} models were rendered on the Stomp with off-grid values (T060, before the "
+              f"method rule); grid steps may show up as engine differences: {' '.join(off)}", flush=True)
     res["stomp_chain_floor"] = stomp_chain_floor()
     res["wall_clock_s"] = wall = round(time.perf_counter() - t0, 1)
     full = OUT / "timefx_full.json"

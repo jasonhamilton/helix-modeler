@@ -657,3 +657,20 @@ def test_up_next_is_optional_validated_and_shown_in_both_formats(tmp_path):
     bad["up_next"] = [{"area": "x", "text": "no evidence", "evidence": []}]
     errs = sr.validate_curated(bad, registry(), facts(tmp_path))
     assert any("up_next work without evidence" in e for e in errs)
+
+
+def test_ledger_rows_sharing_a_timestamp_link_by_metric(tmp_path):
+    import evidence_links
+    (tmp_path / "ledger").mkdir()
+    head = "timestamp,commit,agent,kind,engine,dataset,metric,value,renders,wall_clock_s,notes\n"
+    ts = "2026-10-15T23:48:51+00:00"
+    (tmp_path / "ledger" / "runs.csv").write_text(
+        head + f"{ts},x,a,render-cost,stomp,stomp-speed,seconds_per_render_clip3s,3.6,,,n\n"
+               f"{ts},x,a,render-cost,stomp,stomp-speed,seconds_per_render_clip10s,10.6,,,n\n", encoding="utf-8")
+    idx = evidence_links.Index(tmp_path, "..")
+    text = f"ledger {ts} seconds_per_render_clip10s; and {ts} seconds_per_render_clip3s row 2"
+    out = sr.link_ledger_metrics(text, idx, evidence_links._md_fmt)
+    assert f"[{ts}](../ledger/runs.csv?plain=1#L3 " in out          # clip10s is the second data row (line 3)
+    assert f"[{ts}](../ledger/runs.csv?plain=1#L2 " in out          # explicit row 2 is the clip3s row
+    # a metric that names no row is left to the generic linker
+    assert sr.link_ledger_metrics(f"{ts} nothing_here", idx, evidence_links._md_fmt) == f"{ts} nothing_here"

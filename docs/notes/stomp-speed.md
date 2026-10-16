@@ -146,3 +146,17 @@ If the human wants it for listening sessions, it would take:
 - **Decision:** no policy qualifies, so the Stomp default is the full excerpt with the readback-every-10 and measured-tail options (the [T061](../../board/TASKS.md#t061 "Stomp speed improvements and assignment-free base") savings that do not touch quality). Short clips stay selectable: `--clip-policy loudest3|loudest5|beam3-refine-full|spread`. If time on the pedal is the limit, `beam3-refine-full` is the one to try first, with a re-check on more seeds.
 - **What it costs.** On Stomp the default per trial is about 8 s ([T061](../../board/TASKS.md#t061 "Stomp speed improvements and assignment-free base") measured 3.76 s with a 3 s clip and 10.9 s with a 10 s clip and legacy options), so a 30-trial search takes about 4.5 minutes.
 - Tests: `tests/test_match_song.py` (`test_spread_view_*`, `test_clip_policy_views_lengths`, `test_stomp_default_searches_the_full_excerpt_*`, `test_stomp_short_clip_policy_is_opt_in`, `test_stomp_beam_short_then_refine_full`).
+
+### [T065](../../board/TASKS.md#t065 "Clip-length study on Native") follow-up: 15 seeds, full versus 3 s beam then full refine (search, 2026-10-16)
+
+The earlier note said to re-check `beam3-refine-full` on more seeds. This did: Native, same section, DI, chain and trial counts, seeds 5-14 run new and pooled with seeds 0-4 (15 per policy). Lower is better. The lead's rule: switch the Stomp default only if the 95% bootstrap interval of the paired (same seed) difference stays within +0.5 points.
+
+| | full | beam3-refine-full |
+|---|---|---|
+| Median final score, 15 seeds | 8.49 | 8.59 |
+| Range | 6.95-9.85 | 7.93-10.73 |
+
+- **Paired difference (beam3-refine-full minus full):** median +0.08, mean +0.29. Bootstrap 95% interval of the median is -0.73 to +1.34 (20000 resamples). Worse on 8 of 15 seeds, so there is no consistent direction: it is within seed noise (the full excerpt alone has a standard deviation of 0.80).
+- **Decision:** the upper end, +1.34, is above the +0.5 margin. The 15 seeds cannot show the two are practically equivalent (the interval is wide, not shifted), so the Stomp default stays `full`. `--clip-policy beam3-refine-full` stays opt-in for when pedal time is the limit; the expected loss is small but not bounded below 0.5 by this data.
+- Seeds 0-4 gave a median of 8.36 and 9.16 earlier; with 15 seeds the gap shrinks to 0.1, so the earlier gap was mostly noise.
+- Runs: `cache/matches/cliplen/<policy>_s<seed>/`. No code change; no new test.

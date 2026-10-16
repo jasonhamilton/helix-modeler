@@ -262,6 +262,51 @@ def test_trust_check_proxy_smoke(tmp_path):
     assert set(rep["summary"]["heldout_notes"]) >= set(NO_DI_TERMS) | {"mrstft"}
 
 
+def _fake_helix_set(root, n_cand: int = 5, seconds: float = 2.0):
+    """A tiny helix-trust-v1 layout: manifest plus candidate renders on DI A and B (proxy DSP)."""
+    from tonematch.metrics import proxy
+    rng = np.random.default_rng(7)
+    p = proxy.random_preset(rng)
+    di = {"A": proxy.guitar_di(1, seconds), "B": proxy.guitar_di(2, seconds)}
+    labels = ["true", "near:x", "nbr:m", "random:EQ", "random:Cab"][:n_cand]
+    presets = [p, proxy.perturb_group(p, "cab", rng)] + [proxy.random_preset(rng) for _ in labels[2:]]
+    d = root / "renders" / "item00"
+    d.mkdir(parents=True)
+    for k, q in enumerate(presets):
+        for tag in ("A", "B"):
+            np.save(d / f"c{k:02d}_{tag}.npy", proxy.render(q, di[tag]).astype(np.float32))
+    mf = {"dataset": "helix-trust-v1", "seed": 1, "seconds": seconds,
+          "items": [{"item": 0, "category": "Cab", "true_model": "m",
+                     "candidates": [{"label": lab} for lab in labels]}]}
+    (root / "manifest.json").write_text(json.dumps(mf))
+
+
+def test_trust_check_helix_mode_on_a_fake_set(tmp_path):
+    _fake_helix_set(tmp_path)
+    out = tmp_path / "r.json"
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "loss_trust_check.py"), "--helix", "--all",
+                        "--helix-dir", str(tmp_path), "--jobs", "1", "--out", str(out)],
+                       check=False, capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, r.stderr
+    rep = json.loads(out.read_text())
+    assert rep["proxy"] is False and rep["engine"] == "native" and rep["distractors"] == 4
+    assert rep["subsets"] == ["clean/other_di", "sep/other_di", "sep/same_notes"]   # no DI C here
+    for s in rep["subsets"]:
+        sm = rep["summary"][s]
+        assert set(sm) >= set(NO_DI_TERMS) | {"mrstft", "provisional_sum"}
+        for t in sm.values():
+            assert {"rank1_vs_near_only", "rank1_vs_nbr_only", "rank1_vs_random_only", "margin_median",
+                    "rank1_audible_only", "rank1_by_category"} <= set(t)
+    it = rep["per_item"][0]
+    assert it["null_db_same_notes"][0] < -100     # the true preset nulls against itself
+
+
+def test_trust_check_helix_mode_without_set_exits_2(tmp_path):
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "loss_trust_check.py"), "--helix", "--all",
+                        "--helix-dir", str(tmp_path)], check=False, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 2 and "helix_trust_set.py" in r.stderr
+
+
 def test_trust_check_without_synthetic_set_exits_2():
     if (ROOT / "fixtures" / "synthetic" / "manifest.json").exists():
         pytest.skip("synthetic set present")

@@ -585,7 +585,7 @@
       },
       "score": {
         "label": "One comparison (score) of a candidate against a target",
-        "means": "Measure how far a rendered candidate is from the target tone."
+        "means": "Measure how far a rendered candidate is from the target tone. From the trust check's scoring-cost rows: the three signal-processing terms added, render excluded."
       },
       "parity": {
         "label": "One parity comparison (per preset)",
@@ -596,8 +596,8 @@
         "means": "The quick end-to-end check that an engine loads a preset and returns sound."
       },
       "search_run": {
-        "label": "A search run, wall-clock per render call",
-        "means": "Total run time divided by the renders it made, engine start-up included."
+        "label": "A search run, per trial",
+        "means": "Native: the run's wall clock divided by its renders, engine start-up included. Pedal: seconds per trial of the default search run (3 s clip)."
       },
       "load": {
         "label": "One preset load or model change",

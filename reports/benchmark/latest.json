@@ -1,0 +1,295 @@
+{
+ "schema": 1,
+ "run_id": "20261015T213450Z",
+ "started_utc": "2026-10-15T21:34:50+00:00",
+ "finished_utc": "2026-10-15T21:40:38+00:00",
+ "elapsed_s": 348.4,
+ "commit": "3829a89-dirty",
+ "machine": {
+  "os": "Darwin",
+  "os_version": "27.0.1",
+  "arch": "arm64",
+  "cpu_count": 10,
+  "python": "3.12.14",
+  "ram_gb": 32,
+  "native_version": "3.82",
+  "stomp_firmware": "3.50"
+ },
+ "options": {
+  "no_hardware": false,
+  "no_ledger": false,
+  "tests_run": [
+   "smoke_native",
+   "smoke_stomp",
+   "parity",
+   "loss_trust",
+   "synthetic_recovery",
+   "separation_stress",
+   "block_probe",
+   "unit_tests",
+   "lint"
+  ]
+ },
+ "contention": {
+  "load_avg_at_start": 3.02,
+  "native_host_processes_at_start": 0,
+  "notes": []
+ },
+ "total_wall_clock_s": 348.25,
+ "counts": {
+  "pass": 6,
+  "fail": 1,
+  "skipped": 0,
+  "not available": 2
+ },
+ "tests": [
+  {
+   "id": "smoke_native",
+   "name": "Engine smoke, Helix Native",
+   "checks": "Native loads a known preset and renders a 2 s clean guitar clip",
+   "status": "pass",
+   "reason": "",
+   "key_result": "renders cleanly: peak -13.8 dBFS, 0.17 s per render",
+   "metrics": [
+    {
+     "name": "peak",
+     "value": -13.8,
+     "unit": "dBFS"
+    },
+    {
+     "name": "render_cost",
+     "value": 0.168,
+     "unit": "s/render"
+    }
+   ],
+   "pass_rule": "length right, no invalid values, peak between -30 and -1 dBFS, at least 20 dB above the noise floor",
+   "wall_clock_s": 6.76,
+   "ledger_rows": [
+    "2026-10-15T21:34:57+00:00",
+    "2026-10-15T21:34:57+00:00"
+   ],
+   "extra": {}
+  },
+  {
+   "id": "smoke_stomp",
+   "name": "Engine smoke, HX Stomp",
+   "checks": "The pedal loads the same preset, renders the clip, and is put back on its own preset",
+   "status": "pass",
+   "reason": "",
+   "key_result": "renders cleanly: peak -13.5 dBFS, 2.66 s per render",
+   "metrics": [
+    {
+     "name": "peak",
+     "value": -13.5,
+     "unit": "dBFS"
+    },
+    {
+     "name": "render_cost",
+     "value": 2.659,
+     "unit": "s/render"
+    }
+   ],
+   "pass_rule": "same checks as Native, health check passes, original preset restored",
+   "wall_clock_s": 12.81,
+   "ledger_rows": [
+    "2026-10-15T21:35:09+00:00",
+    "2026-10-15T21:35:09+00:00"
+   ],
+   "extra": {}
+  },
+  {
+   "id": "parity",
+   "name": "Hardware parity (null test)",
+   "checks": "Same clean guitar clip and presets K, A, B0, B00 and BT0 through the Stomp and Native, aligned, level-matched and subtracted",
+   "status": "pass",
+   "reason": "",
+   "key_result": "null (dB, lower is closer): K -31.0, A -30.9, B0 -37.1, B00 -39.7; delay-tail level, Stomp minus Native +1.3 dB; pedal restored byte for byte",
+   "metrics": [
+    {
+     "name": "null_K",
+     "value": -31.0,
+     "unit": "dB"
+    },
+    {
+     "name": "null_A",
+     "value": -30.9,
+     "unit": "dB"
+    },
+    {
+     "name": "null_B0",
+     "value": -37.1,
+     "unit": "dB"
+    },
+    {
+     "name": "null_B00",
+     "value": -39.7,
+     "unit": "dB"
+    },
+    {
+     "name": "delay_tail_level_diff",
+     "value": 1.34,
+     "unit": "dB"
+    }
+   ],
+   "pass_rule": "null at or below -30 dB for K, A, B0 and B00; delay tail (BT0) level within 2 dB; 04C restored and byte-diffed",
+   "wall_clock_s": 142.16,
+   "ledger_rows": [
+    "2026-10-15T21:37:31+00:00",
+    "2026-10-15T21:37:31+00:00",
+    "2026-10-15T21:37:31+00:00",
+    "2026-10-15T21:37:31+00:00",
+    "2026-10-15T21:37:31+00:00",
+    "2026-10-15T21:37:31+00:00",
+    "2026-10-15T21:37:31+00:00",
+    "2026-10-15T21:37:31+00:00",
+    "2026-10-15T21:37:32+00:00",
+    "2026-10-15T21:37:32+00:00",
+    "2026-10-15T21:37:32+00:00"
+   ],
+   "extra": {
+    "stomp_firmware": "3.50",
+    "native_version": "3.82"
+   }
+  },
+  {
+   "id": "loss_trust",
+   "name": "Loss trust check (proxy)",
+   "checks": "Does each scoring method rank the true setup first among 15 decoys? On stand-in digital effects, not Helix, because the Helix set is not rendered",
+   "status": "pass",
+   "reason": "",
+   "key_result": "best held-out rank-1 0.28 (provisional_sum) over 40 items; chance 0.062; combined score 0.28 vs the 0.95 needed on real Helix audio: not trusted yet",
+   "metrics": [
+    {
+     "name": "rank1_ltas_tilt",
+     "value": 0.15,
+     "unit": "fraction"
+    },
+    {
+     "name": "rank1_crest_flatness_hnr",
+     "value": 0.15,
+     "unit": "fraction"
+    },
+    {
+     "name": "rank1_envelope",
+     "value": 0.1,
+     "unit": "fraction"
+    },
+    {
+     "name": "rank1_mrstft",
+     "value": 0.0,
+     "unit": "fraction"
+    },
+    {
+     "name": "rank1_provisional_sum",
+     "value": 0.275,
+     "unit": "fraction"
+    }
+   ],
+   "pass_rule": "no method's held-out rank-1 falls more than 0.05 below the previous run (seeds 9301, 9302); the 0.90 / 0.95 admission rule needs Helix audio",
+   "wall_clock_s": 87.17,
+   "ledger_rows": [
+    "2026-10-15T21:38:58+00:00",
+    "2026-10-15T21:38:58+00:00",
+    "2026-10-15T21:38:58+00:00",
+    "2026-10-15T21:38:58+00:00",
+    "2026-10-15T21:38:59+00:00",
+    "2026-10-15T21:38:59+00:00",
+    "2026-10-15T21:38:59+00:00",
+    "2026-10-15T21:38:59+00:00"
+   ],
+   "extra": {}
+  },
+  {
+   "id": "synthetic_recovery",
+   "name": "Synthetic recovery (CI subset)",
+   "checks": "Can the matcher recover known presets from their sound?",
+   "status": "not available",
+   "reason": "not available: the synthetic set has labels only (180 labelled items) and no rendered audio yet",
+   "key_result": "",
+   "metrics": [],
+   "pass_rule": "the Gate 2 targets in docs/BENCHMARKING.md",
+   "wall_clock_s": 0.0,
+   "ledger_rows": [],
+   "extra": {}
+  },
+  {
+   "id": "separation_stress",
+   "name": "Separation stress",
+   "checks": "How fast does accuracy fall as the mix gets denser?",
+   "status": "not available",
+   "reason": "not available: the synthetic set has labels only (180 labelled items) and no rendered audio yet",
+   "key_result": "",
+   "metrics": [],
+   "pass_rule": "recorded as a curve, not gated",
+   "wall_clock_s": 0.0,
+   "ledger_rows": [],
+   "extra": {}
+  },
+  {
+   "id": "block_probe",
+   "name": "Block-probe validate (synthetic)",
+   "checks": "Does the probe analysis measure known synthetic blocks correctly?",
+   "status": "pass",
+   "reason": "",
+   "key_result": "63 of 63 checks within tolerance on 14 known synthetic blocks",
+   "metrics": [
+    {
+     "name": "checks_passed",
+     "value": 63,
+     "unit": "of 63"
+    }
+   ],
+   "pass_rule": "every check within its tolerance",
+   "wall_clock_s": 8.33,
+   "ledger_rows": [
+    "2026-10-15T21:39:07+00:00"
+   ],
+   "extra": {}
+  },
+  {
+   "id": "unit_tests",
+   "name": "Offline unit tests (pytest -q)",
+   "checks": "The repository's offline tests",
+   "status": "fail",
+   "reason": "...\"], -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html =========================== short test summary info ============================ FAILED tests/test_task_links.py::test_real_docs_are_linked - AssertionError: ... 1 failed, 401 passed, 1 skipped, 1 warning in 90.33s (0:01:30)",
+   "key_result": "401 tests passed, 1 failed, 1 skipped",
+   "metrics": [
+    {
+     "name": "passed",
+     "value": 401,
+     "unit": "tests"
+    },
+    {
+     "name": "failed",
+     "value": 1,
+     "unit": "tests"
+    }
+   ],
+   "pass_rule": "no test fails",
+   "wall_clock_s": 90.95,
+   "ledger_rows": [],
+   "extra": {}
+  },
+  {
+   "id": "lint",
+   "name": "Lint (ruff)",
+   "checks": "Style and simple bug checks on src, tests and scripts",
+   "status": "pass",
+   "reason": "",
+   "key_result": "no lint problems in src, tests and scripts",
+   "metrics": [
+    {
+     "name": "problems",
+     "value": 0,
+     "unit": "findings"
+    }
+   ],
+   "pass_rule": "no findings",
+   "wall_clock_s": 0.07,
+   "ledger_rows": [],
+   "extra": {}
+  }
+ ],
+ "suite_ledger_row": "2026-10-15T21:40:38+00:00",
+ "previous_run_id": null
+}

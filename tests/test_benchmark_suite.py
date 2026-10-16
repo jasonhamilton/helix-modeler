@@ -249,3 +249,34 @@ def test_unit_test_failure_names_the_failing_tests(ctx):
     res = bs.t_unit(ctx)
     assert res.status == bs.FAIL
     assert res.reason == "failing: tests/test_a.py::test_x, tests/test_b.py::test_y"
+
+
+def _synth_summary(tmp_path, **kw):
+    d = tmp_path / "set"
+    (d / "runs" / "suite").mkdir(parents=True)
+    (d / "manifest.json").write_text("{}")
+    s = {"items": 8, "block_f1": 0.5, "model_acc": 0.25, "model_acc_chance": 0.18, "param_mae": 0.2,
+         "rank1_rate": 0.1, "rank1_rate_audible": 0.1, "loss_heldout": 5.0,
+         "weights": "provisional, not gate evidence", **kw}
+    (d / "runs" / "suite" / "summary.json").write_text(json.dumps(s))
+    return d
+
+
+def test_synthetic_recovery_reports_the_subset_run(ctx, monkeypatch, tmp_path):
+    monkeypatch.undo()   # drop the fixture's NA stub; use the real gate against a temp set
+    monkeypatch.setattr(bs, "SYNTH_SET", _synth_summary(tmp_path))
+    ctx.runner = lambda argv, env, timeout: (ctx.calls.append(argv), bs.CmdResult(0, "ok"))[1]
+    res = bs.t_synthetic(ctx)
+    assert res.status == bs.PASS and "provisional, not gate evidence" in res.key_result
+    args = " ".join(ctx.calls[0])
+    assert "synthetic_v1.py run --items 8" in args and "--redo" in args
+    assert {m["name"] for m in res.metrics} >= {"block_f1", "model_acc", "param_mae", "rank1_rate"}
+
+
+def test_synthetic_recovery_regression_fails_and_missing_set_is_na(ctx, monkeypatch, tmp_path):
+    monkeypatch.undo()
+    monkeypatch.setattr(bs, "SYNTH_SET", _synth_summary(tmp_path))
+    ctx.runner = lambda argv, env, timeout: bs.CmdResult(1, "", "REGRESSION synthetic-v1-n8 model_acc")
+    assert bs.t_synthetic(ctx).status == bs.FAIL
+    monkeypatch.setattr(bs, "SYNTH_SET", tmp_path / "nowhere")
+    assert bs.t_synthetic(ctx).status == bs.NA
