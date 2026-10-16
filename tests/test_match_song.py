@@ -346,6 +346,7 @@ def test_top3_hlx_written_from_result_json(tmp_path):
     assert read_hlx(tmp_path / "rank2_known.hlx").slots[0].params["Drive"] == pytest.approx(0.4)
 
 
+@needs_known
 def test_space_snaps_to_the_cc_grid_and_hlx_keeps_snapped_values(tmp_path):
     from tonematch.preset import read_hlx
 
