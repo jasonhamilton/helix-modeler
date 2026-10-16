@@ -268,6 +268,30 @@ def load_catalog(version: str = "current", cache_dir: Path | None = None) -> dic
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def native_unavailable() -> set[str]:
+    """Models in HX Edit's catalog that the user's Helix Native refuses ("Invalid model"), from
+    native-engine's capture log (``invalid_models()``; lead-approved 2026-10-16: treat these as
+    not available on Native). Empty when Native was never scanned or is not installed."""
+    try:
+        from .engines.native import invalid_models
+    except Exception:  # noqa: BLE001 - the Native engine's optional deps are missing
+        return set()
+    return invalid_models()
+
+
+def available_on(model_id: str, engine: str, catalog: dict | None = None,
+                 unavailable: set[str] | None = None) -> bool:
+    """Whether ``engine`` (``"stomp"`` or ``"native"``) can load ``model_id``: Stomp needs the
+    catalog's ``stomp`` flag, Native also excludes ``native_unavailable()`` (pass ``unavailable``
+    to avoid re-reading it)."""
+    m = (catalog or {}).get("models", {}).get(model_id) if catalog else None
+    if engine == "stomp":
+        return m is None or bool(m.get("stomp", True))
+    if engine == "native":
+        return model_id not in (native_unavailable() if unavailable is None else unavailable)
+    raise ValueError(f"unknown engine {engine!r}")
+
+
 # ----------------------------------------------------------------------------- cross-check
 
 

@@ -24,7 +24,8 @@ physical footprint for the life of the process. pedalboard classifies Native as
 every call: a 3 s pre-roll render grew the host by ~355 MB each time (7 GB after ~15 renders,
 then SIGKILL under memory pressure), and ``load_plugin`` (``open``/``reload_with_state``) by
 ~1.3-1.6 GB. The fix is ``reset_strategy="state"`` (default): a reset render pads the instance
-to a whole 16-sample Native frame (``FRAME``), re-applies the last loaded state, re-sends every
+to a whole 16-sample Native frame and a whole 120 BPM beat (``reset_frame``: 24,000 samples at
+48 kHz, since Native's modulation runs on a free-running beat clock), re-applies the last loaded state, re-sends every
 parameter set since (forced: JUCE skips a value equal to its cache, and a state load does not
 refresh the cache) and processes with ``reset=False``. Renders are bit-identical to each
 preset's own drop capture (-317 dB) and history-independent (-313 dB after 40 random trials),
@@ -38,6 +39,7 @@ the parent can recycle a host that still grows (``reload_with_state`` cannot avo
 from __future__ import annotations
 
 import json
+import math
 import os
 import struct
 import sys
@@ -109,7 +111,26 @@ RESET_STRATEGIES = ("state", "reinstantiate")
 # Native 3.82 runs its DSP in 16-sample frames behind a FIFO that survives a state load: a render
 # is history-independent only if the instance has processed a multiple of this many samples when
 # the state is re-applied (measured 2026-10-15; see the module docstring).
-FRAME = int(os.environ.get("TONEMATCH_NATIVE_FRAME", "16"))
+NATIVE_FRAME = 16
+# Native's modulation (chorus LFO, reverb modulation) runs on a free-running beat clock at
+# 120 BPM counted in processed samples, which a state load does not reset: with only the
+# 16-sample alignment, repeat renders of a chain with a chorus cycled through three versions
+# (-30.3 / -36.2 dB) with the render count, whatever the wall-clock time between them. Aligning
+# the re-applied state to a whole beat (24,000 samples at 48 kHz; 16,000 does not work, 24,000,
+# 48,000 and 96,000 do) makes them bit-exact again (-332.5 dB). Measured 2026-10-15 (phase 2).
+BEAT_BPM = 120.0
+FRAME_ENV = os.environ.get("TONEMATCH_NATIVE_FRAME")
+
+
+def reset_frame(sr: int) -> int:
+    """Samples a reset render aligns the instance to: lcm(Native frame, one 120 BPM beat)."""
+    if FRAME_ENV:
+        return int(FRAME_ENV)
+    beat = round(sr * 60.0 / BEAT_BPM)
+    return math.lcm(NATIVE_FRAME, beat)
+
+
+FRAME = NATIVE_FRAME  # kept for callers; reset renders use reset_frame(sr)
 
 
 def _away(v: float) -> float:
@@ -305,7 +326,7 @@ class Host:
             if hasattr(p, "raw_state"):
                 self.instances += 1  # pedalboard re-creates external plugins on reset
             return True, "pedalboard"
-        pad = (-self.processed) % FRAME
+        pad = (-self.processed) % reset_frame(self.sr)
         if pad:
             self._process(np.zeros((self.channels, pad), dtype=np.float32))
         p.raw_state = self._base
@@ -368,6 +389,30 @@ class Host:
         return drop_file(self.plugin, path, tuple(point or DEFAULT_DROP_POINT),
                          open_wait_s=open_wait_s, load_wait_s=load_wait_s, snap_prefix=snap_prefix,
                          auto_close=auto_close)
+
+    def editor_drop_many(self, paths: list, point: list | None = None, open_timeout_s: float = 20.0,
+                         load_timeout_s: float = 8.0, poll_s: float = 0.1, stable_polls: int = 2,
+                         settle_s: float = 0.3, drop_timeout_s: float = 10.0,
+                         dialog_snap_prefix: str | None = None, **_) -> tuple[dict, bytes]:
+        """Phase 3: one editor session, each of ``paths`` dropped in turn (macOS only).
+
+        Replies with ``results`` (per file: ``state_len``, ``load_s``, ``dialogs``, ``windows``,
+        ``error``) and the captured states concatenated in order as the payload. A rejected
+        load (any extra window, a drop stuck in a modal loop, an unchanged state) ends the
+        session at that file, with the window snapshotted under ``dialog_snap_prefix`` and closed.
+        """
+        from tonematch.engines.native_gui import DEFAULT_DROP_POINT, drop_files
+
+        r = drop_files(self.plugin, list(paths), tuple(point or DEFAULT_DROP_POINT),
+                       open_timeout_s=open_timeout_s, load_timeout_s=load_timeout_s,
+                       poll_s=float(poll_s), stable_polls=int(stable_polls), settle_s=float(settle_s),
+                       drop_timeout_s=float(drop_timeout_s), dialog_snap_prefix=dialog_snap_prefix)
+        blobs = []
+        for res in r["results"]:
+            st = res.pop("state", None) or b""
+            res["state_len"] = len(st)
+            blobs.append(st)
+        return r, b"".join(blobs)
 
     def ping(self, **_) -> dict:
         return {"pid": os.getpid()}

@@ -630,17 +630,32 @@ def diff_blocks(base: list[dict], other: list[dict], cat: dict) -> list[str]:
 BASE_PRIORITY = ["K", "B00", "C", "H", "best_snapshot1"]
 
 
-def build_model(root: Path, ev: Evidence, cat: dict, policy: list[dict]) -> dict:
+def refused_by_native() -> set[str]:
+    """Models HX Edit lists but Native 3.82 refuses (tonematch.catalog.native_unavailable())."""
+    try:
+        sys.path.insert(0, str(ROOT / "src"))
+        from tonematch.catalog import native_unavailable
+        return set(native_unavailable())
+    except Exception:  # noqa: BLE001 - package or Native scan missing: nothing known to be refused
+        return set()
+
+
+def build_model(root: Path, ev: Evidence, cat: dict, policy: list[dict],
+                refused: set[str] | None = None) -> dict:
     models = cat["models"]
+    refused = refused_by_native() if refused is None else refused
     # --- availability per category
-    cats: dict[str, dict] = {c: {"stomp": 0, "stomp_newfw": 0, "native": 0, "ids": []} for c in GUI_CATEGORIES}
-    cats["Other"] = {"stomp": 0, "stomp_newfw": 0, "native": 0, "ids": []}
+    cats: dict[str, dict] = {c: {"stomp": 0, "stomp_newfw": 0, "native": 0, "refused": 0, "ids": []} for c in GUI_CATEGORIES}
+    cats["Other"] = {"stomp": 0, "stomp_newfw": 0, "native": 0, "refused": 0, "ids": []}
     for mid, m in models.items():
         c = gui_category(m)
         if c is None:
             continue
         ok, newfw = stomp_usable(m)
-        cats[c]["native"] += 1
+        if mid in refused:
+            cats[c]["refused"] += 1
+        else:
+            cats[c]["native"] += 1
         cats[c]["stomp"] += ok
         cats[c]["stomp_newfw"] += newfw
         cats[c]["ids"].append(mid)
@@ -718,7 +733,7 @@ def build_model(root: Path, ev: Evidence, cat: dict, policy: list[dict]) -> dict
             continue
         dash.append({
             "cat": c, "stomp_avail": cats[c]["stomp"], "stomp_newfw": cats[c]["stomp_newfw"],
-            "native_avail": cats[c]["native"],
+            "native_avail": cats[c]["native"], "native_refused": cats[c]["refused"],
             "stomp_tested": sum(m["stomp_rendered"] for m in ms),
             "native_tested": sum(m["native_rendered"] for m in ms),
             "stomp_written": sum(1 for m in ms if m["stomp_hows"] and not m["stomp_rendered"]),
@@ -1112,7 +1127,7 @@ def category_section(c: str, model: dict, cat: dict) -> str:
                     key=lambda m: m["name"])
     colour = CAT_COLOURS.get(c, "#888")
     out = [(f'<section id="cat-{slug(c)}"><h3><span class="sw" style="background:{colour}"></span>{e(c)} '
-           f'<small>Stomp 3.50: {d["stomp_avail"]} | Native 3.82: {d["native_avail"]} | tested Stomp {d["stomp_tested"]}, Native {d["native_tested"]}</small></h3>')]
+           f'<small>Stomp 3.50: {d["stomp_avail"]} | Native 3.82: {d["native_avail"]} (refused by Native: {d["native_refused"]}) | tested Stomp {d["stomp_tested"]}, Native {d["native_tested"]}</small></h3>')]
     if tested:
         out.append('<div class="scroll"><table><tr><th>Model</th><th>Stomp (fw 3.50)</th><th>Native (3.82)</th>'
                    '<th>Parity null, Stomp vs Native</th><th>Status</th></tr>')
@@ -1146,18 +1161,18 @@ def dash_html(model: dict) -> str:
     tot = Counter()
     for d in model["dash"]:
         colour = CAT_COLOURS.get(d["cat"], "#888")
-        for k in ("stomp_avail", "stomp_newfw", "native_avail", "stomp_tested", "native_tested", "parity", "in_parity", "mismatch", "untested"):
+        for k in ("stomp_avail", "stomp_newfw", "native_avail", "native_refused", "stomp_tested", "native_tested", "parity", "in_parity", "mismatch", "untested"):
             tot[k] += d[k]
         rows.append(f'<tr><td><span class="sw" style="background:{colour}"></span><a href="#cat-{slug(d["cat"])}">{e(d["cat"])}</a></td>'
-                    f'<td class="n">{d["stomp_avail"]}</td><td class="n">{d["stomp_newfw"]}</td><td class="n">{d["native_avail"]}</td>'
+                    f'<td class="n">{d["stomp_avail"]}</td><td class="n">{d["stomp_newfw"]}</td><td class="n">{d["native_avail"]}</td><td class="n">{d["native_refused"]}</td>'
                     f'<td class="n">{d["stomp_tested"]}</td><td class="n">{d["native_tested"]}</td>'
                     f'<td class="n">{d["parity"]}</td><td class="n">{d["in_parity"]}</td><td class="n">{d["mismatch"]}</td>'
                     f'<td class="n">{d["untested"]}</td></tr>')
     rows.append("<tr><th>All</th>" + "".join(f'<th class="n">{tot[k]}</th>' for k in
-                ("stomp_avail", "stomp_newfw", "native_avail", "stomp_tested", "native_tested", "parity", "in_parity", "mismatch", "untested")) + "</tr>")
-    return ('<div class="scroll"><table><tr><th rowspan=2>Category</th><th colspan=3>Models available</th><th colspan=2>Rendered</th>'
+                ("stomp_avail", "stomp_newfw", "native_avail", "native_refused", "stomp_tested", "native_tested", "parity", "in_parity", "mismatch", "untested")) + "</tr>")
+    return ('<div class="scroll"><table><tr><th rowspan=2>Category</th><th colspan=4>Models available</th><th colspan=2>Rendered</th>'
             '<th colspan=3>Parity (both engines)</th><th rowspan=2>Untested in Native</th></tr>'
-            '<tr><th>Stomp fw 3.50</th><th>Stomp, needs newer fw</th><th>Native 3.82</th><th>on Stomp</th><th>in Native</th>'
+            '<tr><th>Stomp fw 3.50</th><th>Stomp, needs newer fw</th><th>Native 3.82</th><th>Refused by Native</th><th>on Stomp</th><th>in Native</th>'
             '<th>checked</th><th>in parity</th><th>known mismatch</th></tr>' + "".join(rows) + "</table></div>")
 
 
@@ -1352,9 +1367,9 @@ def render_markdown(model: dict, cards: list[dict], ev: Evidence, cat: dict, pol
           "Open `index.html` next to this file for the charts (spectra, per-octave residuals, parameter overlays)."), "",
           (f"Catalog HX Edit {cat.get('_source', {}).get('hxedit_version', NATIVE_TEXT)}; pedal firmware {PEDAL_FW_TEXT}; Native {NATIVE_TEXT}. "
           f"In parity = Stomp-vs-Native null at or below {PARITY_DB:.0f} dB."), "", "## Dashboard", "",
-          "| Category | Stomp 3.50 | Stomp needs newer fw | Native 3.82 | Rendered on Stomp | Rendered in Native | Parity checked | In parity | Known mismatch | Untested in Native |",
-          "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
-    keys = ("stomp_avail", "stomp_newfw", "native_avail", "stomp_tested", "native_tested", "parity", "in_parity", "mismatch", "untested")
+          "| Category | Stomp 3.50 | Stomp needs newer fw | Native 3.82 | Refused by Native | Rendered on Stomp | Rendered in Native | Parity checked | In parity | Known mismatch | Untested in Native |",
+          "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    keys = ("stomp_avail", "stomp_newfw", "native_avail", "native_refused", "stomp_tested", "native_tested", "parity", "in_parity", "mismatch", "untested")
     tot = Counter()
     for d in model["dash"]:
         md.append(f"| {d['cat']} | " + " | ".join(str(d[k]) for k in keys) + " |")
@@ -1419,13 +1434,14 @@ def safe_out(root: Path, out: Path) -> Path:
     return o
 
 
-def generate(root: Path, out: Path, formats: tuple[str, ...] = ("html", "md"), json_path: Path | None = None) -> dict:
+def generate(root: Path, out: Path, formats: tuple[str, ...] = ("html", "md"), json_path: Path | None = None,
+             refused: set[str] | None = None) -> dict:
     root = root.resolve()
     out = safe_out(root, out)
     cat = load_catalog(root)
     policy = load_policy(root)
     ev, _ = collect(root)
-    model = build_model(root, ev, cat, policy)
+    model = build_model(root, ev, cat, policy, refused)
     cards = group_cards(ev, cat)
     gen = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M UTC")
     out.mkdir(parents=True, exist_ok=True)
@@ -1468,7 +1484,7 @@ def main(argv: list[str] | None = None) -> int:
     for p in res["written"]:
         print(p)
     for d in res["model"]["dash"]:
-        print(f"{d['cat']:<18} stomp {d['stomp_avail']:>3} native {d['native_avail']:>3} | rendered S {d['stomp_tested']} N {d['native_tested']} "
+        print(f"{d['cat']:<18} stomp {d['stomp_avail']:>3} native {d['native_avail']:>3} refused {d['native_refused']} | rendered S {d['stomp_tested']} N {d['native_tested']} "
               f"| parity {d['parity']} ok {d['in_parity']} mismatch {d['mismatch']}")
     return 0
 

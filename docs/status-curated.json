@@ -12,12 +12,12 @@
     },
     "technical": {
       "value": "Advancing",
-      "rationale": "In the last two days both sound engines became fully scriptable, a rendering speed and memory problem was fixed, presets are now verified after every write, and a first real song was matched by hand. Engineering is moving quickly even though the main user-facing question is still open.",
+      "rationale": "In the last few days both sound engines became scriptable and much faster (checking a candidate on the pedal is about three times quicker, and Helix Native learns new sounds and renders in parallel far faster), presets are verified after every write, a pedal layout bug that broke two-path rendering was fixed, and a first real song was matched by hand. Engineering is moving quickly even though the main user-facing question is still open.",
       "breakdown": {
         "implemented": "Control of both sound engines, preset reading and writing, guitar separation, a reference clean-guitar picker, four tone-comparison measures, an optimiser, a block-by-block rendering method and a block measuring kit.",
         "integrated": "A hand-run script takes one prepared song section through separation, clean-guitar choice, search and preset export on one machine. Nothing runs from a single command and the pedal check is manual.",
         "tested": "Automated tests cover all of the above, mostly with fake engines or non-Helix stand-in signals.",
-        "verified": "Engine control and preset checking were verified on real hardware (macOS, pedal firmware 3.50). Matching quality is verified only by one informal listen, not by a blind test.",
+        "verified": "Engine control and preset checking were verified on real hardware (macOS), and the pedal engine's smoke test and 9 of 9 whole-preset writes pass on firmware 3.80; the pedal's two-path layout now agrees with the one its own editor stores. Matching quality is verified only by one informal listen, not by a blind test.",
         "unfinished": "Trusting the tone comparison, the known-answer benchmark on Helix, the library of measured blocks, a one-command song-to-preset tool, blind listening and anything beyond macOS."
       }
     },
@@ -27,7 +27,7 @@
       "blocker_to_next": "Integrated needs the pieces to run together without hand-holding: one command from song to a pedal-checked preset, using a tone comparison that has been shown to pick correctly. Neither exists yet."
     }
   },
-  "summary": "The goal is a tool that listens to a recorded guitar tone and builds a matching preset for the HX Stomp pedal. The building blocks now work: the software can run both of its sound engines by itself, write preset files the pedal accepts, and check what it wrote. One real song has been taken through the whole chain by hand, and the owner found the result promising in an informal listen. What is missing is proof that the tool's own sense of what sounds similar can be trusted. On that song it could not tell its top two candidates apart, while the listener clearly preferred one. Until that judgement is validated, automatic matching cannot be relied on, and no blind listening test has been run. The next step is to test that judgement against presets whose correct answer is known.",
+  "summary": "The goal is a tool that listens to a recorded guitar tone and builds a matching preset for the HX Stomp pedal. The building blocks work and have just become faster: both sound engines run from code, checking a candidate on the pedal is about three times quicker, the software engine learns new sounds far faster, and a pedal layout bug is fixed. One real song has been taken through the whole chain by hand, and the owner found the result promising in an informal listen. What is missing is proof that the tool's own sense of what sounds similar can be trusted: on that song it could not tell its top two candidates apart, while the listener clearly preferred one. Until that is validated, automatic matching cannot be relied on, and no blind listening test has been run. The next step is to test that judgement against presets whose correct answer is known.",
   "biggest_problem": {
     "issue": "tone-comparison-unvalidated",
     "why": "Every automatic decision the tool makes (which preset is better, when to stop searching) depends on this comparison."
@@ -43,10 +43,10 @@
         "A generated preset file is accepted by HX Edit and loads on the pedal.",
         "The shared engine interface is frozen and the control routes are documented."
       ],
-      "demonstrated": "All four criteria are evidenced and the owner signed off on 2026-10-14. Caveats the owner accepted: the pedal result rests on one operating system and firmware 3.50; the pedal-load result was reported by the owner, not observed by an automated test.",
+      "demonstrated": "All four criteria are evidenced and the owner signed off on 2026-10-14. Caveats the owner accepted: the pedal result rested on one operating system and firmware 3.50 (the pedal has since been updated to 3.80 and its smoke test passes there); the pedal-load result was reported by the owner, not observed by an automated test.",
       "remaining": "Nothing for the gate itself. Windows and Linux pedal control remain unverified.",
       "blocking": "",
-      "next_action": "None. Re-check on firmware 3.80 only if the owner decides to update the pedal.",
+      "next_action": "None. The pedal is now on firmware 3.80 and its smoke test passes there; the remaining 3.80 re-checks (parity with Native) belong to the next gate.",
       "evidence": ["ev-gate1", "ev-smoke-native", "ev-smoke-stomp", "ev-pedal-load"]
     },
     "Gate 2": {
@@ -72,7 +72,7 @@
         "The difference between the pedal and Native on firmware 3.80 has been recorded.",
         "Native-mode and pedal-mode matching have been compared on the same songs."
       ],
-      "demonstrated": "One song section was matched and listened to informally (not blind). Pedal versus Native agreement was measured on firmware 3.50 for a few presets.",
+      "demonstrated": "One song section was matched and listened to informally (not blind). Pedal versus Native agreement was measured on firmware 3.50 for a few presets and has not been re-measured on 3.80.",
       "remaining": "Gate 2, the 20-song set, a blind listening tool and sessions, and the firmware 3.80 and engine comparison measurements.",
       "blocking": "Depends on Gate 2, on song selection, and on a blind listening tool that does not exist yet.",
       "next_action": "Wait for Gate 2. The owner can start choosing songs now.",
@@ -149,11 +149,11 @@
       "problem": "The per-block approach needs every effect block measured through Native, and the measuring kit has never been run on Helix.",
       "impact": "Choosing amp and effect models from measurements (instead of trying them blindly) is not possible, which makes the search space larger than it needs to be.",
       "cause": "The measuring kit was only finished offline on stand-in blocks. Native's current host is mono, so stereo blocks and dual cabinets cannot be measured; one unexplained accuracy floor remains when an amp follows other blocks.",
-      "resolution": "Render the measuring signal through Native for a few blocks first, set tolerances from repeat-render spread, then capture the library overnight for mono blocks.",
+      "resolution": "Render the measuring signal through Native for a few blocks first, set tolerances from repeat-render spread, then capture the library for mono blocks. Capturing is no longer an overnight job: 216 blocks took 84.6 s, and only 2 of 607 pedal models are refused by Native.",
       "owner": "native-engine, then benchmark and search",
       "next_step": "Build the Native rendering of the measuring signal.",
       "components": ["judging", "engines"],
-      "evidence": ["ev-blockserial", "ev-probe-synth"]
+      "evidence": ["ev-blockserial", "ev-probe-synth", "ev-native-capture", "ev-t064-refusal"]
     },
     {
       "id": "single-platform-unpublished-helper",
@@ -161,7 +161,7 @@
       "priority": "Medium",
       "classification": "Risk",
       "executive": false,
-      "problem": "Pedal control is verified on macOS and firmware 3.50 only, and the small helper program that talks to the pedal is intentionally not published.",
+      "problem": "Pedal control is verified on macOS and firmware 3.80 only, and the small helper program that talks to the pedal is intentionally not published.",
       "impact": "Other users on Windows or Linux may not be able to use pedal mode, and others cannot reproduce the pedal measurements.",
       "cause": "Only one machine is available, and the helper's source is withheld on the owner's decision.",
       "resolution": "Publish a wrapper or rewrite the helper to the documented protocol; test on other systems when machines exist.",
@@ -236,17 +236,6 @@
       "covers": ["Check the delay Mix and Time"]
     },
     {
-      "id": "firmware-decision",
-      "group": "later",
-      "priority": "Low",
-      "title": "Decide whether to update the pedal from firmware 3.50 to 3.80",
-      "why": "Presets are generated for 3.50 today. The owner ruled this waits until the pipeline works end to end.",
-      "unblocks": "The Gate 3 measurement of pedal versus Native on firmware 3.80.",
-      "recommended": "Wait, as already ruled.",
-      "defer": "Nothing breaks; Gate 3 needs the 3.80 measurement eventually.",
-      "covers": ["Decide whether to update the pedal"]
-    },
-    {
       "id": "other-os",
       "group": "later",
       "priority": "Low",
@@ -294,8 +283,8 @@
       "id": "overnight-capture-go",
       "group": "later",
       "priority": "Low",
-      "title": "Give the go for the overnight capture of all blocks",
-      "why": "The overnight run would measure every Stomp-compatible block. It must wait for the Native rendering of the measuring signal and a stereo path.",
+      "title": "Give the go to capture the whole block library",
+      "why": "The run would capture every Stomp-compatible block for Native. At the measured speed (216 blocks in 84.6 s) it takes minutes, not a night, but it should wait for the Native rendering of the measuring signal and a stereo path.",
       "unblocks": "The block library.",
       "recommended": "Do not decide yet.",
       "defer": "No consequence now; asking earlier would be premature.",
@@ -333,7 +322,7 @@
   "capabilities": {
     "verified": [
       {"capability": "Control Helix Native from code", "reality": "Working on macOS with Native 3.82; a 2-second clip renders in about 0.28 s with memory steady.", "evidence": ["ev-memfix", "ev-smoke-native"]},
-      {"capability": "Control the HX Stomp from code and restore it", "reality": "Working on macOS, firmware 3.50; a whole preset is written, read back and checked, and the pedal is restored exactly.", "evidence": ["ev-smoke-stomp", "ev-readback"]},
+      {"capability": "Control the HX Stomp from code and restore it", "reality": "Working on macOS, firmware 3.80; a whole preset is written, read back and checked, the pedal is restored exactly, and its blocks stay editable afterwards. Not yet checked: parity with Native on 3.80.", "evidence": ["ev-smoke-stomp", "ev-readback", "ev-release-sent", "ev-fw380-write", "ev-lock-fixed"]},
       {"capability": "Read, write and check preset files", "reality": "Byte-for-byte round trip on both reference files; a smoke-test preset loaded on the pedal (reported by the owner).", "evidence": ["ev-pedal-load"]},
       {"capability": "Catch a mismatch between what was written and what the pedal holds", "reality": "Every parameter is compared after each write; this found a delay bug that is now fixed.", "evidence": ["ev-readback"]},
       {"capability": "Native and the pedal agree on simple presets", "reality": "Three of four tested presets agree closely; the fourth, with an added effect, differs more. Breaks for one cabinet setting.", "evidence": ["ev-parity"]}
@@ -360,6 +349,17 @@
     ]
   },
   "recent_changes": [
+    {"date": "2026-10-15", "kind": "resolved", "text": "The pedal's blocks no longer stay locked after a control session. The helper now ends each session the way the pedal's own editing program does; a person confirmed the blocks were editable afterwards on firmware 3.80, where the lock had still occurred before the fix.", "evidence": ["ev-lock-before", "ev-lock-fixed", "ev-release-sent"]},
+    {"date": "2026-10-15", "kind": "improvement", "text": "The pedal now runs firmware 3.80. Its engine smoke test passes there, and 9 of 9 whole-preset writes (including amps with impulse-response cabinets and one block from each effect category) landed and the pedal was restored byte for byte. Pedal-versus-Native agreement has not yet been re-measured on 3.80.", "evidence": ["ev-release-sent", "ev-fw380-write"]},
+    {"date": "2026-10-16", "kind": "improvement", "text": "Checking candidates on the pedal got much faster: a search trial went from 10.9 s to 3.8 s and the per-test session overhead from 3.81 s to 0.77 s. A verification finalist improved less, from 29.2 s to 24.7 s. The search now uses these options by default (task T062), but how much that speeds a real search has not yet been timed on the pedal. These timings are on one pedal with one chain type; they say nothing about match quality.", "evidence": ["ev-speed-trial", "ev-speed-session", "ev-speed-verify", "ev-stomp-speed-note"]},
+    {"date": "2026-10-16", "kind": "improvement", "text": "Helix Native's speed work (T055) is finished. Capturing a new chain fell from about 31 s to 1.2 s in one session and 0.39 s with three sessions (216 blocks in 84.6 s). A pool of 6 parallel hosts runs 9.9 two-second tests per second (4.6 on ten-second clips); 10 hosts did a little better but with memory pressure and swapping, so the cap is 6. Bypass by MIDI control still matches separate captures (-328.7 dB), and a fault where about 1 host in 10 rendered differently is now caught by a start-up check. Measured on one Mac; nothing here has been judged by ear.", "evidence": ["ev-native-capture", "ev-native-pool", "ev-native-bypass", "ev-native-canary", "ev-native-note"]},
+    {"date": "2026-10-16", "kind": "improvement", "text": "Follow-up Native work (T064): the two template sets used for matching (B and B0) were re-captured with Hum and Ripple at 0, so the matcher has all 7 test candidates under both engine policies. A scan of 607 pedal block models found only 2 that Native 3.82 refuses to load, so nearly the whole catalog can be captured for Native; the library itself is still not captured.", "evidence": ["ev-t064-templates", "ev-t064-refusal"]},
+    {"date": "2026-10-16", "kind": "resolved", "text": "The pedal's two-path layout difference is fixed (T063). Our two-path version of a stored preset used to cancel against the one saved by the pedal's editor at only -9.3 dB; it now cancels at -85.7 dB, the same as the editor's preset repeated against itself. Single-path loads are unchanged. Measured on firmware 3.80, one preset, one pedal.", "evidence": ["ev-twopath-fix", "ev-twopath"]},
+    {"date": "2026-10-16", "kind": "decision", "text": "The rule that two-path renders may only be compared with two-path renders is lifted, because after the layout fix a two-path pass matches single-chain renders (Path A -72.9 dB against a repeat floor of -68.7; Path B -52.6 against -42.7). Two chains per pass can be used for checks; the 2.0x gain was measured on firmware 3.50 and is not re-measured on 3.80.", "evidence": ["ev-twopath-fix", "ev-decisions"]},
+    {"date": "2026-10-16", "kind": "decision", "text": "Decided by the owner: the amp's Hum and Ripple settings are frozen at 0 on both engines. They added a free-running noise that made two renders of the same preset differ at about -30 dB (against -72 to -91 dB at 0), which hid real differences and blocked the shorter pedal waits. This closes the open question and removes it from the owner's action list.", "evidence": ["ev-hum", "ev-decisions"]},
+    {"date": "2026-10-16", "kind": "decision", "text": "Decided by the owner: Helix Native runs at most 6 hosts at once (measured on 32 GB of memory: green memory pressure at 6, yellow with swapping at 8 and 10). All Native pool figures in this report are for 6 hosts.", "evidence": ["ev-native-pool", "ev-decisions"]},
+    {"date": "2026-10-16", "kind": "decision", "text": "Decided by the owner: Native results from before 2026-10-16 are kept as history and not re-run wholesale. About 1 host in 10 had rendered differently and delay trims could differ by up to 30 samples. The results we rely on are re-measured in the parity spot checks and the Gate 2 benchmark.", "evidence": ["ev-native-canary", "ev-decisions"]},
+    {"date": "2026-10-16", "kind": "activity", "text": "The continuous-integration build (the automatic test run on GitHub) was fixed in commit 07b66ed: one test that needs a local-only file is skipped when the file is absent. It changes no product capability.", "evidence": ["ev-board"]},
     {"date": "2026-10-14", "kind": "milestone", "text": "Gate 1 was signed off: both engines are driven by code and a generated preset loads on the pedal.", "evidence": ["ev-gate1"]},
     {"date": "2026-10-15", "kind": "improvement", "text": "Helix Native now loads new sounds without a person at the keyboard and renders about seven times faster, and it stopped running out of memory.", "evidence": ["ev-memfix"]},
     {"date": "2026-10-15", "kind": "improvement", "text": "The pedal write is now checked parameter by parameter. This traced and fixed a bug that made a delay run far too wet when the owner played a preset live on the pedal.", "evidence": ["ev-readback", "ev-live-delay"]},
@@ -372,6 +372,13 @@
     {"date": "2026-10-15", "kind": "activity", "text": "The block measuring kit was finished offline. It has not touched Helix yet, so it does not advance readiness until it is run.", "evidence": ["ev-probe-synth"]},
     {"date": "2026-10-15", "kind": "decision", "text": "The owner approved the per-block approach (measure and search block by block). It adds work before Gate 2 but shrinks the search space.", "evidence": ["ev-decisions"]}
   ],
+  "in_progress": [],
+  "up_next": [
+    {"area": "Housekeeping", "text": "Review and commit the finished Native, two-path, search-speed and reporting work (held back from the 2026-10-15 commit 2c7f563 while native-engine was running).", "evidence": ["ev-board"]},
+    {"area": "Pedal versus Native agreement on firmware 3.80 (T060)", "text": "Compare at least 5 models per block category on the pedal and in Native from the same preset file and test clip. Both things it was waiting for (a pedal base with no controller assignments, and the Native single-block captures) are now done, although the board line for the task still says blocked.", "evidence": ["ev-fw380-write", "ev-t064-refusal", "ev-board"]},
+    {"area": "Search speed on the pedal", "text": "Time a real search with the pedal speed options switched on. The options are wired in but the speed of a whole search has not been measured, so the 3.8 s per trial is a batch figure only.", "evidence": ["ev-speed-trial", "ev-stomp-speed-note"]},
+    {"area": "Reference files on firmware 3.80", "text": "Run the golden check, which compares our files against the reference ('golden') files, on firmware 3.80.", "evidence": ["ev-decisions"]}
+  ],
   "components": [
     {
       "id": "engines",
@@ -379,11 +386,11 @@
       "features": ["native-engine", "stomp-engine", "engine-interface"],
       "purpose": "Turn a candidate preset and a clean guitar clip into sound, so candidates can be compared. Native is fast and offline; the pedal is the real thing.",
       "status": "Working",
-      "works": "Both engines are driven from code on macOS and give back audio; the pedal is written, read back and restored exactly.",
-      "missing": "Windows and Linux pedal control, stereo blocks, and full agreement between the two engines.",
+      "works": "Both engines are driven from code on macOS and give back audio; the pedal is written, read back and restored exactly, its two-path layout matches its editor, and Native captures new chains and renders in parallel quickly.",
+      "missing": "Windows and Linux pedal control, stereo blocks, the captured block library, and re-measured agreement between the two engines on firmware 3.80.",
       "problem": "One cabinet setting sounds different on the pedal and in Native.",
       "next": "Run the per-parameter agreement audit.",
-      "confidence": "Hardware-measured for specific operations on one computer and one firmware; engine agreement tested on four presets."
+      "confidence": "Hardware-measured for specific operations on one computer and one firmware; engine agreement tested on four presets (before the Native fixes of 2026-10-16, kept as history)."
     },
     {
       "id": "presets",
@@ -427,10 +434,10 @@
       "features": ["search", "pipeline"],
       "purpose": "Try candidate presets, score them against the target and return the best preset.",
       "status": "Partially Working",
-      "works": "The optimiser ran end to end on one real song section by script and produced a preset the owner loaded and listened to.",
+      "works": "The optimiser ran end to end on one real song section by script and produced a preset the owner loaded and listened to. It now uses the faster pedal options by default.",
       "missing": "A one-command tool, snapshots for several sections, automatic pedal verification, and any recovery test on Helix.",
       "problem": "It optimises against a comparison measure that is not validated.",
-      "next": "Wait for the comparison to be validated; the block library will then seed the search.",
+      "next": "Time a search with the pedal speed options; wait for the comparison to be validated, after which the block library will seed the search.",
       "confidence": "One song, informal listening only."
     },
     {
@@ -504,6 +511,10 @@
     {"term": "render pool", "definition": "Several copies of Helix Native running at once, each rendering a different candidate, to finish a batch sooner."},
     {"term": "pre-roll", "definition": "Extra audio played before the part that is recorded, so delays and reverbs start from the same state every time."},
     {"term": "Path A and Path B", "definition": "The two signal paths of the HX Stomp. Using both at once renders two chains in one pass."},
+    {"term": "Hum and Ripple", "definition": "Two amp settings that add a mains-hum style noise. The noise runs freely, so it differs between renders of the same preset."},
+    {"term": "session close", "definition": "The last message a control program sends to the pedal when it is done. Without it the pedal stays in editing mode and its blocks cannot be edited by hand."},
+    {"term": "search test", "definition": "One candidate setting tried by the search: it is rendered and then scored against the target."},
+    {"term": "golden file", "definition": "A reference preset file the owner exported from HX Edit or Native, used to check that our own files follow the same layout."},
     {"term": "wall-clock", "definition": "Real elapsed time on a clock, as opposed to computing time."}
   ],
   "evidence": [
@@ -524,15 +535,49 @@
     {"id": "ev-sep", "label": "Separation run on the real song (no quality score)", "kind": "ledger", "ref": "2026-10-15T00:17:35+00:00"},
     {"id": "ev-stomp-notes", "label": "Pedal control notes", "kind": "file", "ref": "docs/notes/stompd.md"},
     {"id": "ev-licence-notes", "label": "Line 6 licence flags", "kind": "file", "ref": "docs/notes/line6-eula-flags.md"},
+    {"id": "ev-lock-fixed", "label": "Pedal blocks editable after a session (owner-observed, firmware 3.80)", "kind": "ledger", "ref": "2026-10-15T23:03:12+00:00"},
+    {"id": "ev-lock-before", "label": "Pedal blocks still locked on firmware 3.80 before the fix", "kind": "ledger", "ref": "2026-10-15T22:36:17+00:00"},
+    {"id": "ev-release-sent", "label": "Pedal smoke test on firmware 3.80, session close answered", "kind": "ledger", "ref": "2026-10-15T23:20:15+00:00"},
+    {"id": "ev-fw380-write", "label": "Whole-preset writes on firmware 3.80, 9 of 9, pedal restored", "kind": "ledger", "ref": "2026-10-15T23:40:20+00:00"},
+    {"id": "ev-speed-session", "label": "Pedal session overhead, before and after", "kind": "ledger", "ref": "2026-10-15T23:47:32+00:00"},
+    {"id": "ev-speed-trial", "label": "Pedal search trial time, before and after", "kind": "ledger", "ref": "2026-10-16T00:17:11+00:00"},
+    {"id": "ev-speed-verify", "label": "Pedal verification time per finalist, before and after", "kind": "ledger", "ref": "2026-10-16T00:10:35+00:00"},
+    {"id": "ev-twopath", "label": "Two-path pedal render differs from single-path (and snapshot recall check)", "kind": "ledger", "ref": "2026-10-15T21:14:14+00:00"},
+    {"id": "ev-hum", "label": "Pedal renders with amp Hum and Ripple on versus at 0", "kind": "ledger", "ref": "2026-10-15T23:55:24+00:00"},
+    {"id": "ev-native-capture", "label": "Native capture speed-up (216 chains)", "kind": "ledger", "ref": "2026-10-15T23:57:11+00:00"},
+    {"id": "ev-native-pool", "label": "Native render pool, 2 to 10 hosts (6 is the cap)", "kind": "ledger", "ref": "2026-10-16T00:38:03+00:00"},
+    {"id": "ev-native-bypass", "label": "Native bypass over MIDI control re-checked", "kind": "ledger", "ref": "2026-10-16T00:29:34+00:00"},
+    {"id": "ev-native-canary", "label": "Native odd-host rate and the canary fix", "kind": "ledger", "ref": "2026-10-16T00:25:27+00:00"},
+    {"id": "ev-stomp-speed-note", "label": "Pedal speed measurements and the flash-slot proposal", "kind": "file", "ref": "docs/notes/stomp-speed.md"},
+    {"id": "ev-native-note", "label": "Native engine notes, phase 3", "kind": "file", "ref": "docs/notes/native-spike.md"},
+    {"id": "ev-t064-templates", "label": "Native templates B and B0 re-captured at the frozen values", "kind": "ledger", "ref": "2026-10-16T00:50:49+00:00"},
+    {"id": "ev-t064-refusal", "label": "Refused-model scan: 2 of 607 pedal models refused by Native 3.82", "kind": "ledger", "ref": "2026-10-16T00:58:52+00:00"},
+    {"id": "ev-twopath-fix", "label": "Two-path layout fix: -9.3 dB before, -85.7 dB after", "kind": "ledger", "ref": "2026-10-16T01:06:38+00:00"},
     {"id": "ev-board", "label": "Task board", "kind": "file", "ref": "board/TASKS.md"}
   ],
   "engines": {
-    "_about": "Wording for the 'Engines: what each can do and how fast' section. The capability verdicts are curated judgements from the ledger, DECISIONS, notes and board (cite them inline; they become links). Numbers written as {t:key:engine} are filled from the ledger every run, so they cannot go stale. 'fw350': true appends 'verified on fw 3.50, recheck on 3.80 pending' until a person re-checks on firmware 3.80 and clears the flag. All timings and the 100-test estimates are computed by scripts/engine_timing.py; nothing about time is written by hand here.",
-    "units": "Times are in seconds (s), minutes (min) and hours (h). A render is one pass of a test signal through a preset, recorded as audio. A score is one comparison of a rendered candidate against the target tone (lower is better). A capture is the one-off step that teaches Helix Native a new chain, by loading the preset file into its editor and recording its state. A parity check renders one preset on both engines and compares the two recordings. Estimates are 100 times the newest measured time; every estimate says which measurement it uses and its date.",
+    "_about": "Wording for the 'Engines: what each can do and how fast' section. The capability verdicts are curated judgements from the ledger, DECISIONS, notes and board (cite them inline; they become links). Numbers written as {t:key:engine} are filled from the ledger every run, so they cannot go stale. 'fw350': true appends 'verified on fw 3.50, recheck on 3.80 pending' until a ledger row shows the claim re-checked on firmware 3.80; then the flag is cleared (done for parameter changes and two-path rendering on 2026-10-16). All timings and the 100-test estimates are computed by scripts/engine_timing.py; nothing about time is written by hand here.",
+    "units": "Times are in seconds (s), minutes (min) and hours (h). A render is one pass of a test signal through a preset, recorded as audio. A score is one comparison of a rendered candidate against the target tone (lower is better). A capture is the one-off step that teaches Helix Native a new chain, by loading the preset file into its editor and recording its state. A parity check renders one preset on both engines and compares the two recordings. Estimates are 100 times the newest measured time; every estimate says which measurement it uses and its date. Native pool figures use 6 hosts (the owner approved that cap on 2026-10-16) and count a render plus its score as one test; pedal figures from firmware 3.80 are marked as such.",
     "activities": {
       "render_2s": {
         "label": "One render of a 2 s test clip",
         "means": "Play a 2 second test signal through a preset and record the result."
+      },
+      "search_test": {
+        "label": "One search test, 2 s clip",
+        "means": "One candidate in a search. Native: a render plus its score through the 6-host pool. Pedal: one search trial with the T061 speed options (3 s clip), render side only."
+      },
+      "search_test_10s": {
+        "label": "One search test, 10 s clip",
+        "means": "The same with a 10 s excerpt. Pedal: the trial before the T061 speed options, for comparison."
+      },
+      "session": {
+        "label": "Pedal session overhead",
+        "means": "Opening the pedal engine, restoring the original preset and checking it byte for byte. Once per batch since T061."
+      },
+      "verify": {
+        "label": "Verify one finalist on the pedal",
+        "means": "Write a finalist whole to the pedal and render it twice with 10 s clips."
       },
       "render_10s": {
         "label": "One render of a 10 s clip",
@@ -673,8 +718,7 @@
       {
         "capability": "Load a generated preset file (.hlx) directly",
         "stomp": {
-          "verdict": "Yes. The file is compiled and written whole into the pedal's working memory, then read back parameter by parameter before anything is rendered; about 40 whole writes, all read back as written (DECISIONS 2026-10-15 Stomp T056 outcomes). 4 of 4 generated files were written and rendered (ledger 2026-10-14T23:47:43+00:00). Takes {t:load:stomp}.",
-          "fw350": true
+          "verdict": "Yes. The file is compiled and written whole into the pedal's working memory, then read back parameter by parameter before anything is rendered; about 40 whole writes, all read back as written (DECISIONS 2026-10-15 Stomp T056 outcomes). 4 of 4 generated files were written and rendered (ledger 2026-10-14T23:47:43+00:00). Re-checked on firmware 3.80: 9 of 9 whole writes landed and the pedal was restored byte for byte (ledger 2026-10-15T23:40:20+00:00). Takes {t:load:stomp}."
         },
         "native": {
           "verdict": "Yes, with no person, on macOS: a script drops the file into Native's editor and records the state as a template, then renders from the template (ledger 2026-10-14T23:58:32+00:00). A stored template loads in {t:load:native}; a chain never seen before needs a capture first (see below)."
@@ -693,8 +737,7 @@
       {
         "capability": "Change any parameter",
         "stomp": {
-          "verdict": "Yes, at full resolution. Parameters are set in place and checked by read-back to within one hundred-thousandth of the parameter's range (DECISIONS 2026-10-15 stomp-engine, T051 whole-write readback).",
-          "fw350": true
+          "verdict": "Yes, at full resolution. Parameters are set in place and checked by read-back to within one hundred-thousandth of the parameter's range (DECISIONS 2026-10-15 stomp-engine, T051 whole-write readback). Re-checked on firmware 3.80: 20 in-place loads of six random amp parameters each ended with a clean full read-back (ledger 2026-10-15T23:57:03+00:00)."
         },
         "native": {
           "verdict": "Only parameters given a MIDI control number at capture, in 128 steps across each range; everything else stays as captured. Inside that grid it equals a freshly captured file almost exactly (ledger 2026-10-15T20:46:58+00:00). On the 8-block test chain 54 of 63 mapped parameters moved the sound (ledger 2026-10-15T21:31:30+00:00)."
@@ -703,8 +746,7 @@
       {
         "capability": "Change models (swap an amp, cab or effect)",
         "stomp": {
-          "verdict": "Yes. Any model or layout change is one whole write with read-back, never the pedal's own model command (DECISIONS 2026-10-15 Stomp T056 outcomes). {t:load:stomp} per write.",
-          "fw350": true
+          "verdict": "Yes. Any model or layout change is one whole write with read-back, never the pedal's own model command (DECISIONS 2026-10-15 Stomp T056 outcomes). {t:load:stomp} per write. On firmware 3.80, one block from each of the six effect categories and two amps with impulse-response cabinets were built and read back (ledger 2026-10-15T23:40:20+00:00)."
         },
         "native": {
           "verdict": "Not live. A new model or layout needs a new capture ({t:capture:native}, once per chain); only chains already captured can be rendered. The per-block library that would remove this is not captured yet (T048)."
@@ -723,8 +765,7 @@
       {
         "capability": "Two chains at once (throughput)",
         "stomp": {
-          "verdict": "Path A and Path B give twice the renders per pass (ledger 2026-10-15T21:14:14+00:00), but each two-path render differs from a single-path render by -18 to -22 dB (cause unknown), so use it only to compare two-path renders with two-path renders. The pause on writing two-path documents (DECISIONS 2026-10-15 pedal lockups) has not been formally lifted.",
-          "fw350": true
+          "verdict": "Path A and Path B give twice the renders per pass (measured on firmware 3.50, ledger 2026-10-15T21:14:14+00:00; not re-measured on 3.80). The earlier gap of -18 to -22 dB between two-path and single-path renders was a layout bug, fixed by writing the layout the way the pedal's own editor stores it: on firmware 3.80 our two-path load now nulls against the editor-saved preset at -85.7 dB, equal to that preset's own repeat floor, against -9.3 dB before (ledger 2026-10-16T01:06:38+00:00). A two-path pass also matches each chain rendered alone: Path A -72.9 dB (repeat floor -68.7), Path B -52.6 dB (floor -42.7). The rule that two-path renders are compared only with two-path renders was lifted on 2026-10-16 (DECISIONS 2026-10-16 stomp-engine, T063 two-path layout). Not tested: crossover and A/B split types; a pass with its own Path B input is refused by the compiler."
         },
         "native": {
           "verdict": "Block-serial chaining (one block per Native instance, in series) equals one instance at -67 to -79 dB above 20 Hz on the tested chains (ledger 2026-10-15T19:21:10+00:00; DECISIONS 2026-10-15 native-engine, T045 block-serial spike). Mono only; dual cabs and stereo untested (stereo is out of scope)."
@@ -733,21 +774,20 @@
       {
         "capability": "Use the whole block and model catalog",
         "stomp": {
-          "verdict": "In principle any compatible model can be written with no capture, because the pedal runs it itself. Tried so far: the amps, cabs, drives and delays in the test presets, on firmware 3.50. Whether the 90 models gated by firmware now work on 3.80 has not been rechecked (DECISIONS 2026-10-15 Stomp firmware upgrade, human).",
+          "verdict": "In principle any compatible model can be written with no capture, because the pedal runs it itself. Tried so far: the amps, cabs, drives and delays in the test presets on firmware 3.50, and one block from each effect category and two amps with impulse-response cabinets on firmware 3.80 (ledger 2026-10-15T23:40:20+00:00). Whether the 90 models gated by firmware now work on 3.80 has not been rechecked (DECISIONS 2026-10-15 Stomp firmware upgrade, human).",
           "fw350": true
         },
         "native": {
-          "verdict": "Only through a per-block library, which is not captured yet: about 661 models at {t:capture:native} each is the plan (T048), and one capture may carry up to 8 blocks (DECISIONS 2026-10-15 native-engine, Native phase 2 block bypass). Until then only the few chains captured so far can be rendered."
+          "verdict": "Only through a per-block library, which is not captured yet: about 661 models at {t:capture:native} each is the plan (T048), and one capture may carry up to 8 blocks (DECISIONS 2026-10-15 native-engine, Native phase 2 block bypass). A scan of 607 pedal block models found that Native 3.82 refuses only 2 of them (ledger 2026-10-16T00:58:52+00:00). Until the library is captured, only the few chains captured so far can be rendered."
         }
       },
       {
         "capability": "Render speed",
         "stomp": {
-          "verdict": "{t:render_2s:stomp} for a 2 s clip (the pedal plays the audio in real time); a 10 s clip is {t:render_10s:stomp}. Two-chain passes double throughput (see above).",
-          "fw350": true
+          "verdict": "{t:render_2s:stomp} for a 2 s clip (the pedal plays the audio in real time); a 10 s clip is {t:render_10s:stomp}. Two-chain passes double throughput (see above). Measured on firmware 3.80: a 3 s clip takes 3.67 s (ledger 2026-10-15T23:48:50+00:00). A search trial with the T061 speed options takes {t:search_test:stomp} (render side only). See the speed-up row below for the search and verification gains."
         },
         "native": {
-          "verdict": "{t:render_2s:native} for a 2 s clip and {t:render_10s:native} for a 10 s clip including 3 s of pre-roll. A pool of parallel hosts is faster again (timing tables below)."
+          "verdict": "{t:render_2s:native} for a 2 s clip and {t:render_10s:native} for a 10 s clip including 3 s of pre-roll. A pool of 6 parallel hosts (the approved cap) finishes a search test of a 2 s clip, render and score together, in {t:search_test:native}, and one of a 10 s clip in {t:search_test_10s:native} (timing tables below)."
         }
       },
       {
@@ -763,24 +803,32 @@
       {
         "capability": "Agreement between the two engines",
         "both": {
-          "verdict": "On the test presets the engines null against each other at -31 to -40 dB (K, A, B0, B00; ledger 2026-10-15T21:37:31+00:00), the pass line being -30 dB. Two known exceptions: cab Early Reflections match only at 0 (-31.4 dB at 0, -3.6 dB at 0.78; DECISIONS 2026-10-15 parity finding cab EarlyReflections), and delay echoes arrive about 1.48 ms later per echo on Native, so delay tails cannot null and are compared by level and timing (ledger 2026-10-15T21:14:14+00:00; DECISIONS 2026-10-15 Stomp T056 outcomes).",
+          "verdict": "On the test presets the engines null against each other at -31 to -40 dB (K, A, B0, B00; ledger 2026-10-15T21:37:31+00:00), the pass line being -30 dB. Two known exceptions: cab Early Reflections match only at 0 (-31.4 dB at 0, -3.6 dB at 0.78; DECISIONS 2026-10-15 parity finding cab EarlyReflections), and delay echoes arrive about 1.48 ms later per echo on Native, so delay tails cannot null and are compared by level and timing (ledger 2026-10-15T21:14:14+00:00; DECISIONS 2026-10-15 Stomp T056 outcomes). These rows are from firmware 3.50 and from before the Native fixes of 2026-10-16, which the owner keeps as history; the parity spot checks (T060) will re-measure them.",
           "fw350": true
         }
       },
       {
         "capability": "Reliability",
         "stomp": {
-          "verdict": "Open problem: any control session leaves the pedal's block editing locked until USB is unplugged, and the firmware 3.80 upgrade did not fix it (ledger 2026-10-15T22:36:17+00:00; T059). One earlier control wedge needed a power cycle (DECISIONS 2026-10-15 HX Stomp priorities, human)."
+          "verdict": "The session-release lock is fixed (T059). Before the fix any control session left the pedal's block editing locked until USB was unplugged, even after the firmware 3.80 upgrade (ledger 2026-10-15T22:36:17+00:00). The helper now sends HX Edit's session close, and a person confirmed the blocks were editable afterwards (ledger 2026-10-15T23:03:12+00:00); the close was answered on every channel in a later smoke run (ledger 2026-10-15T23:20:15+00:00). One earlier control wedge that needed a power cycle is still unexplained (DECISIONS 2026-10-15 HX Stomp priorities, human)."
         },
         "native": {
-          "verdict": "Memory growth and crashes are fixed: the host stays at about 3.0 GB and repeats are identical to -313 dB (ledger 2026-10-15T18:54:10+00:00; DECISIONS 2026-10-15 native-engine, host memory). Captures need a logged-in screen session."
+          "verdict": "Memory growth and crashes are fixed: the host stays at about 3.0 GB and repeats are identical to -313 dB (ledger 2026-10-15T18:54:10+00:00; DECISIONS 2026-10-15 native-engine, host memory). About 1 host process in 10 rendered every chain differently until a start-up check (the host canary) began replacing such hosts (ledger 2026-10-16T00:25:27+00:00); Native results from before 2026-10-16 are kept as history. Captures need a logged-in screen session."
+        }
+      },
+      {
+        "capability": "Speed-ups since the last report",
+        "stomp": {
+          "verdict": "Measured on firmware 3.80 (T061, docs/notes/stomp-speed.md): a search trial went from 10.861 s to 3.765 s (ledger 2026-10-16T00:17:11+00:00, 10 trials, 3 s clips, readback every 10 loads, measured tail waits). Per-test session overhead fell from 3.812 s to 0.772 s (ledger 2026-10-15T23:47:32+00:00). A verification finalist (whole write plus two 10 s renders) improved only from 29.23 s to 24.65 s (ledger 2026-10-16T00:10:35+00:00). The shorter tail waits are only equal to the long waits with Hum and Ripple at 0 (ledger 2026-10-15T23:55:24+00:00). The search now uses these options by default (task T062), but it has not been timed on the pedal."
+        },
+        "native": {
+          "verdict": "Capture fell from about 31 s to 1.2 s per chain in one session, and 216 chains took 84.6 s (ledger 2026-10-15T23:57:11+00:00). A pool of 6 hosts ran 9.9 tests per second on 2 s clips and 4.6 on 10 s clips (ledger 2026-10-16T00:38:03+00:00); 10 hosts ran 13.1 and 6.4 but with memory pressure and swapping, so the owner capped the pool at 6 on 2026-10-16. Newest batch capture: 391 single-block chains at 0.22 s each in 3 sessions with the parameter checks off (ledger 2026-10-16T00:58:52+00:00). About 1 host in 10 rendered differently until a start-up check replaced it (ledger 2026-10-16T00:25:27+00:00). The timing tables below read these newer rows."
         }
       },
       {
         "capability": "Platforms",
         "stomp": {
-          "verdict": "Tested on macOS only. Linux is expected to work and Windows is unconfirmed; both are set aside for now (DECISIONS 2026-10-15 HX Stomp priorities, human). The pedal is now on firmware 3.80, so everything measured on 3.50 awaits a recheck.",
-          "fw350": true
+          "verdict": "Tested on macOS only. Linux is expected to work and Windows is unconfirmed; both are set aside for now (DECISIONS 2026-10-15 HX Stomp priorities, human). The pedal is now on firmware 3.80: its smoke test and whole writes pass there (ledger 2026-10-15T23:20:15+00:00), but parity with Native and the firmware-gated models are not yet re-measured (spot checks T060 are next)."
         },
         "native": {
           "verdict": "Tested on macOS with Native 3.82 as a VST3 plug-in in a helper process. Other platforms untested. Real MIDI control into the AU build did not change parameters (DECISIONS 2026-10-15 native-engine, Native phase 2 block bypass)."

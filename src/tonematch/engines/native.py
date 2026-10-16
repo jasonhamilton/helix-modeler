@@ -51,6 +51,7 @@ processes, jobs grouped by chain so state loads are minimised.
 from __future__ import annotations
 
 import concurrent.futures as cf
+import copy
 import hashlib
 import importlib.util
 import json
@@ -189,11 +190,66 @@ def rss_mb(pid: int) -> float | None:
     return float(s) / 1024 if s else None
 
 
+# Host canary (2026-10-15). About 1 Native host process in 10 renders every chain slightly
+# differently for its whole life ("mode B": DoubleTank -27 dB, Dig Delay -21, Ganymede -22, an
+# EQ -69, a fuzz -84 dB against the usual "mode A"; identical across B hosts; params and saved
+# state identical; not CPU load, core type, drops or frame phase). Each B host is consistent with
+# itself, so search and parity results silently depended on which host rendered them. Every
+# host opened in a start state renders a short canary through it; a host that disagrees with
+# the machine's reference is replaced (majority of three decides if the reference is in doubt).
+CANARY_THRESHOLD_DB = -150.0
+CANARY_RETRIES = 6
+_CANARY_LOCK = threading.Lock()
+
+
+def canary_signal() -> np.ndarray:
+    return np.concatenate([np.zeros(4800, np.float32), test_signal(0.5, seed=7)])
+
+
+def _canary_file(plugin: str, state: bytes) -> Path:
+    key = hashlib.sha1(state + plugin_version(plugin).encode() + platform.node().encode()).hexdigest()[:16]
+    return cache_dir() / "canary" / f"{key}.npy"
+
+
+def _canary_votes(f: Path) -> list[dict]:
+    """[{"y": canary render, "n": hosts seen}] for one key (``.json`` index + one ``.npy`` each)."""
+    try:
+        meta = json.loads(f.with_suffix(".json").read_text())
+    except (OSError, ValueError):
+        return []
+    out = []
+    for m in meta:
+        try:
+            out.append({"y": np.load(f.parent / m["npy"]), "n": int(m["n"])})
+        except (OSError, ValueError, KeyError):
+            continue
+    return out
+
+
+def _save_canary_votes(f: Path, votes: list[dict]) -> None:
+    f.parent.mkdir(parents=True, exist_ok=True)
+    meta = []
+    for i, v in enumerate(votes):
+        name = f"{f.stem}_{i}.npy"
+        if not (f.parent / name).is_file():
+            np.save(f.parent / name, v["y"])
+        meta.append({"npy": name, "n": v["n"]})
+    f.with_suffix(".json").write_text(json.dumps(meta))
+
+
+def canary_enabled() -> bool:
+    return os.environ.get("TONEMATCH_NATIVE_CANARY", "1").strip().lower() not in ("0", "false", "no")
+
+
 class HostProcess:
-    """One plugin-host child process. Thread-safe per instance (one request at a time)."""
+    """One plugin-host child process. Thread-safe per instance (one request at a time).
+
+    Opened in ``initial_state`` (a real plugin), the host is checked against the machine's
+    canary reference (see ``CANARY_THRESHOLD_DB``) and replaced until it agrees;
+    ``canary_null_db`` and ``canary_respawns`` record what happened."""
 
     def __init__(self, plugin: str, plugin_name: str | None = None, block_size: int = 512,
-                 initial_state: bytes | None = None):
+                 initial_state: bytes | None = None, canary: bool | None = None):
         from .native_host import read_msg, write_msg  # protocol helpers only, no pedalboard
 
         self._read, self._write = read_msg, write_msg
@@ -202,9 +258,18 @@ class HostProcess:
         self.initial_state = initial_state or b""  # set before any audio (HC mode at start)
         self.info: dict = {}
         self.mem_mb: float | None = None  # host's physical footprint after the last reply
+        self.canary = (canary_enabled() if canary is None else canary) and bool(self.initial_state) \
+            and not str(plugin).startswith("builtin:")
+        self.canary_null_db: float | None = None
+        self.canary_respawns = 0
         self._spawn()
 
     def _spawn(self) -> None:
+        self._spawn_process()
+        if self.canary:
+            self._check_canary()
+
+    def _spawn_process(self) -> None:
         env = dict(os.environ)
         env["PYTHONPATH"] = str(SRC) + os.pathsep + env.get("PYTHONPATH", "")
         self.proc = subprocess.Popen(
@@ -219,6 +284,48 @@ class HostProcess:
             self.proc.kill()  # never leave a half-open host (each holds GBs) behind
             self.proc.wait(timeout=10)
             raise
+
+    def _canary_render(self) -> np.ndarray:
+        x = canary_signal()
+        _, y = self.call("render", x.astype("<f4").tobytes(), reset=True)
+        return np.frombuffer(y, dtype="<f4")[4800:].copy()
+
+    def _check_canary(self) -> None:
+        """Replace this host until its canary is the machine's majority render (module comment).
+
+        Every host's canary is a vote, kept on disk (``cache/native/canary/<key>.json``): renders
+        that null to ``CANARY_THRESHOLD_DB`` form one cluster. A host is accepted when its
+        cluster has the most votes and at least two (so the first host on a machine waits for a
+        second, agreeing one). Odd hosts are about 1 in 10 (up to 2 in 5 when opened together),
+        so a pool can never switch the reference to the odd mode by outvoting it in one burst."""
+        f = _canary_file(self.plugin, self.initial_state)
+        nd = 0.0
+        for attempt in range(CANARY_RETRIES + 1):
+            y = self._canary_render()
+            with _CANARY_LOCK:
+                votes = _canary_votes(f)
+                idx = next((i for i, v in enumerate(votes) if len(v["y"]) == len(y)
+                            and null_db(v["y"], y) <= CANARY_THRESHOLD_DB), None)
+                if idx is None:
+                    votes.append({"y": y, "n": 0})
+                    idx = len(votes) - 1
+                votes[idx]["n"] += 1
+                _save_canary_votes(f, votes)
+                best = max(range(len(votes)), key=lambda i: (votes[i]["n"], -i))
+                nd = null_db(votes[best]["y"], y) if idx != best else -300.0
+                if idx == best and votes[best]["n"] >= 2:
+                    self.canary_null_db = nd
+                    return
+            if votes[best]["n"] >= 2:
+                print(f"NativeHost: host renders differently from the majority ({nd:.1f} dB, "
+                      f"votes {[v['n'] for v in votes]}); replacing it", file=sys.stderr)
+            if attempt == CANARY_RETRIES:
+                break
+            self.canary_respawns += 1
+            self.close()
+            self._spawn_process()
+        self.close()
+        raise EngineError(f"Native host canary: no agreeing host in {CANARY_RETRIES + 1} tries")
 
     def call(self, cmd: str, payload: bytes = b"", **kw) -> tuple[dict, bytes]:
         with self._lock:
@@ -401,8 +508,12 @@ def _scalar(v):
 
 def baked_fingerprint(preset, amap: dict[str, str], verified) -> tuple[dict, str]:
     """Values a template's state fixes for ``preset``: every param, bypass and extra except
-    the mapped params whose CC was verified to move the render. Returns (values, sha1)."""
-    live = {k for k in verified if k in amap}
+    the mapped params whose CC was verified to move the render. Returns (values, sha1).
+
+    A block's bypass CC (``"<slot>:@enabled"``) is live whenever it is assigned: bypass by CC
+    equals drop-captured truth bit-exactly on every block type tried (phase 2, 2026-10-15), and
+    a block that is transparent at capture settings (a flat EQ) would otherwise never verify."""
+    live = {k for k in verified if k in amap} | {k for k in amap if k.endswith(":@enabled")}
     vals: dict = {}
     for i, s in enumerate(preset.slots):
         if s.model_id is None:
@@ -439,75 +550,504 @@ def catalog_ranges(preset, catalog: dict | None = None) -> dict[str, tuple[float
     return out
 
 
-def capture_chain(preset, plugin: str, *, plugin_name: str | None = None,
-                  start_state: bytes | None = None, templates_dir: Path | None = None,
-                  host_factory=None, open_wait_s: float = 8.0, load_wait_s: float = 4.0,
-                  verify_ccs: bool = True, catalog: dict | None = None) -> ChainTemplate:
-    """Capture a template for ``preset``'s chain with no human (T018n, macOS VST3).
-
-    Writes the preset as ``.hlx`` with a free MIDI CC assigned to every [0, 1] parameter
-    (``native_setlist.assign_ccs``), opens Native's editor in a fresh host process, drops the
-    file on it in-process (``native_gui``), closes the editor and saves the state as a
-    ``ChainTemplate`` whose map points at the VST3's ``cc_<n>`` params. Raises
-    ``UnsupportedModelChange`` with the reason if it cannot (no GUI session, no PyObjC, Native
-    asked a question, or the state did not change). ``host_factory(plugin, plugin_name)`` must
-    return an object with ``call``/``close`` like ``HostProcess`` (tests pass a fake).
-
-    CC ranges come from the HX catalog for continuous params (cab Hz, dB levels included);
-    without a catalog only params valued in [0, 1] are mapped, as [0, 1]. With ``verify_ccs``
-    each mapped CC is checked by render (one render per CC, 3 s pre-roll): only CCs that move
-    the render are ``verified``; everything else is baked into the template's fingerprint, so
-    the template is reused only for presets with identical baked values.
-    """
+def _capture_doc(preset, catalog, bypass_ccs: bool):
+    """The drop file for ``preset``: snapshots synced, bypass and param CCs assigned."""
     from .native_setlist import assign_ccs
 
     key = chain_key(preset)
     cid = chain_id([list(k) for k in key])
     d = sync_hlx_snapshots(preset.to_hlx_dict())  # block values win (lead, 2026-10-15)
     ranges = catalog_ranges(preset, catalog)
-    targets = [(i, n) for i, s in enumerate(preset.slots) for n in (s.params or {})
-               if ranges is None or f"{i}:{n}" in ranges]
+    # Bypass CCs first (phase 2, 2026-10-15): one capture then serves every bypass pattern of
+    # the chain, so they get first claim on the 90 free CCs.
+    targets = [(i, "@enabled") for i, s in enumerate(preset.slots) if bypass_ccs and s.model_id]
+    targets += [(i, n) for i, s in enumerate(preset.slots) for n in (s.params or {})
+                if ranges is None or f"{i}:{n}" in ranges]
     d, amap, rng, _skipped = assign_ccs(d, targets, ranges=ranges)
     _, full_hash = baked_fingerprint(preset, {}, [])
     out = cache_dir() / "drop"
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{cid}_{full_hash[:10]}.hlx"
     path.write_text(json.dumps(d, indent=1))
-    host = (host_factory or HostProcess)(plugin, plugin_name)
+    return key, cid, amap, rng, path
+
+
+# Blocks whose tails survive the host's state reset (delay lines, 2026-10-15): CC verification
+# renders of chains holding one get a 3 s pre-roll; other chains need only 0.5 s.
+TAIL_CATEGORIES = frozenset({"delay", "reverb", "other"})
+CC_STEPS = 127  # a MIDI CC has 128 values over the assignment's Min..Max
+# The truth check moves every mapped param by this many CC steps (1/8 of its range), toward the
+# middle (dB levels alternately up and down). Jumping every param to 32/127 or 95/127 put C8's
+# six Level params near -43 dB each, the chain output near the float floor, and the renders
+# stopped repeating (-54.9 dB); moving every level 8 dB down still left it at -81 dBFS.
+MOVE_STEPS = 16
+
+
+def cc_value(lo: float, hi: float, c: int) -> float:
+    """The parameter value Native gives a MIDI CC at ``c`` (0..127) assigned over [lo, hi]:
+    linear, lo + c/127 (hi - lo). Measured 2026-10-15 (scripts/native_cc_grid_probe.py): a
+    drop capture with this value equals the CC route at -260 to -317 dB on Hz, dB, Q, ms and
+    distance params (cab, EQ, comp, chorus, delay, reverb); log and c/128 grids miss by -13 to
+    -71 dB. Computed in float32, as the plugin stores it."""
+    n = np.float32(c) / np.float32(CC_STEPS)
+    return float(np.float32(lo) + n * (np.float32(hi) - np.float32(lo)))
+
+
+def verify_preroll_s(preset) -> float:
+    """Pre-roll for CC verification renders of ``preset``'s chain (see ``TAIL_CATEGORIES``)."""
+    cats = {s.category for s in preset.slots if s.model_id}
+    return 3.0 if cats & TAIL_CATEGORIES else 0.5
+
+
+def _pair(preset, ref: str) -> str:
+    i, name = ref.split(":", 1)
+    return f"{preset.slots[int(i)].model_id}|{name}"
+
+
+def _norm(preset, rng: dict, ref: str) -> float:
+    """``ref``'s value in ``preset`` as the CC's normalized value (bypass: 1.0, every block on)."""
+    i, name = ref.split(":", 1)
+    if name == "@enabled":  # verify params with every block on, so a bypassed block's
+        return 1.0          # params are not judged dead
+    lo, hi = rng.get(ref, [0.0, 1.0])
+    v = float((preset.slots[int(i)].params or {}).get(name, lo))
+    return float(np.clip((v - lo) / ((hi - lo) or 1.0), 0.0, 1.0))
+
+
+def moved_preset(preset, amap: dict, rng: dict):
+    """``preset`` with every CC-mapped param moved ``MOVE_STEPS`` CC steps from its own value
+    toward the middle of its range (on the CC grid, ``cc_value``), and every block on.
+
+    Returns ``(moved, values)``: ``values`` are the host CC values that reproduce ``moved`` on
+    ``preset``'s template. The truth check renders both ways and nulls them."""
+    p = copy.deepcopy(preset)
+    p.name = f"{getattr(preset, 'name', '') or 'chain'} moved"
+    values: dict[str, float] = {}
+    up = False
+    for ref, prm in amap.items():
+        i, name = ref.split(":", 1)
+        if name == "@enabled":
+            values[prm] = 1.0
+            continue
+        lo, hi = rng.get(ref, [0.0, 1.0])
+        c0 = round(_norm(preset, rng, ref) * CC_STEPS)
+        if lo <= -24.0:  # a dB level: alternate up and down so the chain's gain stays put
+            up = not up
+            c = min(c0 + MOVE_STEPS, CC_STEPS) if up and c0 < CC_STEPS else max(c0 - MOVE_STEPS, 0)
+        else:
+            c = c0 - MOVE_STEPS if c0 >= 64 else c0 + MOVE_STEPS
+        p.slots[int(i)].params[name] = cc_value(lo, hi, c)
+        values[prm] = c / CC_STEPS
+    for s in p.slots:
+        if s.model_id:
+            s.enabled = True
+    return p, values
+
+
+def capture_key(preset, catalog=None, bypass_ccs: bool = True) -> str:
+    """Presets with equal keys can share one capture: the chain structure plus every value the
+    capture would bake if all of its CC-mapped params verify (``capture_missing`` dedupe)."""
+    from .native_setlist import assign_ccs
+
+    ranges = catalog_ranges(preset, catalog)
+    targets = [(i, "@enabled") for i, s in enumerate(preset.slots) if bypass_ccs and s.model_id]
+    targets += [(i, n) for i, s in enumerate(preset.slots) for n in (s.params or {})
+                if ranges is None or f"{i}:{n}" in ranges]
+    _, amap, _, _ = assign_ccs(sync_hlx_snapshots(preset.to_hlx_dict()), targets, ranges=ranges)
+    _, h = baked_fingerprint(preset, amap, list(amap))
+    return chain_id([list(k) for k in chain_key(preset)]) + h
+
+
+def capture_chain(preset, plugin: str, **kw) -> ChainTemplate:
+    """Capture a template for ``preset``'s chain with no human (T018n, macOS VST3).
+
+    Writes the preset as ``.hlx`` with a free MIDI CC assigned to every [0, 1] parameter
+    (``native_setlist.assign_ccs``), opens Native's editor in a host process, drops the file
+    on it in-process (``native_gui``), closes the editor and saves the state as a
+    ``ChainTemplate`` whose map points at the VST3's ``cc_<n>`` params. Raises
+    ``UnsupportedModelChange`` with the reason if it cannot (no GUI session, no PyObjC, Native
+    asked a question, or the state did not change). Keywords as ``capture_chains``.
+
+    CC ranges come from the HX catalog for continuous params (cab Hz, dB levels included);
+    without a catalog only params valued in [0, 1] are mapped, as [0, 1]. With ``verify_ccs``
+    the mapped CCs are checked by render (``capture_chains``): only CCs shown to work are
+    ``verified``; everything else is baked into the template's fingerprint, so the template is
+    reused only for presets with identical baked values.
+
+    With ``bypass_ccs`` every block's bypass (``@enabled``) is also assigned a CC (map key
+    ``"<slot>:@enabled"``; >= 0.5 is on). Bypass states are then no longer baked, so one
+    capture serves every bypass pattern of the chain.
+    """
+    out = capture_chains([preset], plugin, **kw)[0]
+    if isinstance(out, Exception):
+        raise out
+    return out
+
+
+def capture_chains(presets: list, plugin: str, *, plugin_name: str | None = None,
+                   start_state: bytes | None = None, templates_dir: Path | None = None,
+                   host_factory=None, verify_ccs: bool = True, catalog: dict | None = None,
+                   bypass_ccs: bool = True, load_timeout_s: float = 8.0,
+                   known_live: bool = True, stats: dict | None = None,
+                   verify_mode: str = "auto", truth_min_ccs: int = 8,
+                   truth_threshold_db: float = -50.0, replay_every: int = 10,
+                   replay_threshold_db: float = -90.0, poll_s: float = 0.1, stable_polls: int = 2,
+                   settle_s: float = 0.3, replay_host=None, max_sessions: int = 3, **_) -> list:
+    """Capture several chains in ONE host and ONE editor session (phase 3 speed-up).
+
+    The host opens directly in ``start_state`` (no ``reload_with_state``, which leaks ~1.3 GB),
+    the editor opens once and every file is dropped in turn; each load is detected by polling
+    the state (about 1 s per file instead of ~31 s per file in its own process, measured
+    2026-10-15). CCs are then verified on the same host by ``set_state``:
+
+    - ``verify_mode="per-cc"``: one render per mapped param against a base render (a param
+      that moves the render by more than -45 dB is live). Bypass CCs are live by rule.
+    - ``"truth"``: the chain is also dropped with every mapped param moved to a CC-grid value
+      (``moved_preset``). The template with its CCs moved must null against that drop to
+      ``truth_threshold_db``; then every mapped param is live. Two renders and one extra drop
+      instead of one render per param. On a miss it falls back to per-CC.
+    - ``"auto"`` (default): truth when at least ``truth_min_ccs`` params need checking.
+
+    With ``known_live`` a CC whose (model, param) was verified live in an earlier capture
+    (``cache/native/cc_live.json``) is not re-checked. Every ``replay_every``-th template this
+    process captures (0: none; counted across calls, so single autocaptures are sampled too) is
+    replayed in a FRESH host after the session (``replay_host``, e.g. an engine's own host that
+    never opened an editor, else a new one) and must null against its in-session render to
+    ``replay_threshold_db``, else it is discarded and reported as failed.
+    Returns one ``ChainTemplate`` or ``UnsupportedModelChange`` per preset, in order.
+    ``host_factory(plugin, plugin_name)`` must return an object with ``call``/``close`` like
+    ``HostProcess`` (tests pass a fake); it is then given the start state by reload.
+    """
+    st = stats if stats is not None else {}
+    tick = time.perf_counter()
+
+    def lap(name: str) -> None:
+        nonlocal tick
+        now = time.perf_counter()
+        st[name] = round(st.get(name, 0.0) + now - tick, 3)
+        tick = now
+
+    def new_host():
+        if host_factory is not None:
+            h = host_factory(plugin, plugin_name)
+            if start_state:
+                h.call("reload_with_state", start_state, path=plugin, plugin_name=plugin_name)
+            return h
+        return HostProcess(plugin, plugin_name, initial_state=start_state) if start_state else \
+            HostProcess(plugin, plugin_name)
+
+    live_db = _load_live() if known_live else {}
+    bad = invalid_models()
+    refused = {i: sorted({s.model_id for s in p.slots if s.model_id in bad}) for i, p in enumerate(presets)}
+    refused = {i: m for i, m in refused.items() if m}
+    if refused:  # never drop a model Native already refused (its alert would show on screen)
+        keep = [i for i in range(len(presets)) if i not in refused]
+        sub = capture_chains([presets[i] for i in keep], plugin, **{**_capture_kw(locals()), "stats": stats}) \
+            if keep else []
+        out = [None] * len(presets)
+        for i, t in zip(keep, sub, strict=True):
+            out[i] = t
+        for i, m in refused.items():
+            out[i] = UnsupportedModelChange(f"Native refused {m} before (\"Invalid model\", "
+                                            f"{rejected_path().name}); not dropped")
+        return out
+    docs = [_capture_doc(p, catalog, bypass_ccs) for p in presets]
+    modes, truths = [], {}
+    for i, (p, d) in enumerate(zip(presets, docs, strict=True)):
+        amap, rng = d[2], d[3]
+        todo = [r for r in amap if not r.endswith(":@enabled") and not live_db.get(_pair(p, r))]
+        m = verify_mode if (verify_ccs and amap) else "none"
+        if m == "auto":
+            m = "truth" if len(todo) >= truth_min_ccs else "per-cc"
+        if m == "truth" and todo:
+            mp, mvals = moved_preset(p, amap, rng)
+            md = _capture_doc(mp, catalog, bypass_ccs)
+            if md[2] == amap:
+                truths[i] = (md[4], mvals)
+            else:  # the moved file did not get the same CCs (should not happen): check per CC
+                m = "per-cc"
+        modes.append(m)
+    drops: list[tuple[int, str, Path]] = []
+    for i, d in enumerate(docs):
+        drops.append((i, "base", d[4]))
+        if i in truths:
+            drops.append((i, "truth", truths[i][0]))
+    lap("write_files_s")
+    out: list = [None] * len(presets)
+    host = new_host() if host_factory is None else host_factory(plugin, plugin_name)
+    lap("host_open_s")
+    st["chains"], st["rejected"], st["sessions"] = [], [], 0
+    replay: list[tuple[int, np.ndarray, dict]] = []
+    snaps = cache_dir() / "dialogs"
+    snaps.mkdir(parents=True, exist_ok=True)
     try:
         gui = host.call("gui_available")[0]
         if not gui.get("gui"):
             raise UnsupportedModelChange(f"Native autocapture unavailable: {gui.get('reason')}")
-        if start_state:
+        if start_state and host_factory is not None:
             host.call("reload_with_state", start_state, path=plugin, plugin_name=plugin_name)
-        before = host.call("get_state")[1]
-        res = host.call("editor_drop", path=str(path.resolve()), open_wait_s=open_wait_s,
-                        load_wait_s=load_wait_s)[0]
-        if res.get("error"):
-            raise UnsupportedModelChange(f"Native autocapture failed: {res['error']}")
-        if res.get("dialogs"):
-            raise UnsupportedModelChange(
-                "Native asked a question while loading the file (usually the HC-mode prompt): run "
-                "scripts/native_hc_once.py once and tick \"Don't ask me again\"")
-        state = host.call("get_state")[1]
-        if state == before:
-            raise UnsupportedModelChange(
-                f"Native autocapture: the drop of {path.name} did not change the state")
-        verified = _verify_ccs(host, plugin, plugin_name, state, preset, amap, rng) if (
-            verify_ccs and amap) else []
+        lap("gui_check_s")
+        got: dict = {}
+        pending = list(range(len(drops)))
+        while pending:
+            # One editor session over the pending files. A rejected load (Native's error or
+            # question window, a modal drop, an unchanged state) ends the session at that file
+            # (window snapshotted to cache/native/dialogs/ and closed); the files after it are
+            # retried in a fresh host, at most max_sessions sessions in all.
+            st["sessions"] += 1
+            stamp = time.strftime("%Y%m%dT%H%M%S")
+            hdr, blob = host.call("editor_drop_many",
+                                  paths=[str(drops[j][2].resolve()) for j in pending],
+                                  load_timeout_s=load_timeout_s, poll_s=poll_s,
+                                  stable_polls=stable_polls, settle_s=settle_s,
+                                  dialog_snap_prefix=str(snaps / f"{stamp}_{os.getpid()}"))
+            st["editor_open_s"] = hdr.get("open_s")
+            st["editor_s"] = round(st.get("editor_s", 0.0) + float(hdr.get("editor_s") or 0.0), 2)
+            if hdr.get("error") and not hdr.get("results"):
+                raise UnsupportedModelChange(f"Native autocapture failed: {hdr['error']}")
+            results, pos = hdr.get("results", []), 0
+            for j, res in zip(pending, results, strict=False):
+                i, kind, path = drops[j]
+                n = int(res.get("state_len", 0))
+                state, pos = blob[pos:pos + n], pos + n
+                if res.get("error") or not state:
+                    why = res.get("error") or "no state"
+                    texts = [t for w in res.get("windows") or [] for t in w.get("text") or []]
+                    st["rejected"].append({"file": path.name, "preset": getattr(presets[i], "name", ""),
+                                           "kind": kind, "error": why, "windows": res.get("windows"),
+                                           "models": [s.model_id for s in presets[i].slots if s.model_id]})
+                    _record_rejected(presets[i], path.name, texts or [why])
+                    hc = any("L6DialogWindow" in str(w.get("cls")) for w in res.get("windows") or [])
+                    shown = " (Native asked a question or reported an error)" if res.get("dialogs") else ""
+                    got[(i, kind)] = UnsupportedModelChange(
+                        f"Native autocapture: Native rejected {path.name}: {why}{shown}" + (
+                            " (if this is the HC-mode question, run scripts/native_hc_once.py once "
+                            "and tick \"Don't ask me again\")" if hc else ""))
+                else:
+                    got[(i, kind)] = state
+                got[(i, kind, "load_s")] = res.get("load_s")
+            rest = pending[len(results):]
+            if rest and st["sessions"] < max_sessions:
+                host.close()
+                host = new_host()
+            elif rest:
+                for j in rest:
+                    i, kind, path = drops[j]
+                    got[(i, kind)] = UnsupportedModelChange(
+                        f"Native autocapture: {path.name} was not dropped ({max_sessions} sessions "
+                        "ended early on rejected files)")
+            pending = rest if st["sessions"] < max_sessions else []
+        lap("editor_session_s")
+        st["drops"] = len(drops)
+        for i, (p, (key, cid, amap, rng, _path)) in enumerate(zip(presets, docs, strict=True)):
+            state = got[(i, "base")]
+            if isinstance(state, Exception):
+                out[i] = state
+                continue
+            vst: dict = {"mode": modes[i]}
+            t_v = time.perf_counter()
+            pre_s = verify_preroll_s(p)
+            verified: list[str] = []
+            if modes[i] == "truth" and i in truths:
+                tstate = got[(i, "truth")]
+                ok, vst["truth_null_db"] = (False, None) if isinstance(tstate, Exception) else \
+                    _truth_check(host, plugin, plugin_name, state, tstate, truths[i][1], pre_s,
+                                 truth_threshold_db)
+                vst["verify_renders"] = 0 if isinstance(tstate, Exception) else 2
+                if ok:
+                    verified = list(amap)
+                    for ref in amap:
+                        live_db[_pair(p, ref)] = True
+                else:
+                    vst["mode"] = "truth->per-cc"
+            if modes[i] in ("per-cc", "truth") and not verified:
+                pst: dict = {}
+                verified = _verify_ccs(host, plugin, plugin_name, state, p, amap, rng,
+                                       preroll_s=pre_s, live_db=live_db, stats=pst)
+                vst["verify_renders"] = vst.get("verify_renders", 0) + pst.get("verify_renders", 0)
+                vst["verify_skipped_known"] = pst.get("verify_skipped_known", 0)
+            verify_s = time.perf_counter() - t_v
+            baked, h = baked_fingerprint(p, amap, verified)
+            tpl = ChainTemplate(key, state, amap, rng, name=getattr(p, "name", "") or cid,
+                                verified=verified, baked=baked, baked_hash=h)
+            if replay_every and _next_capture_index() % replay_every == 0:
+                vals = {prm: _norm(p, rng, ref) if not ref.endswith(":@enabled") else
+                        (1.0 if p.slots[int(ref.split(':')[0])].enabled else 0.0)
+                        for ref, prm in amap.items()}
+                replay.append((i, _render_state(host, state, vals, 3.0), vals))
+            tpl.save(templates_dir)
+            out[i] = tpl
+            st["chains"].append({"name": tpl.name, "blocks": sum(1 for s in p.slots if s.model_id),
+                                 "ccs": len(amap), "verified": len(verified),
+                                 "load_s": got.get((i, "base", "load_s")),
+                                 "verify_s": round(verify_s, 3), **vst})
+        lap("verify_and_save_s")
+        st["host_mem_mb"] = getattr(host, "mem_mb", None)
     finally:
         host.close()
-    baked, h = baked_fingerprint(preset, amap, verified)
-    tpl = ChainTemplate(key, state, amap, rng, name=getattr(preset, "name", "") or cid,
-                        verified=verified, baked=baked, baked_hash=h)
-    tpl.save(templates_dir)
-    return tpl
+        lap("close_s")
+        if known_live and live_db:
+            _save_live(live_db)
+    if replay:  # fresh-process replay null for a sample (correctness check, per session)
+        h2 = replay_host or new_host()
+        try:
+            for i, ref_y, vals in replay:
+                y = _render_state(h2, out[i].state, vals, 3.0)
+                nd = null_db(y, ref_y) if np.any(ref_y) else -300.0
+                st.setdefault("replay_null_db", {})[out[i].name] = round(nd, 1)
+                if nd > replay_threshold_db:
+                    _discard(out[i], templates_dir)
+                    out[i] = UnsupportedModelChange(
+                        f"Native autocapture: {out[i].name!r} replayed in a fresh host nulls at "
+                        f"{nd:.1f} dB (> {replay_threshold_db} dB); template discarded")
+        finally:
+            if h2 is not replay_host:
+                h2.close()
+        lap("replay_check_s")
+    return out
+
+
+def rejected_path() -> Path:
+    return cache_dir() / "rejected_drops.json"
+
+
+def invalid_models() -> set[str]:
+    """Models this Native install refused as "Invalid model" when dropped alone (logged by
+    earlier captures). The HX Edit 3.82 catalog lists models Native 3.82 cannot load, e.g.
+    HD2_CompressorTransientShaper (2026-10-15)."""
+    try:
+        db = json.loads(rejected_path().read_text())
+    except (OSError, ValueError):
+        return set()
+    return {e["models"][0] for e in db.values() if len(e.get("models") or []) == 1
+            and any("Invalid model" in t for t in e.get("message") or [])}
+
+
+def _record_rejected(preset, fname: str, texts: list[str]) -> None:
+    """Log a file Native refused (local cache, for the catalog owners): models and message."""
+    with _LIVE_LOCK:
+        try:
+            db = json.loads(rejected_path().read_text())
+        except (OSError, ValueError):
+            db = {}
+        db[fname] = {"models": [s.model_id for s in preset.slots if s.model_id],
+                     "name": getattr(preset, "name", ""), "message": texts,
+                     "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        rejected_path().parent.mkdir(parents=True, exist_ok=True)
+        rejected_path().write_text(json.dumps(db, indent=1, sort_keys=True))
+
+
+_CAPTURE_COUNT = [0]
+_COUNT_LOCK = threading.Lock()
+
+
+def _capture_kw(loc: dict) -> dict:
+    """capture_chains' keyword arguments from its locals (for the re-call without refused presets)."""
+    names = ("plugin_name", "start_state", "templates_dir", "host_factory", "verify_ccs", "catalog",
+             "bypass_ccs", "load_timeout_s", "known_live", "verify_mode", "truth_min_ccs",
+             "truth_threshold_db", "replay_every", "replay_threshold_db", "poll_s", "stable_polls",
+             "settle_s", "replay_host", "max_sessions")
+    return {k: loc[k] for k in names}
+
+
+def _next_capture_index() -> int:
+    """0, 1, 2, ... over every template captured in this process (replay-check sampling)."""
+    with _COUNT_LOCK:
+        i = _CAPTURE_COUNT[0]
+        _CAPTURE_COUNT[0] += 1
+        return i
+
+
+def _discard(tpl: ChainTemplate, d: Path | None) -> None:
+    d = d or cache_dir() / "templates"
+    cid = chain_id([list(x) for x in tpl.chain])
+    stem = f"{cid}_{tpl.baked_hash[:10]}" if tpl.baked_hash else cid
+    for suf in (".json", ".state"):
+        (d / f"{stem}{suf}").unlink(missing_ok=True)
+
+
+def _render_state(host, state: bytes, values: dict, preroll_s: float, seconds: float = 1.0) -> np.ndarray:
+    """Render ``test_signal`` through ``state`` with host ``values`` set (reset render)."""
+    host.call("set_state", state)
+    if values:
+        host.call("set_params", values=values)
+    pre = int(preroll_s * SAMPLE_RATE)
+    x = np.concatenate([np.zeros(pre, np.float32), test_signal(seconds)])
+    _, data = host.call("render", x.astype("<f4").tobytes(), reset=True)
+    return np.frombuffer(data, dtype="<f4")[pre:].copy()
+
+
+def _truth_check(host, plugin, plugin_name, state: bytes, truth_state: bytes, values: dict,
+                 preroll_s: float, threshold_db: float) -> tuple[bool, float]:
+    """Template + moved CCs against the moved file's own drop capture (same CC values).
+
+    Single blocks null bit-exactly (-258 to -314 dB, 8 C8 blocks, 2026-10-15); the 8-block C8
+    chain at -66 dB, its amp's own 1-ulp sensitivity (phase 1). The -50 dB pass mark leaves
+    room for that and still catches 49 of C8's 55 params if their CC were ignored (the other
+    six move the render by less than -55 dB at these settings)."""
+    a = _render_state(host, state, values, preroll_s)
+    b = _render_state(host, truth_state, values, preroll_s)
+    nd = null_db(b, a) if np.any(b) else (-300.0 if not np.any(a) else 0.0)
+    return nd <= threshold_db, round(float(nd), 1)
+
+
+def capture_chains_parallel(presets: list, plugin: str, sessions: int = 2,
+                            stats: dict | None = None, **kw) -> list:
+    """``capture_chains`` split over ``sessions`` host processes at once (each its own editor
+    session), capped by ``max_hosts_by_memory()``. Results in ``presets`` order."""
+    k = max(1, min(int(sessions), len(presets), max_hosts_by_memory()))
+    if k == 1:
+        return capture_chains(presets, plugin, stats=stats, **kw)
+    parts = [list(range(len(presets)))[j::k] for j in range(k)]
+    sts: list[dict] = [{} for _ in parts]
+    with cf.ThreadPoolExecutor(k) as ex:
+        outs = list(ex.map(lambda j: capture_chains([presets[i] for i in parts[j]], plugin,
+                                                     stats=sts[j], **kw), range(k)))
+    out: list = [None] * len(presets)
+    for part, res in zip(parts, outs, strict=True):
+        for i, r in zip(part, res, strict=True):
+            out[i] = r
+    if stats is not None:
+        stats["sessions"] = sts
+    return out
+
+
+_LIVE_LOCK = threading.Lock()
+
+
+def _live_path() -> Path:
+    return cache_dir() / "cc_live.json"
+
+
+def _load_live() -> dict:
+    try:
+        return json.loads(_live_path().read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_live(db: dict) -> None:
+    """Merge ``db``'s live pairs into the file (parallel sessions each save theirs)."""
+    with _LIVE_LOCK:
+        merged = {**_load_live(), **{k: v for k, v in db.items() if v}}
+        _live_path().parent.mkdir(parents=True, exist_ok=True)
+        _live_path().write_text(json.dumps(merged, indent=0, sort_keys=True))
 
 
 def _verify_ccs(host, plugin, plugin_name, state, preset, amap, rng,
-                threshold_db: float = -45.0, preroll_s: float = 3.0) -> list[str]:
-    """Mapped params whose CC moves the render (one render each, against a base render)."""
-    host.call("reload_with_state", state, path=plugin, plugin_name=plugin_name)
+                threshold_db: float = -45.0, preroll_s: float = 3.0,
+                live_db: dict | None = None, stats: dict | None = None) -> list[str]:
+    """Mapped params whose CC moves the render (one render each, against a base render).
+
+    Assigned bypass CCs are live by rule (bit-exact against drop truth, phase 2) and are not
+    rendered. ``live_db`` (``"<model>|<param>" -> True``) skips the render for pairs already
+    shown live and records new live pairs; a dead result is not recorded (it may depend on
+    settings).
+    """
+    try:
+        host.call("set_state", state)  # same HC mode as the host after the drop
+    except EngineError:
+        host.call("reload_with_state", state, path=plugin, plugin_name=plugin_name)
     pre = int(preroll_s * SAMPLE_RATE)
     x = np.concatenate([np.zeros(pre, np.float32), test_signal(1.0)])
 
@@ -515,22 +1055,24 @@ def _verify_ccs(host, plugin, plugin_name, state, preset, amap, rng,
         _, data = host.call("render", x.astype("<f4").tobytes(), reset=True)
         return np.frombuffer(data, dtype="<f4")[pre:]
 
-    def norm(ref: str) -> float:
-        i, name = ref.split(":", 1)
-        lo, hi = rng.get(ref, [0.0, 1.0])
-        v = float((preset.slots[int(i)].params or {}).get(name, lo))
-        return float(np.clip((v - lo) / ((hi - lo) or 1.0), 0.0, 1.0))
-
-    host.call("set_params", values={prm: norm(ref) for ref, prm in amap.items()})
+    live_db = {} if live_db is None else live_db
+    ok = [ref for ref in amap if ref.endswith(":@enabled") or live_db.get(_pair(preset, ref))]
+    todo = [ref for ref in amap if ref not in ok]
+    if stats is not None:
+        stats["verify_renders"] = len(todo) + 1 if todo else 0
+        stats["verify_skipped_known"] = len([r for r in ok if not r.endswith(":@enabled")])
+    if not todo:
+        return [ref for ref in amap if ref in ok]
+    host.call("set_params", values={prm: _norm(preset, rng, ref) for ref, prm in amap.items()})
     base = render()
-    ok = []
-    for ref, prm in amap.items():
-        v = norm(ref)
+    for ref in todo:
+        prm, v = amap[ref], _norm(preset, rng, ref)
         host.call("set_params", values={prm: 0.25 if v >= 0.5 else 0.75})
         if null_db(render(), base) > threshold_db:
             ok.append(ref)
+            live_db[_pair(preset, ref)] = True
         host.call("set_params", values={prm: v})
-    return ok
+    return [ref for ref in amap if ref in ok]
 
 
 class NativeEngine:
@@ -598,7 +1140,8 @@ class NativeEngine:
         self.current_template: ChainTemplate | None = None
         self.last_unmapped: list[str] = []
         self.last_gain_db = self.calibration_db
-        self._latency: dict[tuple | None, int] = {}
+        self._latency: dict[tuple | None, int] = {}  # builtin stand-ins: per chain
+        self._plugin_latency: int | None = None   # Native: once per engine (latency())
         self._cost: Cost | None = None
         env_lim = os.environ.get("TONEMATCH_NATIVE_HOST_MEM_LIMIT_MB")
         self.mem_limit_mb = float(mem_limit_mb if mem_limit_mb is not None else
@@ -675,14 +1218,70 @@ class NativeEngine:
             diffs.append(f"{t.name!r} differs in baked {d[:6]}")
         return None, "; ".join(diffs[:4])
 
+    CAPTURE_SESSIONS = 2  # parallel editor sessions for capture_missing (measured, phase 3)
+
+    def capture_missing(self, presets: list, sessions: int | None = None, **kw) -> dict[int, Exception]:
+        """Capture every preset with no usable template, in one editor session per host.
+
+        Phase 3 (2026-10-15): about 1-1.5 s per chain in one session instead of ~31 s per chain
+        in its own process; ``sessions`` host processes capture at once (default
+        ``TONEMATCH_NATIVE_CAPTURE_SESSIONS`` or 2, capped by the RAM cap less this engine's
+        own host). Presets that would share a template (same structure and same values outside
+        the CC map the capture will assign) are captured once. Returns
+        ``{index: UnsupportedModelChange}`` for the ones that failed (empty if all succeeded).
+        """
+        todo: dict[str, int] = {}
+        for i, p in enumerate(presets):
+            key = chain_key(p)
+            if self._match_template(p, key)[0] is None:
+                todo.setdefault(capture_key(p, kw.get("catalog"), kw.get("bypass_ccs", True)), i)
+        if not todo:
+            return {}
+        idx = list(todo.values())
+        p0 = start_state_path()
+        n = sessions or int(os.environ.get("TONEMATCH_NATIVE_CAPTURE_SESSIONS", self.CAPTURE_SESSIONS))
+        n = max(1, min(n, len(idx), max_hosts_by_memory() - 1))
+        common = {"plugin_name": self.plugin_name,
+                  "start_state": p0.read_bytes() if p0.is_file() else None,
+                  "templates_dir": self.templates_dir, "host_factory": self._capture_host_factory}
+        t0 = time.perf_counter()
+        try:
+            if n == 1:  # replay-check on this engine's own host (never opened an editor)
+                outs = capture_chains([presets[i] for i in idx], self.plugin, replay_host=self.host,
+                                      **common, **kw)
+            else:
+                outs = capture_chains_parallel([presets[i] for i in idx], self.plugin, sessions=n,
+                                               **common, **kw)
+        finally:
+            self._restore_host()
+        self.last_capture_s = time.perf_counter() - t0
+        errs = {}
+        for i, t in zip(idx, outs, strict=True):
+            if isinstance(t, Exception):
+                errs[i] = t
+                continue
+            self.templates[t.chain] = t
+            self._variants.setdefault(t.chain, []).append(t)
+        return errs
+
+    def _restore_host(self) -> None:
+        """Put the loaded state and knobs back after the host was borrowed (replay check)."""
+        if self._loaded_state is not None:
+            self.host.call("set_state", self._loaded_state)
+            if self._host_params:
+                self.host.call("set_params", values=dict(self._host_params))
+
     def _autocapture(self, preset) -> ChainTemplate:
         """Capture an unknown chain by in-process drop (T018n); raises UnsupportedModelChange."""
         p = start_state_path()
         t0 = time.perf_counter()
-        tpl = capture_chain(preset, self.plugin, plugin_name=self.plugin_name,
-                            start_state=p.read_bytes() if p.is_file() else None,
-                            templates_dir=self.templates_dir,
-                            host_factory=self._capture_host_factory)
+        try:
+            tpl = capture_chain(preset, self.plugin, plugin_name=self.plugin_name,
+                                start_state=p.read_bytes() if p.is_file() else None,
+                                templates_dir=self.templates_dir,
+                                host_factory=self._capture_host_factory, replay_host=self.host)
+        finally:
+            self._restore_host()
         self.last_capture_s = time.perf_counter() - t0
         self.templates[tpl.chain] = tpl
         self._variants.setdefault(tpl.chain, []).append(tpl)
@@ -747,13 +1346,27 @@ class NativeEngine:
             models=models,
             snapshots=3,
             extras={"route": self.route, "control_route": self.route, "plugin": self.plugin, "host": "pedalboard",
-                    "host_params": len(self._params), "latency_samples": self._latency.get(self.current_chain),
+                    "host_params": len(self._params), "latency_samples": self._plugin_latency if self._plugin_latency is not None
+                    else self._latency.get(self.current_chain),
                     "templates": len(self.templates), "calibration_db": self.calibration_db,
                     "reset_mode": self.reset_mode, "host_reset": info.get("reset_strategy"),
                     "host_mem_mb": self.host.mem_mb, "host_mem_limit_mb": self.mem_limit_mb,
                     "host_recycles": self.recycles,
-                    "last_reset_via": getattr(self, "last_reset_via", None)},
+                    "last_reset_via": getattr(self, "last_reset_via", None),
+                    # MIDI-CC-mapped params take 128 values over the assignment's Min..Max
+                    # (renders equal drop captures bit-exactly only on that grid, 2026-10-15)
+                    "param_steps": self._param_steps()},
         )
+
+    def _param_steps(self) -> int | dict | None:
+        tpl = self.current_template or next(iter(self.templates.values()), None)
+        if tpl is None or not tpl.map:
+            return None
+        steps = {(int(k.split(":")[0]), k.split(":", 1)[1]): 128 for k, v in tpl.map.items()
+                 if str(v).startswith("cc_")}
+        if len(steps) == len(tpl.map):
+            return 128
+        return steps or None
 
     def close(self) -> None:
         self.host.close()
@@ -827,14 +1440,46 @@ class NativeEngine:
             self.host.call("set_params", values=params)
             self._host_params = params
 
+    # Native 3.82's own latency: 16 samples, VST3 and AU, every block size, by impulse through
+    # an empty chain (2026-10-14). Used when a chain has no bypass CCs to make it a pass-through.
+    NATIVE_LATENCY = 16
+
     def latency(self) -> int:
-        """Samples of latency beyond what the host compensates, measured once per chain with an impulse."""
+        """Samples of plugin latency trimmed from every render, measured once with an impulse.
+
+        Native: once per engine, through the loaded chain with every block bypassed by its CC
+        (a pass-through), else ``NATIVE_LATENCY``. Until 2026-10-16 it was measured through the
+        live chain at whatever settings the first render had: 0 to 30 samples on C8 (the onset
+        of amp hum, filter group delay), so two engines trimmed the same render differently
+        (-22.8 dB between a pool and a single engine). Builtin stand-ins: once per chain."""
+        if not self.plugin.startswith("builtin:"):
+            if self._plugin_latency is None:
+                self._plugin_latency = self._measure_plugin_latency()
+            return self._plugin_latency
         key = self.current_chain
         if key not in self._latency:
             imp = np.zeros(self.preroll + SAMPLE_RATE // 4, np.float32)
             imp[self.preroll] = 0.5  # after the post-reset fade-in, which would swallow a sample-0 impulse
             self._latency[key] = onset_latency(self._raw_render(imp)[self.preroll:])
         return self._latency[key]
+
+    def _measure_plugin_latency(self) -> int:
+        tpl = self.current_template
+        byp = [prm for ref, prm in (tpl.map if tpl else {}).items() if ref.endswith(":@enabled")]
+        if not byp:
+            return self.NATIVE_LATENCY
+        imp = np.zeros(self.preroll + SAMPLE_RATE // 4, np.float32)
+        imp[self.preroll] = 0.5
+        self.host.call("set_params", values={prm: 0.0 for prm in byp})
+        try:
+            lat = onset_latency(self._raw_render(imp)[self.preroll:])
+        finally:  # back to the loaded bypass states
+            self.host.call("set_params", values={prm: self._host_params.get(prm, 1.0) for prm in byp})
+        if not 0 <= lat <= 256:
+            print(f"NativeEngine: pass-through latency {lat} looks wrong; using {self.NATIVE_LATENCY}",
+                  file=sys.stderr)
+            return self.NATIVE_LATENCY
+        return lat
 
     def cost_key(self) -> str:
         """Disk-cache key for cost(): plugin, machine, reset mode and the chain *structure*.
@@ -936,8 +1581,9 @@ class NativeEngine:
         return float(pen), pair
 
 
-def max_hosts_by_memory(per_host_gb: float = 3.0, share: float = 0.5) -> int:
-    """Native hosts that fit in ``share`` of physical memory (``TONEMATCH_NATIVE_MAX_HOSTS`` overrides)."""
+def max_hosts_by_memory(per_host_gb: float = 2.5, share: float = 0.5) -> int:
+    """Native hosts that fit in ``share`` of physical memory (``TONEMATCH_NATIVE_MAX_HOSTS`` overrides).
+    2.5 GB per host (measured 1.3-1.75 GB; human 2026-10-16): 6 hosts on 32 GB, the sweep's sweet spot."""
     env = os.environ.get("TONEMATCH_NATIVE_MAX_HOSTS")
     if env:
         return max(1, int(env))
@@ -1063,17 +1709,137 @@ class RenderJob:
 
 
 class NativeRenderPool:
-    """Batch render service: N NativeEngine workers, jobs grouped by chain to minimise state loads.
+    """Parallel render service: N NativeEngine hosts rendered from N threads.
 
-    Used by benchmark (synthetic set) and learning (training data). Order of results matches jobs.
+    For ``search``: ``render_generation(preset, param_sets, dry)`` renders one CMA-ES generation
+    (one chain, many parameter sets) across all hosts, results in ``param_sets`` order;
+    ``map_generation(..., fn)`` applies ``fn`` (e.g. the loss) to each render in the worker
+    threads and returns only its results. Every host loads the chain once (later loads of the
+    same template only move CCs), and the host state reset makes each render independent of
+    which host ran it and what it ran before (bit-identical to a single engine, measured
+    2026-10-15). For ``benchmark``/``learning``: ``render_batch(jobs)`` takes mixed chains,
+    grouped by chain so state loads are minimised. Order of results matches the input.
+
+    Hosts are opened concurrently (~6 s, ~1.4-1.7 GB each in HX Stomp mode), each checked by the
+    host canary. ``workers`` defaults to ``DEFAULT_WORKERS`` (``TONEMATCH_NATIVE_POOL``) and is
+    always capped by the RAM cap (``max_hosts_by_memory``, ``TONEMATCH_NATIVE_MAX_HOSTS``) and by
+    CPUs - 1; each engine keeps its own memory
+    watchdog. Engines default to ``autocapture=False``; ``ensure_templates`` captures what is
+    missing first (one capture, shared by every host).
     """
 
-    def __init__(self, workers: int | None = None, **engine_kw):
-        first = NativeEngine(**engine_kw)
-        n = workers or first.cost().parallelism
-        self.engines = [first] + [NativeEngine(**engine_kw) for _ in range(max(0, n - 1))]
+    # Pool sweep 2026-10-16 (C8, render + MR-STFT score, 32 GB / 10-core Mac): 2 s clips 3.5 /
+    # 6.8 / 10.0 / 12.2 / 13.1 tests/s at 2 / 4 / 6 / 8 / 10 hosts; memory pressure green up to
+    # 6, yellow at 8 and 10, swap grew 2-3 GB while 8-10 hosts opened. 6 is the best within safe
+    # memory. ``max_hosts_by_memory`` allows 6 on 32 GB (2.5 GB per host, human 2026-10-16).
+    DEFAULT_WORKERS = 6
 
-    def render_batch(self, jobs: list[RenderJob]) -> list[Audio]:
+    def __init__(self, workers: int | None = None, **engine_kw):
+        cap = max_hosts_by_memory()
+        env = os.environ.get("TONEMATCH_NATIVE_POOL")
+        n = workers or (int(env) if env else min(self.DEFAULT_WORKERS, max(1, (os.cpu_count() or 2) - 1)))
+        n = max(1, min(int(n), cap))
+        engine_kw.setdefault("autocapture", False)
+        self.last_errors: dict[int, Exception] = {}
+        self.last_item_s: list[float] = []  # seconds per item (load + set_params + render [+ fn])
+        with cf.ThreadPoolExecutor(n) as ex:
+            futs = [ex.submit(NativeEngine, **engine_kw) for _ in range(n)]
+            engines, errs = [], []
+            for f in futs:
+                try:
+                    engines.append(f.result())
+                except EngineError as e:  # keep the ones that opened; close them if none usable
+                    errs.append(e)
+        if not engines:
+            raise errs[0]
+        self.engines: list[NativeEngine] = engines
+
+    @property
+    def workers(self) -> int:
+        return len(self.engines)
+
+    def mem_mb(self) -> float:
+        """Sum of the hosts' physical footprints (MB)."""
+        return float(sum(e.host.mem_mb or 0.0 for e in self.engines))
+
+    def stats(self) -> dict:
+        """Hosts, footprint, watchdog recycles and canary replacements so far."""
+        return {"hosts": self.workers, "mem_mb": round(self.mem_mb()),
+                "mem_mb_per_host": [round(e.host.mem_mb or 0.0) for e in self.engines],
+                "recycles": sum(e.recycles for e in self.engines),
+                "canary_respawns": sum(getattr(e.host, "canary_respawns", 0) for e in self.engines)}
+
+    def use_template(self, template: ChainTemplate) -> None:
+        """Make every host use ``template`` for its chain (as search's load_candidate does)."""
+        for e in self.engines:
+            e.templates[template.chain] = template
+            e._variants[template.chain] = [template]
+            e.current_chain = e.current_template = None
+
+    def ensure_templates(self, presets: list, **kw) -> dict[int, Exception]:
+        """Capture the presets no host can load yet (``NativeEngine.capture_missing`` on the
+        first engine) and share the new templates with every host."""
+        first = self.engines[0]
+        before = {id(t) for v in first._variants.values() for t in v}
+        errs = first.capture_missing(presets, **kw)
+        new = [t for v in first._variants.values() for t in v if id(t) not in before]
+        for e in self.engines[1:]:
+            for t in new:
+                e.templates[t.chain] = t
+                e._variants.setdefault(t.chain, []).append(t)
+        return errs
+
+    def _run(self, work: list[list], fn, on_error: str) -> None:
+        self.last_errors = {}
+        times: list[float] = []
+
+        def worker(eng: NativeEngine, items: list) -> None:
+            for i, item in items:
+                t0 = time.perf_counter()
+                try:
+                    fn(eng, i, item)
+                except EngineError as e:
+                    if on_error == "raise":
+                        raise
+                    self.last_errors[i] = e
+                times.append(time.perf_counter() - t0)
+
+        with cf.ThreadPoolExecutor(len(self.engines)) as ex:
+            for f in [ex.submit(worker, e, w) for e, w in zip(self.engines, work, strict=True)]:
+                f.result()
+        self.last_item_s = times
+
+    def _stripes(self, n: int) -> list[list[int]]:
+        return [[i for i in range(n) if i % len(self.engines) == w] for w in range(len(self.engines))]
+
+    def map_generation(self, preset, param_sets: list[dict[ParamRef, float]], dry: Audio, fn,
+                       on_error: str = "raise") -> list:
+        """``fn(render)`` for ``preset`` with each of ``param_sets`` applied on top, computed in
+        the worker threads (e.g. the loss against the target); results in order. Renders are
+        not kept, so a large generation needs no more memory than one render per host.
+
+        ``on_error="none"`` returns None for a failed item (e.g. a silent setting) and keeps the
+        exception in ``last_errors[index]``; ``"raise"`` re-raises the first failure.
+        """
+        out: list = [None] * len(param_sets)
+
+        def one(eng: NativeEngine, i: int, ps: dict) -> None:
+            eng.load(preset)  # same template as before: CCs only, no state load
+            if ps:
+                eng.set_params(ps)
+            out[i] = fn(eng.render(dry))
+
+        self._run([[(i, param_sets[i]) for i in s] for s in self._stripes(len(param_sets))], one, on_error)
+        return out
+
+    def render_generation(self, preset, param_sets: list[dict[ParamRef, float]], dry: Audio,
+                          on_error: str = "raise") -> list[Audio | None]:
+        """Render ``preset`` with each of ``param_sets`` applied on top; results in order.
+
+        ``on_error`` as ``map_generation``."""
+        return self.map_generation(preset, param_sets, dry, lambda y: y, on_error)
+
+    def render_batch(self, jobs: list[RenderJob], on_error: str = "raise") -> list[Audio | None]:
         def key(j):
             try:
                 return chain_id([list(x) for x in chain_key(j.preset)]) if j.preset is not None else ""
@@ -1082,21 +1848,18 @@ class NativeRenderPool:
         order = sorted(range(len(jobs)), key=lambda i: key(jobs[i]))
         # keep each chain on as few workers as possible: contiguous slices rather than stripes
         size = -(-len(order) // len(self.engines)) if order else 0
-        shards = [order[w * size:(w + 1) * size] for w in range(len(self.engines))]
+        shards = [[(i, jobs[i]) for i in order[w * size:(w + 1) * size]] for w in range(len(self.engines))]
         out: list[Audio | None] = [None] * len(jobs)
 
-        def run(eng: NativeEngine, idx: list[int]):
-            for i in idx:
-                j = jobs[i]
-                if j.preset is not None:
-                    eng.load(j.preset)
-                if j.params:
-                    eng.set_params(j.params)
-                out[i] = eng.render(j.dry)
+        def one(eng: NativeEngine, i: int, j: RenderJob) -> None:
+            if j.preset is not None:
+                eng.load(j.preset)
+            if j.params:
+                eng.set_params(j.params)
+            out[i] = eng.render(j.dry)
 
-        with cf.ThreadPoolExecutor(len(self.engines)) as ex:
-            list(ex.map(run, self.engines, shards))
-        return out  # type: ignore[return-value]
+        self._run(shards, one, on_error)
+        return out
 
     def close(self) -> None:
         for e in self.engines:

@@ -110,3 +110,39 @@ A second build, `cache/stomp/bin/stompd-compile` (source kept locally in `cache/
 - Outputs for every earlier preset (K, A, B0, B, C, H, the ER sweep, N1) are byte-identical to the previous build, and the force-build self-check still reproduces 04C byte for byte.
 - `stompd dump <document> <key>...` prints a part of a document's tone (offline, diagnosis).
 - Builds: `cache/stomp/bin/stompd-compile` sha256 36669475...; previous build kept as `stompd-compile.pre-micir` (62b12a19...). The USB helper `stompd` is unchanged.
+
+## Two-path presets: HX Edit's SABJ layout ([T063](../../board/TASKS.md#t063 "Two-path (Path A + B) render gap on the HX Stomp fw 3.80"), 2026-10-16, fw 3.80)
+
+**What was wrong.** For a `.hlx` with a block on Path B (`@path` 1), `stompd compile` wrote the blocks but kept the base's junctions. On 04C's single-path buffer those are: Split Y Balance A/B 0/1 and Join A/B Pan 0/1 (hard left and right; HX Edit writes 0.5/0.5, also the catalog default), attach points 0/0 (unattached), and the path's topology code 0 ("A"). The device re-derives a layout it does not accept. For 11C it came back with the split before slot 6 and the join before slot 9, instead of HX Edit's 5/7. Cab A then sat before the split, so Path B ran amp > cab A > cab B. Result: -9.3 dB null against the same preset stored by HX Edit, and 6.4 dB quieter. The 2026-10-15 dual-path gap (-18.3 / -22.0 dB) was this same layout bug.
+
+**How the device stores a two-path path** (from documents only: the HX Edit preset 11C read back after `select`, and what the device wrote back after our op-21 writes; interop, nothing decompiled):
+
+| Field | Where | Values |
+|---|---|---|
+| Topology code | `tone[0][21]` | 0 = A (single path), 1 = SABJ (every HX Edit two-path preset in the setlist), 2 = SAB (Path B with its own output). The device re-derived 2 from a write with its own Path B input and dropped that input, so AB is not supported |
+| Attach point | split body 15 / join body 17, key 13 | the slot the junction sits before = `@position` + input slot + 1 (11C: split @4 → 5, join @6 → 7) |
+| Model, enabled, values | body 15/17 keys 8, 10, 7 | Split Y [BalanceA, BalanceB, bypass], Join [A Level, A Pan, B Level, B Pan, B Polarity, Level] |
+| Snapshot switch | slot body key 18 | true when `@no_snapshot_bypass` is false (HX Edit); false on a SAB join |
+| Junction snapshot state | `tone[10][10][n][3][slot]` | HX Edit lists `split` per snapshot, never `join`; the device keeps the join on (SABJ) or off (SAB) |
+| Path B input / output | split body 14 key 5 / join body 16 key 6 | 0/0 in SABJ; SAB has output 6 = USB 3/4 and the output's values `[pan, gain, Type]` in join body 16 key 7 (empty on a single-path base: written empty, the device turned the SAB write into SABJ) |
+| Path A input gate | input slot body key 7 | `[noiseGate, threshold, decay]`; 11C has the gate on at -57 dB / 0.15. Before this change the base's gate was kept |
+
+**What the compiler does now** (`cache/stomp/bin/stompd-compile`, sha256 `7de8467d...`; previous builds kept as `stompd-compile.pre-sabj` = `f48396a2`, and the two intermediate builds `.sabj-v1` and `.sabj-v2`). Source changes are in `cache/stomp/stompd-src/src/compile.rs` and `main.rs`; the pre-change source is kept in `cache/stomp/stompd-src-backup-pre-sabj/`.
+- A file with a Path B block gets all of the table above from the file. Topology: SABJ when `outputB.@output` is 0, SAB when it is set. A file that says "A" but has Path B blocks is compiled the same way, with a warning. An own Path B input (`inputB.@input` ≠ 0) is refused. Split must attach before join, and join no later than the output slot. Another junction type (crossover, A/B) is built with catalog-typed values; this is not yet tested on hardware.
+- The report gains `topology` and `junctions`. `stompd decode` shows `attach` and `b_routing` on Split/Join slots, plus `path_topology`.
+- **Single-path files are unchanged:** 28 of 28 earlier `.hlx` compile byte-identically with the old and new build. The input gate is compiled for every file, but all 28 have the base's gate values.
+- Python side: `tonematch.engines.stomp_layout.ensure_sabj` (called by `reamp_hlx_dict`) gives a generated preset with a Path B block HX Edit's SABJ layout: Y split and join at 0.5/0.5, split @0 and join @8 (the whole row in parallel, as HX Edit does for a first Path B block), Path B input/output 0, `split` on in each snapshot. Files that already say SABJ or SAB are left as written. The readback (`stomp_readback`) checks junction model, enabled, values, attach and topology code (attach and code only from `decode`; the live `chain` of the USB helper does not report them). `stomp_hw.make_dual` now writes SAB.
+
+**Hardware check** (`scripts/stomp_twopath.py run`, one session per run; the pedal started and ended on 04C, restored by readback and byte-equal, session-close acknowledged on all channels). Final run `cache/stomp/hw/20261016T010428Z-twopath`, di_2s, amp Hum = Ripple = 0 on both sides:
+
+| Null (aligned, gain-matched, median) | dB | repeat floor |
+|---|---|---|
+| ours (old compiler) vs HX Edit's 11C | -9.3 | -85.7 |
+| ours (new compiler) vs HX Edit's 11C | **-85.7** | -85.7 |
+| single path K0, old vs new build (byte-identical documents) | -79.7 | -68.7 |
+| dual SAB, Path A vs K0 alone | -72.9 | -68.7 |
+| dual SAB, Path B vs B00 alone | -52.6 | -42.7 |
+
+So dual passes (two chains per render, 2.0x throughput) now equal single-path renders. Ledger rows [2026-10-16T01:06:38](../../ledger/runs.csv?plain=1#L304 "parity · stomp · stomp-two-path · null_vs_hxedit_db = -9.3 (first of 4 rows at this time)") (4 rows) (`stomp-two-path`). Two earlier runs of the same script (00:55Z and 01:00Z) found the device-side fields. In the 01:00Z run the topology code was still 0, so the attach was re-derived (-5.3 dB). Superseded.
+
+Open: the `Scale` value of HD2_DelaySimpleDelay (in Native's catalog) has no device parameter, so the full readback of 11C reports it as missing. That is not a two-path issue, and the block is off in 11C.

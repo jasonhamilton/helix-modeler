@@ -304,9 +304,14 @@ def cmd_settle(a) -> int:
 
 
 def make_dual(path_a: Path, path_b: Path, out_b: int, b_enabled: bool = True) -> dict:
-    """Path A = path_a's chain; Path B = path_b's amp+cab (its first Amp+Cab block) on row B, input B on
-    USB 5/6, output B to `out_b`."""
+    """Path A = path_a's chain; Path B = path_b's amp+cab (its first Amp+Cab block) on row B, output B to
+    `out_b`. T063: topology SAB (Path B fed by the split, so also from USB 5/6; an own input B is refused
+    by stompd-compile, the device drops it), split and join across the whole row with HX Edit's values
+    (Balance and Pan 0.5). The 2026-10-15 runs used input B 6, the base's 0/1 values and unattached
+    junctions: that layout is what made dual renders differ from single ones by -18..-22 dB."""
     import copy
+
+    from tonematch.engines.stomp_layout import HX_EDIT_JOIN, HX_EDIT_SPLIT_Y
 
     a, b = json.loads(path_a.read_text()), json.loads(path_b.read_text())
     d = copy.deepcopy(a)
@@ -317,8 +322,11 @@ def make_dual(path_a: Path, path_b: Path, out_b: int, b_enabled: bool = True) ->
     amp.update({"@path": 1, "@position": 0, "@cab": "cab9", "@enabled": bool(b_enabled)})
     t["block19"], t["cab9"] = amp, cab
     t["inputA"]["@input"] = 6
-    t["inputB"]["@input"] = 6
+    t["inputB"]["@input"] = 0
     t["outputB"]["@output"] = int(out_b)
+    t["split"].update({"@model": "HD2_AppDSPFlowSplitY", "@position": 0, "@enabled": True, **HX_EDIT_SPLIT_Y})
+    t["join"].update({"@model": "HD2_AppDSPFlowJoin", "@position": 8, "@enabled": True, **HX_EDIT_JOIN})
+    d["data"]["tone"]["global"]["@topology0"] = "SAB" if int(out_b) else "SABJ"
     d["data"]["meta"]["name"] = f"dual outB={out_b}"
     return d
 
@@ -501,6 +509,8 @@ BISECT_VARIANTS = [   # name, input B, output B, row B content, row B enabled
 
 
 def make_variant(path_a: Path, path_b: Path, in_b: int, out_b: int, row_b: str | None, b_on: bool) -> dict:
+    """2026-10-15 bisection variants, kept as run. Since T063 stompd-compile refuses the ones with a
+    Path B block and input B != 0 (V5-V7)."""
     import copy
 
     d = json.loads(path_a.read_text())

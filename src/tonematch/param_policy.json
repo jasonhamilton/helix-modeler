@@ -5,10 +5,50 @@
     {
       "category": "cab",
       "param": "EarlyReflections",
-      "engines": {"stomp": {"action": "freeze", "value": 0.0}},
-      "firmware": {"stomp": "3.50", "native": "3.82"},
+      "engines": {
+        "stomp": {
+          "action": "freeze",
+          "value": 0.0
+        }
+      },
+      "firmware": {
+        "stomp": "3.50",
+        "native": "3.82"
+      },
       "evidence": "benchmark parity 2026-10-15T02:48:51: Stomp vs Native null with ER 0 -31.4 dB; ER 0.25 -14.7; 0.50 -9.1; 1.00 -1.1",
       "until": "re-measure after a Stomp firmware upgrade (human decision 2026-10-15: deprioritised)"
+    },
+    {
+      "category": "amp",
+      "param": "Hum",
+      "engines": {
+        "stomp": {
+          "action": "freeze",
+          "value": 0.0
+        },
+        "native": {
+          "action": "freeze",
+          "value": 0.0
+        }
+      },
+      "evidence": "human decision 2026-10-16: power-supply hum and ripple are not matched; held at 0 on both engines for faster, stabler search",
+      "until": "a song needs deliberate hum or ripple (human decision)"
+    },
+    {
+      "category": "amp",
+      "param": "Ripple",
+      "engines": {
+        "stomp": {
+          "action": "freeze",
+          "value": 0.0
+        },
+        "native": {
+          "action": "freeze",
+          "value": 0.0
+        }
+      },
+      "evidence": "human decision 2026-10-16: power-supply hum and ripple are not matched; held at 0 on both engines for faster, stabler search",
+      "until": "a song needs deliberate hum or ripple (human decision)"
     }
   ]
 }

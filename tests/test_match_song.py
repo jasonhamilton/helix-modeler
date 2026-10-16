@@ -365,3 +365,74 @@ def test_space_snaps_to_the_cc_grid_and_hlx_keeps_snapped_values(tmp_path):
     back = read_hlx(path).slots[0].params
     assert back["Drive"] * 127 == pytest.approx(round(back["Drive"] * 127), abs=1e-4)
     assert back["Drive"] == pytest.approx(k[0], abs=1e-6) and back["Treble"] == pytest.approx(k[1], abs=1e-6)
+
+
+# ------------------------------------------------------------------ Stomp speed options (T061)
+
+
+def test_apply_stomp_speed_defaults_legacy_and_env(monkeypatch):
+    monkeypatch.delenv("TONEMATCH_STOMP_READBACK_EVERY", raising=False)
+    monkeypatch.delenv("TONEMATCH_STOMP_TAIL", raising=False)
+    e = SimpleNamespace(readback_every=1, tail_mode="bound")
+    assert MS.apply_stomp_speed(e) == {"readback_every": 10, "tail_mode": "measured"}
+    assert MS.apply_stomp_speed(e, legacy=True) == {"readback_every": 1, "tail_mode": "bound"}
+    monkeypatch.setenv("TONEMATCH_STOMP_READBACK_EVERY", "5")
+    e = SimpleNamespace(readback_every=5, tail_mode="bound")
+    assert MS.apply_stomp_speed(e)["readback_every"] == 5          # the user's own setting stays
+
+
+def test_search_view_cuts_everything_at_the_same_samples():
+    from tonematch.search import Section
+
+    n = 8 * SR
+    dry = np.zeros(n, np.float32)
+    dry[5 * SR:6 * SR] = 1.0                                       # the loud part
+    ramp = np.arange(n, dtype=np.float32)
+    sec = Section("s", "x", ramp.copy(), dry, stems={"others": ramp * 2}, mask=ramp / 3)
+    v = MS.search_view(sec, 3.0)
+    assert len(v.dry) == len(v.target) == len(v.mask) == len(v.stems["others"]) == 3 * SR
+    i = int(v.target[0])
+    assert dry[i:i + 3 * SR].max() == 1.0 and np.array_equal(v.dry, dry[i:i + 3 * SR])
+    assert v.stems["others"][0] == pytest.approx(2 * i) and v.mask[0] == pytest.approx(i / 3)
+    assert MS.search_view(sec, 10.0) is sec and MS.search_view(sec, 0) is sec
+
+
+def _stomp_run(tmp_path, *extra):
+    from tonematch.search.stubs import FakeEngine, fake_preset
+
+    song, mask = _song()
+    d = tmp_path / "stems"
+    d.mkdir()
+    sf.write(str(d / "guitar.wav"), song.guitar, SR, subtype="FLOAT")
+    sf.write(str(d / "others.wav"), song.others, SR, subtype="FLOAT")
+    np.save(d / "confidence.npy", mask.astype(np.float16))
+    (d / "sections.json").write_text(json.dumps(song.sections))
+    cands = [MS.Cand("lo", fake_preset(0.3, 0.5, 0.5)), MS.Cand("hi", fake_preset(0.8, 0.4, 0.5))]
+    eng = FakeEngine(engine_name="stomp")
+    eng.readback_every, eng.tail_mode, lens = 1, "bound", []
+    orig = eng.render
+    eng.render = lambda x: (lens.append(len(x)), orig(x))[1]
+    args = _args(tmp_path, snap0_renders=0)
+    args = MS.parse(["--stems-dir", str(d), "--song", "fake", "--out", str(tmp_path / "out"), "--dur", "5",
+                     "--wall-min", "0.1", "--reserve-s", "1", "--snap0-renders", "0", "--di-library",
+                     str(tmp_path / "emptylib"), "--engine", "stomp", *extra])
+    assert MS.run(args, engine=eng, cands=cands, max_scores_per_chain=30) == 0
+    return eng, lens, json.loads((tmp_path / "out" / "result.json").read_text())
+
+
+def test_stomp_default_uses_short_search_clips_and_speed_options(tmp_path, monkeypatch):
+    monkeypatch.delenv("TONEMATCH_STOMP_READBACK_EVERY", raising=False)
+    monkeypatch.delenv("TONEMATCH_STOMP_TAIL", raising=False)
+    eng, lens, res = _stomp_run(tmp_path)
+    assert (eng.readback_every, eng.tail_mode) == (10, "measured")
+    assert res["stomp_speed"]["search_clip_s"] == 3.0 and res["stomp_speed"]["final_clip_s"] == 5.0
+    assert lens.count(3 * SR) > 10 and lens.count(5 * SR) >= 3     # search short, final check full
+    assert "Stomp engine, speed options" in (tmp_path / "out" / "report.md").read_text()
+
+
+def test_stomp_legacy_flag_restores_the_old_behaviour(tmp_path, monkeypatch):
+    monkeypatch.delenv("TONEMATCH_STOMP_READBACK_EVERY", raising=False)
+    monkeypatch.delenv("TONEMATCH_STOMP_TAIL", raising=False)
+    eng, lens, res = _stomp_run(tmp_path, "--stomp-legacy")
+    assert (eng.readback_every, eng.tail_mode) == (1, "bound")
+    assert set(lens) == {5 * SR} and res["stomp_speed"]["legacy"] is True

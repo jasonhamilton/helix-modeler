@@ -52,6 +52,7 @@ FIXED_PARAMS = {"Hum", "Ripple", "Bias", "BiasX", "Time", "Offset", "Spread", "L
 # Read from the per-engine policy (src/tonematch/param_policy.json); first entry: cab EarlyReflections 0.0
 # (benchmark 2026-10-15: ER 0 nulls -31.4 dB, 0.783 -3.6 dB).
 STOMP_FROZEN = param_policy.frozen_for("stomp")
+NATIVE_FROZEN = param_policy.frozen_for("native")   # Hum/Ripple at 0 (human 2026-10-16)
 TEMPLATE_SETS = {                           # name -> (hlx, templates dir) relative to the repo root
     "K": ("cache/stomp/inject/K.hlx", "cache/native/templates_files/K"),
     "A": ("cache/stomp/inject/A.hlx", "cache/native/templates_files/A"),
@@ -238,6 +239,41 @@ def build_section(song: Song, win: dict, fc: np.ndarray, name: str, dry: np.ndar
                    stems={"others": song.others[a:a + n].copy()}, mask=mask)
 
 
+# ------------------------------------------------------------------------------ Stomp speed (T061)
+
+STOMP_READBACK_EVERY = 10     # full readback on every 10th parameter-only load (legacy: every load)
+
+
+def apply_stomp_speed(engine, legacy: bool = False) -> dict:
+    """Set the T061 speed options on a Stomp engine (or the legacy behaviour). An option the user
+    already set through its environment variable is left alone. Returns what is in force."""
+    inner = getattr(engine, "inner", engine)
+    if "TONEMATCH_STOMP_READBACK_EVERY" not in os.environ:
+        inner.readback_every = 1 if legacy else STOMP_READBACK_EVERY
+    if "TONEMATCH_STOMP_TAIL" not in os.environ:
+        inner.tail_mode = "bound" if legacy else "measured"
+    return {"readback_every": getattr(inner, "readback_every", None),
+            "tail_mode": getattr(inner, "tail_mode", None)}
+
+
+def search_view(section, seconds: float):
+    """The section cut to its loudest `seconds` of DI (reamp.excerpt: the same window for every
+    engine), target, stems and mask cut at the same samples. Unchanged when already that short."""
+    from tonematch import reamp
+    from tonematch.search import Section
+
+    if seconds <= 0 or len(section.dry) <= round(seconds * SR):
+        return section
+    x, i = reamp.excerpt(section.dry, seconds, SR)
+    j = i + len(x)
+
+    def cut(v):
+        return None if v is None else v[i:j].copy()
+
+    stems = None if section.stems is None else {k: cut(v) for k, v in section.stems.items()}
+    return Section(section.song, section.name, cut(section.target), x, stems=stems, mask=cut(section.mask))
+
+
 # ------------------------------------------------------------------------------------- DI picking
 
 
@@ -319,11 +355,22 @@ def pick_template(variants: list, preset):
     return None
 
 
+def freeze(preset, frozen):
+    """Write the policy's frozen values into ``preset`` (in place; returned for chaining)."""
+    for sl in preset.slots:
+        for (cat, pn), val in (frozen or {}).items():
+            if sl.category == cat and pn in (sl.params or {}):
+                sl.params[pn] = val
+    return preset
+
+
 def build_candidates(root: Path, catalog, only: list[str] | None = None, frozen=None) -> tuple[list[Cand], list[str]]:
     """Candidates for every template set that exists on disk. Returns (cands, notes on what is missing)."""
+    from tonematch.catalog import native_unavailable
     from tonematch.engines.native import ChainTemplate, chain_key
     from tonematch.preset import read_hlx
 
+    bad = native_unavailable()   # every candidate is searched on Native (lead, 2026-10-16)
     cands, notes = [], []
     for name, (hlx, tdir) in TEMPLATE_SETS.items():
         if only and name not in only:
@@ -332,15 +379,15 @@ def build_candidates(root: Path, catalog, only: list[str] | None = None, frozen=
         if not f.is_file() or not d.is_dir():
             notes.append(f"{name}: no template ({d.relative_to(root)} or {hlx} missing), not searched")
             continue
-        preset = read_hlx(f, catalog)
+        preset = freeze(read_hlx(f, catalog), frozen)   # before picking: a template baked at another value is stale
+        refused = sorted({s.model_id for s in preset.slots if s.model_id in bad})
+        if refused:
+            notes.append(f"{name}: {refused} not available on Helix Native (refused models), not searched")
+            continue
         tpl = pick_template(ChainTemplate.load_variants(d).get(chain_key(preset), []), preset)
         if tpl is None:
-            notes.append(f"{name}: {tdir} holds no template for this chain, not searched")
+            notes.append(f"{name}: {tdir} holds no template for this chain at its frozen values, not searched")
             continue
-        for sl in preset.slots:
-            for (cat, pn), val in (frozen or {}).items():
-                if sl.category == cat and pn in (sl.params or {}):
-                    sl.params[pn] = val
         cands.append(Cand(name, preset, tpl, derive_free(preset, tpl, catalog, frozen),
                           f"{hlx} + {tdir}"))
     return cands, notes
@@ -891,7 +938,12 @@ def write_report(path: Path, ctx: dict) -> None:
            f"+-{ctx['args']['level_tol_db']:.0f} dB, then {ctx['args']['level_slope']} loss units per dB) + "
            f"**weak neutral prior** (every knob ~ N(0.5, 0.3), weight {ctx['args']['prior_weight']}; not fit "
            "on factory or community presets, none is available locally)."),
-          "- the Stomp was not used.",
+          ("- the Stomp was not used." if not ctx.get("stomp_speed") else
+           f"- Stomp engine, speed options {ctx['stomp_speed']}: search renders use the short clip "
+           "(loudest excerpt of the DI), the final check the full excerpt; readback_every is how often "
+           "the engine reads the whole chain back; tail_mode measured sizes each wait to the chain's "
+           "own decay (legacy: a full readback every load and fixed upper-bound waits). The level "
+           "guard reference is measured on the short clip."),
           (f"- frozen for Stomp parity (default): {ctx['frozen']}" if ctx["frozen"] else
            "- **NATIVE-ONLY run: Stomp will differ** (parity-frozen parameters such as cab EarlyReflections were free)."),
           ("- `listen/di_search.wav` is the true-level DI the search used (the only file for hardware); "
@@ -998,6 +1050,12 @@ def make_native_engine(preroll: int):
     return NativeEngine(preroll=preroll)
 
 
+def make_stomp_engine():
+    from tonematch.engines.stomp import StompEngine
+
+    return StompEngine()
+
+
 def jsonable(o):
     if isinstance(o, (np.floating, np.integer)):
         return o.item()
@@ -1048,7 +1106,7 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
     missing: list[str] = []
     if cands is None:
         only = args.chains.split(",") if args.chains else None
-        cands, missing = build_candidates(ROOT, catalog, only, None if args.native_only else STOMP_FROZEN)
+        cands, missing = build_candidates(ROOT, catalog, only, NATIVE_FROZEN if args.native_only else STOMP_FROZEN)
     for n in missing:
         log(f"missing: {n}")
     log("candidates: " + ", ".join(f"{c.name}({len(c.free or [])} dims)" for c in cands))
@@ -1057,10 +1115,21 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
         return 0
     own = engine is None
     if own:
-        engine = make_native_engine(args.preroll)
+        engine = make_stomp_engine() if args.engine == "stomp" else make_native_engine(args.preroll)
+    speed = None
+    s_search = section
+    if args.engine == "stomp":
+        speed = apply_stomp_speed(engine, args.stomp_legacy)
+        if not args.stomp_legacy:
+            from tonematch import reamp
+            s_search = search_view(section, reamp.SEARCH_CLIP_S)
+        speed["search_clip_s"] = len(s_search.dry) / SR
+        speed["final_clip_s"] = len(section.dry) / SR
+        speed["legacy"] = bool(args.stomp_legacy)
+        log(f"stomp speed options: {speed}")
     eng = TimedEngine(engine, log, rss_limit_mb=args.rss_limit_mb)
     try:
-        sr_ = search(eng, cands, section, kit, wall_s=args.wall_min * 60, beam=args.beam,
+        sr_ = search(eng, cands, s_search, kit, wall_s=args.wall_min * 60, beam=args.beam,
                      beam_frac=args.beam_frac, reserve_s=args.reserve_s, seed=args.seed, log=log,
                      max_scores_per_chain=max_scores_per_chain, prior_weight=args.prior_weight,
                      progress=lambda res, info: (out / "progress.json").write_text(json.dumps(
@@ -1089,6 +1158,8 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
             try:
                 w0 = pick_window(fc, fp, song.sections, 0, args.dur, total_s)
                 s0 = build_section(song, w0, fc, "snapshot0", dry, args.song)
+                if speed and not args.stomp_legacy:
+                    s0 = search_view(s0, len(s_search.dry) / SR)
                 k0 = LevelGuardKit(MaskedKit(LossKit(), s0.mask), args.level_tol_db, args.level_slope)
                 k0.ref_db = kit.ref_db
                 v0, before, after, n0 = refine_other_snapshot(
@@ -1108,8 +1179,8 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
         ctx = {"song": args.song, "stems_dir": args.stems_dir, "window": win,
                "di": {"desc": desc, "picks": [{"clip": dataclasses.asdict(c)} for c, _ in picks]},
                "search": sr_, "final": fin, "missing": missing, "wall_s": wall, "wall_min": args.wall_min,
-               "frozen": None if args.native_only else {f"{c}.{n}": v for (c, n), v in STOMP_FROZEN.items()},
-               "renders": eng.renders, "restarts": eng.restarts, "proactive": eng.proactive,
+               "frozen": {f"{c}.{n}": v for (c, n), v in (NATIVE_FROZEN if args.native_only else STOMP_FROZEN).items()},
+               "stomp_speed": speed, "renders": eng.renders, "restarts": eng.restarts, "proactive": eng.proactive,
                "args": vars(args),
                "hlx": str(hlx.relative_to(ROOT)) if hlx.is_relative_to(ROOT) else str(hlx),
                "hlx0": str(hlx0) if hlx0 else None, "top_hlx": top_hlx, "note": args.note, "validate_text": f"exit {code}, see {hlx.stem}.validate.md",
@@ -1118,7 +1189,7 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
                "native_version": getattr(getattr(engine, "capabilities", lambda: None)(), "firmware_version", "")}
         write_report(out / "report.md", ctx)
         (out / "result.json").write_text(json.dumps({
-            "label": LABEL, "window": win, "renders": eng.renders, "host_restarts": eng.restarts, "proactive_restarts": eng.proactive,
+            "label": LABEL, "window": win, "stomp_speed": speed, "renders": eng.renders, "host_restarts": eng.restarts, "proactive_restarts": eng.proactive,
             "level_ref_db": sr_["level_ref_db"], "start_levels_db": sr_["levels_db"], "wall_s": wall,
             "finals": [{"chain": d["result"].cand.name, "loss": d["loss"], "terms": d["terms"], "level_db": d["level_db"],
                         "values": {f"{i}:{k}": float(v) for (i, k), v in zip(d["result"].space.refs,
@@ -1130,7 +1201,10 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
         return 0
     finally:
         if own:
-            engine.close()
+            if args.engine == "stomp":
+                engine.close(verify_bytes=True)
+            else:
+                engine.close()
 
 
 def parse(argv=None):
@@ -1167,6 +1241,10 @@ def parse(argv=None):
                     help="only rewrite the top-3 .hlx files of an existing run from its result.json")
     ap.add_argument("--native-only", action="store_true",
                     help="leave Stomp-parity-frozen parameters free; report.md says 'Stomp will differ'")
+    ap.add_argument("--engine", choices=("native", "stomp"), default="native",
+                    help="engine that renders the search (stomp: the pedal, one session, restore byte-checked)")
+    ap.add_argument("--stomp-legacy", action="store_true",
+                    help="Stomp: old behaviour (whole clip every render, readback every load, fixed tail waits)")
     ap.add_argument("--dry-run", action="store_true", help="pick target, DI and chains; render nothing")
     return ap.parse_args(argv)
 

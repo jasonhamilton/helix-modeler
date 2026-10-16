@@ -163,7 +163,7 @@ def test_hlx_blocks_orders_cab_after_its_amp() -> None:
 
 
 def test_tested_set_is_derived_from_the_fixture(project: Path) -> None:
-    res = bcr.generate(project, project / "reports" / "local" / "blocks")
+    res = bcr.generate(project, project / "reports" / "local" / "blocks", refused=set())
     models = res["model"]["models"]
     assert set(models) == {"HD2_AmpFoo", "HD2_CabBar", "HD2_DelayEcho"}
     amp = models["HD2_AmpFoo"]
@@ -175,6 +175,14 @@ def test_tested_set_is_derived_from_the_fixture(project: Path) -> None:
     assert dash["Amp"]["stomp_tested"] == 1 and dash["Amp"]["native_tested"] == 1
     assert dash["Preamp"]["stomp_tested"] == 0
     assert "Cab" in dash and dash["Cab"]["native_avail"] == 2      # BazWithPan not counted
+
+
+def test_models_refused_by_native_are_subtracted(project: Path) -> None:
+    out = project / "reports" / "local" / "blocks"
+    res = bcr.generate(project, out, refused={"HD2_AmpFoo", "HD2_NotInCatalog"})
+    amp = {d["cat"]: d for d in res["model"]["dash"]}["Amp"]
+    assert amp["native_avail"] == 2 and amp["native_refused"] == 1
+    assert "Refused by Native" in (out / "README.md").read_text(encoding="utf-8")
 
 
 def test_parity_status_and_blame(project: Path) -> None:

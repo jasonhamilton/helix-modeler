@@ -27,6 +27,7 @@ import zlib
 from pathlib import Path
 
 MIDI_CC_CONTROLLER = 8
+BYPASS_PARAM = "@enabled"  # assign_ccs target name for a block's bypass switch
 STOMP_SETLIST_SIZE = 126
 SETLIST_SIZE = 128
 
@@ -115,17 +116,29 @@ def assign_ccs(hlx: dict, targets: list[tuple[int, str]], hc_mode: str = "stomp"
             continue
         dsp, key = keys[slot]
         block = tone[dsp].get(key, {})
-        if param not in block or isinstance(block[param], bool):
-            skipped.append(ref)
-            continue
-        lo_hi = (ranges or {}).get(ref)
-        if lo_hi is None:
-            v = block[param]
-            if not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
+        if param == BYPASS_PARAM:
+            # Block bypass (Native 1.60+): CC value >= 0.5 (64 of 127) is on, below is off.
+            # Measured bit-exact against drop-captured truth both ways (2026-10-15, phase 2).
+            # A cab linked to an Amp+Cab block has no bypass of its own.
+            if not key.startswith("block"):
                 skipped.append(ref)
                 continue
             lo_hi = (0.0, 1.0)
-        cc = next(c for c in ccs if c not in used)
+        elif param not in block or isinstance(block[param], bool):
+            skipped.append(ref)
+            continue
+        else:
+            lo_hi = (ranges or {}).get(ref)
+            if lo_hi is None:
+                v = block[param]
+                if not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
+                    skipped.append(ref)
+                    continue
+                lo_hi = (0.0, 1.0)
+        cc = next((c for c in ccs if c not in used), None)
+        if cc is None:  # out of free CCs (90 in HC modes): the value stays baked in the state
+            skipped.append(ref)
+            continue
         ctl.setdefault(dsp, {}).setdefault(key, {})[param] = {
             "@controller": MIDI_CC_CONTROLLER, "@cc": cc, "@min": float(lo_hi[0]),
             "@max": float(lo_hi[1]), "@snapshot_disable": False}

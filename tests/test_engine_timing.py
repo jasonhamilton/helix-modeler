@@ -105,7 +105,7 @@ def test_firmware_note_follows_the_upgrade_row():
     assert T["render_2s"]["stomp"]["fw"] == et.FW_NOTE            # measured before the upgrade
     assert "fw" not in T["render_2s"]["native"]                      # Native has no firmware
     rows.append(dict(row("2026-10-16T00:00:00+00:00", "stomp", "seconds_per_render", 2.6), _line=1000))
-    assert "fw" not in et.measure(rows)["render_2s"]["stomp"]       # re-measured on 3.80
+    assert et.measure(rows)["render_2s"]["stomp"]["fw"] == et.FW_380  # re-measured on 3.80: no stale label
 
 
 # ------------------------------------------------------------------ not measured
@@ -155,7 +155,7 @@ def test_estimates_are_100_times_measured():
     assert by["combined_modelling"]["native"]["serial_s"] == pytest.approx(100 * (0.2 + 40.0 + 0.1))
     assert by["combined_modelling"]["stomp"]["serial_s"] == pytest.approx(100 * (2.5 + 0.5 + 0.1))
     ids = {a["n"]: a["id"] for a in ass}
-    assert set(ids.values()) >= {"pool2", "dual", "serial"}
+    assert set(ids.values()) >= {"pool2assumed", "dual", "serial"}
 
 
 def test_missing_score_makes_a_lower_bound():
@@ -235,14 +235,154 @@ def test_jobs_without_local_reports_or_notes_are_not_measured(tmp_path):
     assert {j["id"]: j for j in jobs}["synth_ci"]["serial_s"] is None
 
 
-def test_score_falls_back_to_local_report_when_ledger_has_none(tmp_path):
+def test_score_is_never_taken_from_a_local_report(tmp_path):
     root = make_root(tmp_path)
     rows = [r for r in ledger() if r["metric"] != "seconds_per_score"]
-    T = et.measure(rows, root)
-    c = T["score"]["any"]
-    assert c["state"] == "measured" and c["seconds"] == 0.2 and "local match report" in c["source"]
+    c = et.measure(rows, root)["score"]["any"]
+    assert c["state"] == "not-measured" and et.cell_text(c) == "not measured"
 
 
 def test_placeholders_follow_the_ledger():
     T = et.measure(ledger())
     assert et.fill_placeholders("a {t:render_2s:native} b {t:render_10s:stomp}", T) == "a 0.20 s b not measured"
+
+
+# ------------------------------------------------------------------ newest ledger metrics (2026-10-16)
+
+HOST_NOTE = ("scripts/native_pool_bench.py N={n} hosts; {c} s DI clip + 3 s preroll on 'BP cc' (8 blocks); "
+             "render + MR-STFT score per test; footprint {mb} MB total; 10 CPUs")
+
+
+def new_pool_rows():
+    """Layout A (one row per host count, both clips in the notes) for N=1, layout B (one row per clip)."""
+    rows = [row("2026-10-16T00:25:26+00:00", "native", "renders_per_s", 1.703,
+                notes="phase B NativeRenderPool N=1 hosts (map_generation; test = render + MR-STFT score) on the "
+                      "8-block C8 chain: 2 s DI clip + 3 s preroll 1.703 tests/s; 10 s clip 0.806 tests/s; "
+                      "total footprint 1282 MB")]
+    for n, r2, r10, mb in ((4, 6.836, 3.309, 5293), (6, 10.025, 4.756, 7919), (8, 12.238, 5.597, 10593)):
+        rows.append(row("2026-10-16T00:34:16+00:00", "native", "renders_per_s", r2, notes=HOST_NOTE.format(n=n, c=2, mb=mb)))
+        rows.append(row("2026-10-16T00:34:17+00:00", "native", "renders_per_s", r10, notes=HOST_NOTE.format(n=n, c=10, mb=mb)))
+    # a newer 6-host sweep wins; 10 hosts is over the approved cap and is never the default
+    rows.append(row("2026-10-16T00:38:02+00:00", "native", "renders_per_s", 9.879, notes=HOST_NOTE.format(n=6, c=2, mb=8993)))
+    rows.append(row("2026-10-16T00:38:03+00:00", "native", "renders_per_s", 4.639, notes=HOST_NOTE.format(n=6, c=10, mb=8509)))
+    rows.append(row("2026-10-16T00:38:03+00:00", "native", "renders_per_s", 13.102, notes=HOST_NOTE.format(n=10, c=2, mb=12974)))
+    return rows
+
+
+def stomp380_rows():
+    s = "stomp-speed"
+    return [
+        row("2026-10-15T22:36:17+00:00", "stomp", "blocks_locked_after_tonepush_info", 1, kind="smoke",
+            notes="after the human upgraded the pedal to firmware 3.80 (build x)"),
+        row("2026-10-15T23:47:32+00:00", "stomp", "session_overhead_per_test_old_s", 3.8123, dataset=s),
+        row("2026-10-15T23:47:32+00:00", "stomp", "session_overhead_per_test_new_s", 0.7716, dataset=s),
+        row("2026-10-15T23:48:50+00:00", "stomp", "seconds_per_render_clip2s", 2.6889, dataset=s),
+        row("2026-10-15T23:48:51+00:00", "stomp", "seconds_per_render_clip10s", 10.6708, dataset=s),
+        row("2026-10-16T00:03:24+00:00", "stomp", "search_batch_per_trial_s_after", 6.5689, dataset=s,
+            notes="fw=3.80; 10 amp-param trials on Cdly0; clip 3.0 s"),
+        row("2026-10-16T00:10:35+00:00", "stomp", "verify_batch_per_finalist_s_before", 29.2271, dataset=s),
+        row("2026-10-16T00:10:35+00:00", "stomp", "verify_batch_per_finalist_s_after", 24.6507, dataset=s),
+        row("2026-10-16T00:17:11+00:00", "stomp", "search_batch_per_trial_s_before", 10.861, dataset=s,
+            notes="fw=3.80; 10 amp-param trials on K; clip 10.0 s"),
+        row("2026-10-16T00:17:11+00:00", "stomp", "search_batch_per_trial_s_after", 3.7649, dataset=s,
+            notes="fw=3.80; 10 amp-param trials on K; clip 3.0 s"),
+    ]
+
+
+def newest_ledger():
+    rows = new_pool_rows() + stomp380_rows() + [
+        row("2026-10-16T00:50:49+00:00", "native", "capture_per_chain_s", 9.51, dataset="templates-B-B0",
+            notes="T064: B0 and B re-captured"),
+        row("2026-10-16T00:58:52+00:00", "native", "capture_per_chain_s", 0.22, dataset="catalog-3.82",
+            notes="T064: 391 single-block chains in 3 parallel editor sessions with --verify none (refusal scan)"),
+        row("2026-10-15T23:57:11+00:00", "native", "capture_per_chain_s", 0.39, dataset="block-library-v0"),
+    ]
+    return et.index_rows(rows)
+
+
+def test_native_pool_uses_six_hosts_and_the_newest_sweep():
+    g = et.pool_group(newest_ledger())
+    assert et.DEFAULT_HOSTS == 6 and g["hosts"] == 6
+    c2, c10 = g["clips"][2], g["clips"][10]
+    assert c2["top_rate"] == 9.879 and c10["top_rate"] == 4.639             # the newest 6-host rows
+    assert c2["one_rate"] == 1.703 and c10["one_rate"] == 0.806             # N=1 layout with both clips in notes
+    assert c2["speedup"] == pytest.approx(9.879 / 1.703)
+    assert c2["score"] is True and c2["mem_gb"] == pytest.approx(8.993)
+    assert c2["top_row"]["timestamp"] == "2026-10-16T00:38:02+00:00"
+
+
+def test_native_search_test_cell_cites_the_six_host_row():
+    T = et.measure(newest_ledger())
+    c = T["search_test"]["native"]
+    assert c["seconds"] == pytest.approx(1 / 9.879) and c["hosts"] == 6 and c["ts"] == "2026-10-16T00:38:02+00:00"
+    assert c["one_seconds"] == pytest.approx(1 / 1.703)
+    assert "2026-10-16T00:25:26+00:00" in c["note"]                        # the one-host row is cited too
+    assert T["search_test_10s"]["native"]["seconds"] == pytest.approx(1 / 4.639)
+
+
+def test_native_trial_estimate_is_measured_tests_per_second_without_a_second_score():
+    est, ass = et.estimate_rows(et.measure(newest_ledger()))
+    t = {r["key"]: r for r in est}["trial"]["native"]
+    assert t["serial_s"] == pytest.approx(100 / 1.703) and t["parallel_s"] == pytest.approx(100 / 9.879)
+    assert t["lower"] is False
+    assert any(a["id"] == "pool2" and "6" in a["text"] and "2026-10-16" in a["text"] for a in ass)
+
+
+def test_capture_uses_the_newest_row_and_names_the_others():
+    c = et.measure(newest_ledger())["capture"]["native"]
+    assert c["seconds"] == 0.22 and c["sessions"] == 3 and c["verify_off"] is True
+    assert "9.51 s per chain in templates-B-B0" in c["note"] and "2026-10-16T00:50:49+00:00" in c["note"]
+    assert "0.39 s per chain in block-library-v0" in c["note"]
+    assert "switched off" in c["note"]
+    est, ass = et.estimate_rows(et.measure(newest_ledger()))
+    cap = {r["key"]: r for r in est}["capture"]["native"]
+    assert cap["serial_s"] == pytest.approx(22.0)
+    assert any(a["id"] == "capparallel" and "3 editor sessions" in a["text"] for a in ass)
+
+
+def test_stomp_speed_rows_on_fw380_carry_no_stale_label():
+    T = et.measure(newest_ledger())
+    trial, ses, ver = T["search_test"]["stomp"], T["session"]["stomp"], T["verify"]["stomp"]
+    assert trial["seconds"] == 3.7649 and trial["ts"] == "2026-10-16T00:17:11+00:00" and trial["fw"] == et.FW_380
+    assert "6.57 s" in trial["note"] and "10.9 s" in trial["note"]       # fixed-delay chain and the old figure
+    assert ses["seconds"] == 0.7716 and "3.81 s" in ses["note"]
+    assert ver["seconds"] == 24.6507 and "29.2" in ver["note"]
+    assert T["render_2s"]["stomp"]["seconds"] == 2.6889 and T["render_2s"]["stomp"]["fw"] == et.FW_380
+    assert T["render_10s"]["stomp"]["seconds"] == 10.6708
+    assert T["search_test_10s"]["stomp"]["seconds"] == 10.861
+    for c in (trial, ses, ver):
+        assert "3.50" not in et.cell_text(c)
+
+
+def test_stomp_estimates_pay_the_session_once():
+    est, ass = et.estimate_rows(et.measure(newest_ledger()))
+    by = {r["key"]: r for r in est}
+    t = by["trial"]["stomp"]
+    assert t["serial_s"] == pytest.approx(100 * 3.7649 + 0.7716) and t["lower"] is True    # score unmeasured
+    assert by["verify"]["stomp"]["serial_s"] == pytest.approx(100 * 24.6507 + 0.7716)
+    assert any(a["id"] == "session" for a in ass)
+
+
+def test_verify_job_uses_the_finalist_row(tmp_path):
+    root = make_root(tmp_path, with_reports=False)
+    rows = newest_ledger()
+    T = et.measure(rows, root)
+    jobs, _ = et.job_rows(T, root, [], rows)
+    by = {j["id"]: j for j in jobs}
+    assert by["verify_top3"]["serial_s"] == pytest.approx(3 * 24.6507 + 0.7716)
+    assert by["verify_top3"]["engine"] == "Stomp"
+    assert by["synth_stomp_sub"]["serial_s"] == pytest.approx(1500 * 3.7649 + 0.7716)
+    assert by["synth_ci"]["serial_s"] == pytest.approx(240 / 1.703) and by["synth_ci"]["parallel_s"] == pytest.approx(240 / 9.879)
+
+
+def test_stomp_load_uses_the_fw380_whole_load_median_and_cells_name_their_metric():
+    rows = newest_ledger() + et.index_rows([
+        row("2026-10-15T23:40:21+00:00", "stomp", "whole_preset_write_s", 0.289, dataset="fw380-write",
+            notes="fw=3.80; median op-21 write of 9 (0.273-0.342 s); whole load() median 0.534 s")])
+    for i, r in enumerate(rows):
+        r["_line"] = i + 2
+    c = et.measure(rows)["load"]["stomp"]
+    assert c["seconds"] == 0.534 and c["fw"] == et.FW_380 and "0.29 s" in c["note"]
+    assert "whole_preset_write_s" in et.cell_text(c)                      # the row is named next to its link
+    assert "ledger 2026-10-16T00:17:11+00:00 search_batch_per_trial_s_after" in et.cell_text(
+        et.measure(rows)["search_test"]["stomp"])

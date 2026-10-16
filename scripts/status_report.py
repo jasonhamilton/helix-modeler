@@ -522,6 +522,13 @@ def validate_curated(cur: dict, reg: dict, facts: dict) -> list[str]:
         check_refs("recent change", c.get("evidence", []))
     for m in cur["milestones"].values():
         check_refs("milestone", m.get("evidence", []))
+    for key in ("in_progress", "up_next"):
+        for w in cur.get(key, []):
+            if not (w.get("area") and w.get("text")):
+                errs.append(f"curated: {key} entries need an area and a text: {str(w)[:60]!r}")
+            if not w.get("evidence"):
+                errs.append(f"curated: {key} work without evidence: {w.get('area', '')!r}")
+            check_refs(key, w.get("evidence", []))
 
     errs += validate_engines(cur.get("engines"))
     feats = {f["id"]: f for f in reg["features"] if not f.get("retired")}
@@ -711,6 +718,8 @@ def build_model(reg: dict, cur: dict, facts: dict, baseline: dict | None = None)
 
     recent = [dict(c, evidence=refs(c["evidence"])) for c in cur["recent_changes"]]
     recent.sort(key=lambda c: c["date"], reverse=True)
+    in_progress = [dict(w, evidence=refs(w["evidence"])) for w in cur.get("in_progress", [])]
+    up_next = [dict(w, evidence=refs(w["evidence"])) for w in cur.get("up_next", [])]
 
     rows = facts["ledger"]
     kinds: dict[str, int] = {}
@@ -747,7 +756,7 @@ def build_model(reg: dict, cur: dict, facts: dict, baseline: dict | None = None)
         "actions": actions,
         "capabilities": caps,
         "changes": {"baseline_date": baseline["date"] if baseline else None, "diff": [],
-                    "recent": recent},
+                    "recent": recent, "in_progress": in_progress, "up_next": up_next},
         "components": components,
         "engines": (engine_timing.build(cur["engines"], facts["ledger"], facts.get("root"))
                     if cur.get("engines") else None),
@@ -1224,6 +1233,16 @@ def render_html(model: dict, board_rel: str = "../../board", root: Path | None =
     p.append("<h3>Progress and findings</h3><ul>" + "".join(
         f'<li>{e(c["date"])} · <strong>{e(CHANGE_KINDS[c["kind"]])}.</strong> {gl(c["text"])}'
         f'{ev_links(model, c["evidence"])}</li>' for c in gen) + "</ul>")
+    if ch.get("in_progress"):
+        p.append("<h3>In progress now</h3><ul>" + "".join(
+            f'<li><strong>{e(w["area"])}.</strong> {gl(w["text"])}{ev_links(model, w["evidence"])}</li>'
+            for w in ch["in_progress"]) + "</ul>")
+    elif ch.get("up_next"):
+        p.append('<p class="muted">Nothing is in progress right now.</p>')
+    if ch.get("up_next"):
+        p.append("<h3>Up next</h3><ul>" + "".join(
+            f'<li><strong>{e(w["area"])}.</strong> {gl(w["text"])}{ev_links(model, w["evidence"])}</li>'
+            for w in ch["up_next"]) + "</ul>")
     if act:
         p.append("<h3>Activity that did not advance readiness</h3><ul>" + "".join(
             f'<li>{e(c["date"])} · {gl(c["text"])}</li>' for c in act) + "</ul>")
@@ -1434,8 +1453,10 @@ def _engines_html(model: dict, gl) -> str:
     p.append("</tbody></table></div>")
     p.append("<h3>Measured time per test</h3>"
              '<p class="muted">Each figure is the newest ledger row for that activity, with its date '
-             "and a link to the row. Results from the pedal's older firmware are marked until they are "
-             "rechecked on 3.80. The table regenerates from the ledger every run.</p>"
+             "and a link to the row. Pedal results from the older firmware are marked until they are "
+             "rechecked on 3.80; rows measured on 3.80 say so. Native pool figures use 6 hosts, the cap "
+             "the human approved on 2026-10-16 (docs/DECISIONS.md); results before that date are kept as "
+             "history. The table regenerates from the ledger every run.</p>"
              '<div class="scroll"><table><thead><tr><th scope="col">Activity</th>'
              f'<th scope="col">{e(ENG_NAMES["stomp"])}</th><th scope="col">{e(ENG_NAMES["native"])}</th>'
              '<th scope="col">Either engine / both</th></tr></thead><tbody>')
@@ -1499,7 +1520,9 @@ def _engines_md(doc: MdDoc, model: dict) -> None:
                     f"{mde(eng_cap_text(c['native']))} |")
     doc.h(3, "Measured time per test", "eng-measured")
     doc.add("Each figure is the newest ledger row for that activity, with its date and a link to the row. "
-            "Results from the pedal's older firmware are marked until they are rechecked on 3.80. "
+            "Pedal results from the older firmware are marked until they are rechecked on 3.80; rows measured "
+            "on 3.80 say so. Native pool figures use 6 hosts, the cap the human approved on 2026-10-16 "
+            "(docs/DECISIONS.md); results before that date are kept as history. "
             "The table regenerates from the ledger every run.", "",
             f"| Activity | {ENG_NAMES['stomp']} | {ENG_NAMES['native']} | Either engine / both |",
             "|---|---|---|---|")
@@ -1743,6 +1766,18 @@ def render_markdown(model: dict, root: Path | None = None, board_rel: str = "../
     for c in gen:
         doc.add(f"- {c['date']} · **{CHANGE_KINDS[c['kind']]}.** {mde(c['text'])} "
                 f"_(Evidence: {mde(md_refs(model, c['evidence']))})_")
+    if ch.get("in_progress"):
+        doc.h(3, "In progress now", "in-progress")
+        for w in ch["in_progress"]:
+            doc.add(f"- **{mde(w['area'])}.** {mde(w['text'])} "
+                    f"_(Evidence: {mde(md_refs(model, w['evidence']))})_")
+    elif ch.get("up_next"):
+        doc.add("", "_Nothing is in progress right now._")
+    if ch.get("up_next"):
+        doc.h(3, "Up next", "up-next")
+        for w in ch["up_next"]:
+            doc.add(f"- **{mde(w['area'])}.** {mde(w['text'])} "
+                    f"_(Evidence: {mde(md_refs(model, w['evidence']))})_")
     if act:
         doc.h(3, "Activity that did not advance readiness", "activity")
         for c in act:

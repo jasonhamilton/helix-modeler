@@ -67,3 +67,18 @@ def test_assign_ccs_explicit_range_and_used_ccs():
     assert amap == {"1:LowCut": "cc_5", "0:Drive": "cc_6"}  # cc 4 already used by the file
     assert out["data"]["tone"]["controller"]["dsp0"]["cab0"]["LowCut"]["@max"] == 500.0
     assert rng["1:LowCut"] == [19.9, 500.0]
+
+
+def test_assign_ccs_bypass_on_blocks_not_linked_cabs():
+    out, amap, rng, skipped = hs.assign_ccs(_hlx(), [(0, "@enabled"), (1, "@enabled"), (2, "@enabled")])
+    ctl = out["data"]["tone"]["controller"]["dsp0"]
+    assert amap == {"0:@enabled": "cc_4", "2:@enabled": "cc_5"} and skipped == ["1:@enabled"]
+    assert ctl["block3"]["@enabled"] == {"@controller": 8, "@cc": 4, "@min": 0.0, "@max": 1.0,
+                                         "@snapshot_disable": False}
+    assert rng["2:@enabled"] == [0.0, 1.0]
+
+
+def test_assign_ccs_out_of_ccs_skips_instead_of_failing():
+    targets = [(0, "Drive")] * 95
+    _, _amap, _, skipped = hs.assign_ccs(_hlx(), targets)
+    assert len(skipped) >= 5

@@ -4,3 +4,4 @@ timestamp,metric,reason
 2026-10-15T03:18:03+00:00,null_residual_db,Native side reused a stale template captured from the earlier ER=0.783 file (chain key ignores unmapped params); superseded by 2026-10-15T03:20:31 (DECISIONS 2026-10-15)
 2026-10-15T03:18:03+00:00,stomp_to_native_gain_db,same stale-template run as the null row; superseded by 2026-10-15T03:20:31
 2026-10-15T21:23:18+00:00,bypass_cc_vs_drop_truth_db,"harness bug in scripts/native_bypass_probe.py: its default --hlx had been overwritten by its own cc_off capture (drop files are named by block-value hash) so the re-run drove CC 124/125 while the cached captures listen on 126/127; fixed and re-measured -328.1 at 21:26:14 (native-engine)"
+2026-10-16T01:34:13+00:00,hlx_validate_fail,appended by tone-matcher-lead without TONEMATCH_AGENT (agent shows human) and the known.hlx note wrongly calls it a fw 3.80 export; superseded by the next golden-fw380 rows

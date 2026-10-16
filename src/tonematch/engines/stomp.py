@@ -63,6 +63,7 @@ from .base import (
     UnsupportedModelChange,
 )
 from .stomp_bridge import BridgeError, StompBridge, helper_path, stomp_on_bus
+from .stomp_layout import ensure_sabj
 from .stomp_readback import ReadbackMismatch, check, snapshot_conflicts, sync_snapshot_controllers
 
 __all__ = ["ReadbackMismatch", "StompEngine", "compile_document", "decode_document", "reamp_hlx_dict"]
@@ -151,6 +152,9 @@ def reamp_hlx_dict(preset, input_value: int, sync_snapshots: bool = True) -> dic
     engine renders the slot values it was given."""
     d = preset.to_hlx_dict(sync_snapshots=sync_snapshots)
     d["data"]["tone"].setdefault("dsp0", {}).setdefault("inputA", {})["@input"] = int(input_value)
+    # T063: a Path B block on a single-path template gets HX Edit's SABJ layout (Y split and join
+    # at 0.5/0.5, Path B fed by the split and merged by the join); HX Edit exports are left as they are.
+    ensure_sabj(d)
     return d
 
 

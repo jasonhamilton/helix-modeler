@@ -99,15 +99,18 @@ def test_set_params_always_sends_even_an_unchanged_value():
     assert p.parameters["cc_2"].history == [0.55, 0.8]
 
 
-def test_state_reset_pads_to_a_whole_native_frame():
-    """Native runs 16-sample frames behind a FIFO; renders are history-independent only aligned."""
+def test_state_reset_pads_to_a_whole_native_frame_and_beat(monkeypatch):
+    """Native runs 16-sample frames behind a FIFO and its modulation on a free-running 120 BPM
+    beat clock; renders are history-independent only aligned to both."""
+    monkeypatch.setattr(nh, "FRAME_ENV", None)
+    assert nh.reset_frame(48_000) == 24_000 and nh.reset_frame(44_100) == 176_400
     h, p = _host()
     h.render(_x(1001), reset=True)  # leaves the count off-frame
     p.calls.clear()
     h.render(_x(1000), reset=True)
-    pad = (-1001) % nh.FRAME
+    pad = (-1001) % nh.reset_frame(h.sr)
     assert p.calls[0] == (pad, False)
-    assert (1001 + pad) % nh.FRAME == 0
+    assert (1001 + pad) % 24_000 == 0 and (1001 + pad) % nh.NATIVE_FRAME == 0
 
 
 def test_reinstantiate_strategy_and_latent_plugins_use_pedalboard_reset():
@@ -177,7 +180,7 @@ def _engine(limit: float) -> tuple[nat.NativeEngine, FakeHostProcess]:
     e._initial_state, e._hc_mode = b"", None
     e._loaded_state, e._host_params = None, {}
     e.current_chain, e.current_template = None, None
-    e._latency = {None: 0}
+    e._latency, e._plugin_latency = {None: 0}, 0
     e.preroll, e.reset_mode, e.flush_s, e.calibration_db = 0, "reset", 0.0, 0.0
     return e, host
 
@@ -216,6 +219,14 @@ def test_parallel_scan_is_capped_by_memory(monkeypatch):
     assert nat.max_hosts_by_memory() == 3
     monkeypatch.delenv("TONEMATCH_NATIVE_MAX_HOSTS")
     assert nat.max_hosts_by_memory() >= 1
+
+
+def test_memory_cap_allows_six_hosts_on_32_gb(monkeypatch):
+    """2.5 GB per host, half of RAM: 6 hosts on 32 GB (human decision 2026-10-16)."""
+    monkeypatch.delenv("TONEMATCH_NATIVE_MAX_HOSTS", raising=False)
+    pages = {"SC_PAGE_SIZE": 4096, "SC_PHYS_PAGES": 32 * 2**30 // 4096}
+    monkeypatch.setattr(nat.os, "sysconf", lambda k: pages[k])
+    assert nat.max_hosts_by_memory() == 6
 
 
 # --------------------------------------------------------------------------- reviewer follow-ups

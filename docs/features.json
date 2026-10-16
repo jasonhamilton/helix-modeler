@@ -9,7 +9,8 @@
     "T022 and T023 are marked done but mean 'built', not 'trusted': no loss term is admitted and the search has never run on a trusted loss or on the Helix known-answer set. T041 added a real-song run with an unadmitted loss, which is not a benchmark row. T024 is partly done: the 'every change (CI)' synthetic run cannot run until the set is rendered and .github/workflows/ci.yml still has the benchmark step commented out.",
     "Gate 1's Stomp tick was written on stomp-engine's rows; benchmark's own re-run (2026-10-14T18:09:13) corroborates it, but hx_edit_import_ok and pedal_load_ok are human-reported and not observed by benchmark.",
     "The stompd helper source is intentionally not in the repo (human decision, docs/notes/stompd.md): Stomp ledger rows cannot be reproduced by others until a wrapper is published or re-written to the documented protocol. Recorded as a reproducibility gap, not a board error.",
-    "Ledger hygiene: native-engine deleted one accidental row with sed on 2026-10-15 instead of appending a correction (recorded in docs/DECISIONS.md); git shows only appended rows against the last commit, and the rule was restated."
+    "Ledger hygiene: native-engine deleted one accidental row with sed on 2026-10-15 instead of appending a correction (recorded in docs/DECISIONS.md); git shows only appended rows against the last commit, and the rule was restated.",
+    "T060 (parity spot checks) is still marked 'blocked by an assignment-free Stomp base and Native single-block captures' on the board, but both are done (assignment-free base: ledger 2026-10-15T23:40:20+00:00; refused-model scan and captures: ledger 2026-10-16T00:58:52+00:00). The board line is behind the ledger; the lead should update it."
   ],
   "features": [
     {
@@ -18,8 +19,8 @@
       "purpose": "Render a DI clip through a candidate preset offline in Helix Native, fast enough to be the searching engine.",
       "done_when": "A NativeEngine behind the frozen interface renders any chain structure the search needs at a measured cost, loads candidates without a GUI step per candidate, agrees with the Stomp within a measured null residual, and has run a full synthetic recovery pass.",
       "status": "working",
-      "progress_note": "Hands-off loading (file drop plus MIDI-CC map), state-based reset renders (0.28 s, bit-identical to dedicated captures at -317 dB, flat 3.0 GB), stale-template protection and a memory watchdog are built, hardware-measured on one Mac, and exercised by a 449-render real-song search. Block-serial rendering is shown to equal one instance above 20 Hz (-67 to -79 dB). Still missing: Windows and Linux (the drop route is macOS VST3 only), stereo and dual-cab paths in the host, a block-bypass CC encoding Native honours, the single-block library, and any full synthetic recovery pass. Quality of what Native renders versus the pedal is only partly in parity (see evaluation), and nothing it renders has been blind-tested by ear.",
-      "functionality": "Loads an arbitrary generated .hlx into Native with no human (in-process file drop, about 66 s per new chain structure, once per machine; needs TONEMATCH_NATIVE_AUTOCAPTURE=1 and a logged-in GUI session), drives parameters through a MIDI-CC map, and renders a 2 s clip in about 0.28 s with memory flat near 3.0 GB. Renders are history-independent and match each file's own capture at -317 dB. Mono in and out only; chains with an enabled delay or reverb need a 3 s pre-roll; Windows and Linux are untested.",
+      "progress_note": "Hands-off loading (file drop plus MIDI-CC map), state-based reset renders (0.28 s, bit-identical to dedicated captures at -317 dB, flat 3.0 GB), stale-template protection and a memory watchdog are built, hardware-measured on one Mac, and exercised by a 449-render real-song search. Block-serial rendering is shown to equal one instance above 20 Hz (-67 to -79 dB). Still missing: Windows and Linux (the drop route is macOS VST3 only), stereo and dual-cab paths in the host, the single-block library, and any full synthetic recovery pass. Quality of what Native renders versus the pedal is only partly in parity (see evaluation), and nothing it renders has been blind-tested by ear. Phase 3 is finished (T055, T064): capture takes 1.2 s per chain in one session and 0.39 s with three, instead of 31 s (ledger 2026-10-15T23:57:11+00:00); a render pool of 6 hosts (the cap the human approved on 2026-10-16) runs 9.9 two-second tests per second and 4.6 ten-second tests per second, each test being a render plus its score (ledger 2026-10-16T00:38:02+00:00); block bypass by CC matches separate captures at -328.7 dB (ledger 2026-10-16T00:29:34+00:00); a rejected model load is detected and closed; about 1 host in 10 that rendered differently is replaced by a start-up check; templates B and B0 are re-captured at the frozen values (ledger 2026-10-16T00:50:49+00:00); and a scan of 607 Stomp block models found 2 that Native 3.82 refuses (ledger 2026-10-16T00:58:52+00:00). The block library itself is still not captured. Measured on one Mac only; nothing here has been checked by ear. Results from before 2026-10-16 are kept as history (human decision).",
+      "functionality": "Loads an arbitrary generated .hlx into Native with no human (in-process file drop, about 66 s per new chain structure, once per machine; needs TONEMATCH_NATIVE_AUTOCAPTURE=1 and a logged-in GUI session), drives parameters through a MIDI-CC map, and renders a 2 s clip in about 0.28 s with memory flat near 3.0 GB. Renders are history-independent and match each file's own capture at -317 dB. Mono in and out only; chains with an enabled delay or reverb need a 3 s pre-roll; Captures of new single-block chains take 0.22 s each when batched across three sessions with the parameter checks off (ledger 2026-10-16T00:58:52+00:00), and a pool of 6 hosts renders and scores about 10 two-second tests per second. Windows and Linux are untested.",
       "health": "partial",
       "evidence": [
         {
@@ -41,7 +42,12 @@
             "ledger 2026-10-15T19:01:31+00:00 CC route versus own drop capture -317.1 dB (worst of four files)",
             "ledger 2026-10-15T19:21:10+00:00 blockserial-v0 x7: 8-block chain -67.1 dB above 20 Hz, amp to cab -78.6 dB",
             "ledger 2026-10-15T19:42:45+00:00 Native applies block values, not stale snapshot values (-330.1 dB)",
-            "docs/notes/native-spike.md"
+            "docs/notes/native-spike.md",
+            "ledger 2026-10-15T23:57:11+00:00 capture 31.0 s per chain before, 1.2 s in one session, 0.39 s with three sessions (216 chains in 84.64 s)",
+            "ledger 2026-10-16T00:38:02+00:00 render pool, 6 hosts: 9.879 tests per second on 2 s clips; ledger 2026-10-16T00:38:03+00:00 4.639 on 10 s clips (a test is a render plus its score)",
+            "ledger 2026-10-16T00:29:34+00:00 bypass patterns by CC versus separate captures, worst -328.7 dB",
+            "ledger 2026-10-16T00:50:49+00:00 templates B and B0 re-captured at frozen values, replay -313.7 dB",
+            "ledger 2026-10-16T00:58:52+00:00 refused-model scan: 2 of 607 Stomp block models refused by Native 3.82"
           ]
         }
       ],
@@ -59,10 +65,12 @@
         "T044",
         "T045",
         "T047",
-        "T048"
+        "T048",
+        "T055",
+        "T064"
       ],
       "blockers": [
-        "Single-block capture (T047, T048) waits on the block-probe rendering run and a stereo-capable host; the drop route is macOS VST3 only."
+        "The single-block library (T048) is not captured yet; T047 (probe fingerprints in Native) and a stereo-capable host are still open, and the drop route is macOS VST3 only."
       ],
       "implemented": [
         {
@@ -137,6 +145,10 @@
         {
           "finding": "The Native installer EULA is silent on training ML on Native renders; the human marked the EULA reading done but recorded no finding.",
           "source": "docs/notes/line6-eula-flags.md; DECISIONS 2026-10-14 project licence"
+        },
+        {
+          "finding": "About 1 Native host process in 10 rendered every chain differently for its whole life (reverbs and modulated delays by -21 to -27 dB; parameters and saved state identical; cause unknown). A start-up check now replaces such hosts. Latency trims could also differ by up to 30 samples between engines; fixed by measuring once per engine with every block bypassed.",
+          "source": "ledger 2026-10-16T00:25:27+00:00; DECISIONS 2026-10-16 native-engine Native phase 3"
         }
       ],
       "todo": [
@@ -145,7 +157,7 @@
         "Handle an exact 0.0 command and decide a 3 s pre-roll default for chains with delay or reverb (proposals open)",
         "Find a block-bypass CC encoding Native honours, or extend the template key with the enabled pattern",
         "Linux via Wine and yabridge and Windows are untested",
-        "Measure render cost on a heavy multi-block chain in the parallel pool"
+        "Capture the per-block library (T048) now that capture speed and the refused-model scan are done"
       ],
       "needs_human": [
         "Rule on the open Native proposals: clamp or handle an exact 0.0 command, 3 s pre-roll default for delay or reverb chains, template key with the bypass pattern",
@@ -156,13 +168,14 @@
         "pedalboard (GPLv3) stays behind a process boundary (DECISIONS 2026-10-13 cycle 1)",
         "Host resets by state, memory watchdog at 5120 MB (DECISIONS 2026-10-15 host memory)",
         "Block-serial corrections: trim 16 samples per instance, judge above 20 Hz, store amps and cabs as separate blocks (DECISIONS 2026-10-15 T045)",
-        "3 s pre-roll for chains with delay or reverb (DECISIONS 2026-10-15, lead)"
+        "3 s pre-roll for chains with delay or reverb (DECISIONS 2026-10-15, lead)",
+        "Native host cap is 6; Hum and Ripple frozen at 0 on both engines; Native results from before 2026-10-16 are kept as history (DECISIONS 2026-10-16 human, Native phase 3 follow-ups)"
       ],
       "risks": [
         "PLAN risk: Native EULA silent on ML training: findings of the human's EULA reading not recorded",
         "PLAN risk: Native on Linux and Windows (the drop route is macOS only)",
         "Native and Stomp differ in at least one parameter (cab Early Reflections); see evaluation",
-        "Scores from runs before the host-reset fix are not reproducible"
+        "Scores and parity rows from before the host-reset fix and the 2026-10-16 host canary are not exactly reproducible (about 1 host in 10 rendered differently); they stay as history and the ones we rely on are re-measured"
       ],
       "key_files": [
         "src/tonematch/engines/native.py",
@@ -185,8 +198,8 @@
       "purpose": "Drive the real pedal from code and capture its USB audio, so the final check is the actual hardware and hardware-only users have an engine.",
       "done_when": "A StompEngine renders any candidate within the pedal's capabilities on macOS, Windows and Linux, with edit-buffer-only control, a calibrated reamp path, parity to Native measured, and a user-DI accuracy mode used on real songs.",
       "status": "working",
-      "progress_note": "Control, reamp, latency, restore, and now whole-preset injection into the edit buffer with a parameter-by-parameter readback on every load are verified on one pedal, one firmware (3.50) and one OS (macOS). A compile bug that let the pedal's snapshot values override the delay block was found and fixed. Still missing: Windows and Linux, the play-along user-DI path on hardware (built and tested offline only), the whole_preset default is still off, parity with Native has a known cab Early Reflections mismatch, and an unexplained delay Mix 0.72 and Time 0.47 readback has not been re-checked on the pedal after the fix.",
-      "functionality": "Writes a whole generated preset into the pedal's edit buffer (about 0.3 s), reads back every parameter and refuses to render a mismatch, reamps a DI over USB 5/6 to 1/2 at about 2.7 s per render, and restores the original preset byte for byte. Verified on firmware 3.50 and macOS only; whole_preset is off by default; layout changes in place are unsupported; the play-along capture of the user's own guitar has not been run against a song with the fixed code.",
+      "progress_note": "Control, reamp, latency, restore and whole-preset injection with a parameter-by-parameter readback on every load are verified on one pedal and one OS (macOS), now on firmware 3.80 (the pedal was upgraded on 2026-10-15). The session-release lock is fixed: the helper now ends a session the way HX Edit does, and blocks stay editable (ledger 2026-10-15T23:03:12+00:00, 2026-10-15T23:20:15+00:00). The engine smoke test passes on 3.80, 9 of 9 whole-preset writes landed and the pedal was restored byte for byte (ledger 2026-10-15T23:40:20+00:00). Speed work (T061): a search trial went from 10.9 s to 3.8 s and per-test session overhead from 3.81 s to 0.77 s (ledger 2026-10-16T00:17:11+00:00, 2026-10-15T23:47:32+00:00). The two-path layout difference is fixed (T063): our two-path load of a stored preset nulled at -9.3 dB against the editor-saved one and now nulls at -85.7 dB, equal to that preset's own repeat floor (ledger 2026-10-16T01:06:38+00:00); single-path loads are unchanged. Hum and Ripple are frozen at 0 on both engines (human decision, 2026-10-16). Still missing: Windows and Linux, the play-along path on hardware, the whole_preset default (still off), the Early Reflections mismatch with Native, and any speed timing of the search that now uses the options. Parity with Native on 3.80 has not been run.",
+      "functionality": "Writes a whole generated preset into the pedal's edit buffer (about 0.3 s), reads back every parameter and refuses to render a mismatch, reamps a DI over USB 5/6 to 1/2 (2.7 s for a 2 s clip, 3.7 s for 3 s), ends each session with HX Edit's session close so the pedal's blocks stay editable, and restores the original preset byte for byte. Verified on firmware 3.80 and macOS only; whole_preset is off by default; layout changes in place are unsupported; two-path (Path A plus B) loads use the editor's own layout and match single-chain renders (Path A -72.9 dB against a repeat floor of -68.7, Path B -52.6 against -42.7; ledger 2026-10-16T01:06:38+00:00), with the 2.0x two-chains-per-pass gain measured on firmware 3.50 only.",
       "health": "partial",
       "evidence": [
         {
@@ -206,7 +219,13 @@
             "ledger 2026-10-15T19:39:28+00:00 full readback ok, delay Time 0.375 Feedback 0.40 Mix 0.25 as in the file",
             "ledger 2026-10-15T19:36:29+00:00 offline decode of 20 presets, 6 document mismatches found before the fix",
             "restore_bytes_equal 1.0 after every parity run",
-            "docs/notes/T003-stomp-control-spike.md"
+            "docs/notes/T003-stomp-control-spike.md",
+            "ledger 2026-10-15T23:20:15+00:00 engine_smoke_pass on firmware 3.80; session-close sent on every channel",
+            "ledger 2026-10-15T23:40:20+00:00 9 of 9 whole writes landed on 3.80, restore byte-equal",
+            "ledger 2026-10-16T00:17:11+00:00 search trial 10.861 s before, 3.765 s after; ledger 2026-10-15T23:47:32+00:00 session overhead 3.81 s before, 0.77 s after",
+            "docs/notes/stomp-speed.md",
+            "ledger 2026-10-16T01:06:38+00:00 two-path load versus the HX Edit preset: -9.3 dB before the fix, -85.7 dB after (repeat floor -85.7); single-path unchanged (-79.65 dB versus floor -68.7); dual pass versus single: Path A -72.9 dB, Path B -52.6 dB",
+            "ledger 2026-10-15T23:57:03+00:00 in-place parameter loads on firmware 3.80, final readback ok"
           ]
         }
       ],
@@ -222,10 +241,12 @@
         "T019",
         "T020a",
         "T042",
-        "T051"
+        "T051",
+        "T061",
+        "T063"
       ],
       "blockers": [
-        "Verified on firmware 3.50 and macOS only; whole_preset default stays off until the lead decides; the play-along capture needs the human with a guitar."
+        "Verified on macOS only; whole_preset default stays off until the lead decides; the play-along capture needs the human with a guitar."
       ],
       "implemented": [
         {
@@ -268,6 +289,10 @@
       ],
       "challenges": [
         {
+          "finding": "The pedal's blocks stayed locked after any control session (ours and unmodified upstream tonepush, on firmware 3.50 and 3.80). Cause: no HX Edit-style session close. Fixed in the helper; blocks editable afterwards, close acknowledged on control and data channels (events not acknowledged), no USB reset needed.",
+          "source": "ledger 2026-10-15T22:36:17+00:00 (still locked on 3.80 before the fix); ledger 2026-10-15T23:03:12+00:00; ledger 2026-10-15T23:20:15+00:00; DECISIONS 2026-10-15 stomp-engine T059"
+        },
+        {
           "finding": "The pedal recalls the current snapshot's controller values over the block values on load. The compiler used to keep the base document's snapshot values, so a generated preset's delay ran Feedback 0.52 instead of 0.40 and the human found it 'way too much' live. Fixed in the compiler (ledger 19:36:29); every load is now verified.",
           "source": "DECISIONS 2026-10-15 stomp-engine T051; ledger 2026-10-15T19:20:34"
         },
@@ -290,6 +315,14 @@
         {
           "finding": "stompd source is intentionally not in the repo, so Stomp results cannot be reproduced by others yet.",
           "source": "docs/notes/stompd.md"
+        },
+        {
+          "finding": "With amp Hum and Ripple free, two Stomp renders of the same chain differ at about -30 dB (the hum runs free); with both at 0 the repeats are -72 to -91 dB. Tail-wait shortening is only safe with both at 0. Decided 2026-10-16: both are frozen at 0 on both engines.",
+          "source": "ledger 2026-10-15T23:55:24+00:00; docs/notes/stomp-speed.md"
+        },
+        {
+          "finding": "Two-path presets rendered -18 to -22 dB away from single-path renders. Cause: the compiler kept the single-path base's junctions (Balance/Pan 0/1, attach points 0/0, topology code 0), so the pedal re-derived a different layout. Fixed by writing HX Edit's layout; now at the editor preset's own repeat floor.",
+          "source": "ledger 2026-10-16T01:06:38+00:00; DECISIONS 2026-10-16 stomp-engine T063"
         }
       ],
       "todo": [
@@ -299,20 +332,23 @@
         "Investigate the cab Early Reflections mismatch against Native (with native-engine)",
         "Linux (H10) and Windows (H11) control checks",
         "Layout-changing loads (raise UnsupportedModelChange today)",
-        "Publish or document a wrapper so others can reproduce the Stomp rows"
+        "Publish or document a wrapper so others can reproduce the Stomp rows",
+        "Stomp-versus-Native parity on firmware 3.80 (T060 spot checks)",
+        "Time the search with the Stomp speed options on the pedal (T062 wired them in; no pedal timing yet)"
       ],
       "needs_human": [
         "Run the play-along capture with a guitar in the Main L/Mono input (reamp_capture.py --user-di --play); the pedal is only read",
         "Check the delay Mix and Time on the pedal after loading a regenerated preset and report",
-        "Decide whether to update the pedal from firmware 3.50 (human ruling: after the pipeline works end to end)",
         "Provide a Linux and a Windows machine for H10 and H11, or accept macOS-only"
       ],
       "decisions": [
         "macOS control route: USB interface 0 via stompd behind the JSON-lines protocol (DECISIONS 2026-10-14 stomp-engine)",
         "Edit buffer only, no flash writes (same entry)",
         "Block values win in every generated preset; every load is verified by readback (DECISIONS 2026-10-15 T051 and snapshot values)",
-        "Firmware 3.50 target until the pipeline works end to end (DECISIONS 2026-10-14 human approvals)",
-        "reamp_capture --user-di only reads the pedal (DECISIONS 2026-10-15 user-DI capture)"
+        "Firmware 3.80 is the pedal's firmware since 2026-10-15; everything measured on 3.50 is rechecked as it is used (DECISIONS 2026-10-15 Stomp firmware upgrade)",
+        "reamp_capture --user-di only reads the pedal (DECISIONS 2026-10-15 user-DI capture)",
+        "Hum and Ripple frozen at 0 on both engines (DECISIONS 2026-10-16 human)",
+        "The dual-path-only comparison rule is lifted: two-path passes may be used for checks (DECISIONS 2026-10-16 stomp-engine, T063 two-path layout, lead)"
       ],
       "risks": [
         "Pedal control unavailable on Windows (macOS confirmed, Windows unverified)",
@@ -987,7 +1023,7 @@
       "purpose": "Find the preset whose render best matches the target section within a render budget set by the engine's cost.",
       "done_when": "On the Helix synthetic-v1 set the search recovers known presets at the thresholds benchmark set (block-type F1, model accuracy, parameter MAE), then beats the nearest community preset on real songs, with the final candidate verified on the pedal.",
       "status": "prototype",
-      "progress_note": "CMA-ES over a captured template, beam over chains, budget planning, a level guard and a report writer are built, and one real-song run completed end to end on Native (449 renders, 1506 s; provisional loss 13.79 to 7.71, unadmitted). But the loss it optimises is not trusted (the human preferred the runner-up), recovery of known answers is shown only on a fake engine, there is no Helix known-answer run, no predictor or retrieval seeds, no model choice per slot, and no successive halving on hardware.",
+      "progress_note": "CMA-ES over a captured template, beam over chains, budget planning, a level guard and a report writer are built, and one real-song run completed end to end on Native (449 renders, 1506 s; provisional loss 13.79 to 7.71, unadmitted). But the loss it optimises is not trusted (the human preferred the runner-up), recovery of known answers is shown only on a fake engine, there is no Helix known-answer run, no predictor or retrieval seeds, no model choice per slot, and no successive halving on hardware. The search now uses the Stomp speed options by default (T062: 3 s search clips, readback every 10 loads, measured tails, one engine per batch; a legacy flag falls back), tested with a fake engine only. The trial time on the pedal was measured as a batch (10.9 s to 3.8 s, ledger 2026-10-16T00:17:11+00:00), but the search itself has not been timed on the pedal, so there is no ledger row for its speed.",
       "functionality": "match() plans a render budget, searches a chain and its parameters with CMA-ES against an unadmitted loss, applies a level guard and a weak prior, and writes a report and listening pack. match_song.py ran it on one real song: best provisional loss 7.71 (raw DI 24.93). Renders now cost about 0.28 s, so earlier budgets were over-planned. Recovery of known answers is unproven on real engine renders.",
       "health": "partial",
       "evidence": [
@@ -1023,7 +1059,8 @@
       "tasks": [
         "T023",
         "T041",
-        "T050"
+        "T050",
+        "T062"
       ],
       "blockers": [
         "Needs an admitted loss, the Helix known-answer set and the block library (T047, T048) to show recovery on real engine renders."
@@ -1100,7 +1137,8 @@
         "Model choice per slot from the block library (T050)",
         "Predictor and retrieval seeds (needs Learning)",
         "Successive halving on the Stomp and a hardware final check of the top candidate",
-        "Make cab Early Reflections fixed at 0 for anything verified on the Stomp until parity exists"
+        "Make cab Early Reflections fixed at 0 for anything verified on the Stomp until parity exists",
+        "Time the search with the Stomp speed options on the pedal"
       ],
       "needs_human": [
         "Listen blind to the DS-Sample candidates when a session is prepared (the informal preference does not count for Gate 3)"

@@ -1,6 +1,6 @@
 # [T002](../../board/TASKS.md#t002 "Spike: can pedalboard write a whole preset into Helix Native's saved…") / [T013](../../board/TASKS.md#t013 "Run scripts/native_spike.py --gui --golden ..") Native spike: can a whole preset be written into Helix Native's state?
 
-Owner: native-engine. Status 2026-10-14: **whole-preset state write: NO. Automation/replay route: YES ([T013](../../board/TASKS.md#t013 "Run scripts/native_spike.py --gui --golden ..") GUI run, replay null -72.9 dB). Render-time gap explained and fixed ([T026](../../board/TASKS.md#t026 "Explain and re-measure the Native render-time gap"), below). Hands-off loading of generated presets: YES on macOS VST3 by in-process file drop, with model changes and MIDI-CC assignments written into the file ([T018n](../../board/TASKS.md#t018n "Hands-off Native loading"), below).**
+Owner: native-engine. Status 2026-10-16: phase 3 below (capture 31 s -> 0.4-1.2 s per chain, render pool to 10 hosts, host canary, latency fix). Status 2026-10-14: **whole-preset state write: NO. Automation/replay route: YES ([T013](../../board/TASKS.md#t013 "Run scripts/native_spike.py --gui --golden ..") GUI run, replay null -72.9 dB). Render-time gap explained and fixed ([T026](../../board/TASKS.md#t026 "Explain and re-measure the Native render-time gap"), below). Hands-off loading of generated presets: YES on macOS VST3 by in-process file drop, with model changes and MIDI-CC assignments written into the file ([T018n](../../board/TASKS.md#t018n "Hands-off Native loading"), below).**
 Plugin: Helix Native **3.82** (original, not Stadium), both builds installed on the dev Mac:
 
 - VST3 `/Library/Audio/Plug-Ins/VST3/Line 6/Helix Native.vst3` (`com.line6.helixnative.vst`, 3.82). The installer puts it in a `Line 6/` subfolder.
@@ -144,6 +144,72 @@ The human's requirement: the program controls every parameter, with no human at 
 ### Stale-template fix (2026-10-15)
 
 Templates are reused only when the preset's *baked* values match: unmapped params, CCs that did not verify by render, bypass states and block extras. Matching uses a hash stored with the template. Capture maps continuous params with catalog ranges and verifies each CC by one render. On DS-Sample, every CC verified except amp Hum. Bisect files reusing the template through CCs matched their own drop captures at -61 to -326 dB. Unhashed (older) templates are never reused. See DECISIONS 2026-10-15 (stale-template fix).
+
+### Phase 1 bugs (2026-10-15, [T053](../../board/TASKS.md#t053 "Native phase 1, bugs"))
+
+Full evidence: DECISIONS 2026-10-15 (native-engine, Native phase 1: bugs); ledger 20:46:57-58.
+
+- **-67 dB block-serial floor: inherent.** One instance holding only the EssexA15 amp, fed the DI and the DI + 1 float32 ulp (-141 dB), nulls at -68.3 dB (1e-6 gain: -67.7; -100 dB noise: -67.1; repeats bit-exact). The serial floor is this sensitivity fed by the instance boundary's tiny change (-0.000219 dB, float32 I/O). Drive alone -104, cab alone -80, reverb alone -103, delay alone -53. Block-serial is as exact as Native is with itself.
+- **Leak per `reload_with_state`: avoided.** Hosts open with `cache/native/start_stomp.state` as the first state (before any audio), so HX Stomp templates load by `set_state`. 1737 MB and 6.5 s per open + load + render (was 3002 MB, 11.9 s). `TONEMATCH_NATIVE_START_STATE=0` restores the old start; `reload_with_state` is left only for a template in another HC mode, under the footprint watchdog.
+- **Sub-5 Hz after delays: Native's SimpleDelay.** -94 dBFS before the delay, -74 to -76 after it, in serial and single chains alike; DC passes instances unchanged. Not our pre-roll or trim. Renders stay unfiltered; parity is judged above 20 Hz.
+- **Reset paths: both correct.** Against drop-captured truth (random settings written into the `.hlx`), the CC route is bit-exact on both reset paths when values sit on the 7-bit CC grid (-268.5 dB); off-grid values miss by -26 to -45 dB because a MIDI CC has 128 steps over the assignment's Min..Max. `capabilities().extras["param_steps"]` reports this.
+- **engine-smoke** passes again after the pre-fix known.hlx template was recaptured by autocapture (0.168 s per render; ledger 20:55:45).
+
+### Phase 2: block bypass over MIDI CC (2026-10-15, [T054](../../board/TASKS.md#t054 "Native phase 2: block bypass over MIDI CC"))
+
+Full evidence: DECISIONS 2026-10-15 (native-engine, Native phase 2); ledger 21:26:14, 21:31:30.
+
+- **Works, bit-exact.** `controller.dsp0.<block>.@enabled = {"@controller": 8, "@cc": n, "@min": 0, "@max": 1}` in the dropped `.hlx`; drive `cc_<n>` with >= 0.5 for on. One template per chain structure then serves every bypass pattern (C8: 8 patterns at -328.7 to -334.4 dB vs per-pattern drop truth). `capture_chain(bypass_ccs=True)` is the default; template map key `"<slot>:@enabled"`.
+- **Modulation clock.** Native's LFOs run on a free-running 120 BPM beat clock counted in processed samples; a state load does not reset it. The host aligns reset renders to 24,000 samples (lcm of the 16-sample frame and one beat at 48 kHz). Without that, chorus chains were history-dependent at -30 dB.
+- **Not routes:** unassigned `switch_NN` (nothing to switch); real MIDI CC to the AU through DawDreamer (PC arrives, CCs are ignored).
+- **Library packing:** a block soloed by bypass in a multi-block capture equals the block captured alone to its own 1-ulp sensitivity (-52 to -100 dB).
+- **Harness trap:** `capture_chain` names drop files by the block-value hash, so capturing a CC-annotated variant overwrites a source `.hlx` that has the same block values in `cache/native/drop/`. Scripts must not take their base file from there without stripping assignments.
+
+### Phase 3: capture speed, render pool, host determinism (2026-10-15/16, [T055](../../board/TASKS.md#t055 "Native phase 3"))
+
+Evidence: `cache/native/capture_bench/`, `cache/native/pool_bench/` (local); ledger [2026-10-15T23:57:11](../../ledger/runs.csv?plain=1#L261 "render-cost · native · block-library-v0 · capture_per_chain_s = 31.0 (first of 4 rows at this time)") (4 rows) to 2026-10-16T00:4x. DECISIONS 2026-10-16 (native-engine, Native phase 3).
+
+**Capture speed** (`capture_chains`, `capture_chains_parallel`, `NativeEngine.capture_missing(sessions=)`; `scripts/native_capture_bench.py`):
+
+| Step | Before (one host per file) | After (one editor session per host) |
+|---|---|---|
+| Host open | 5.8 s per file | 5.8-7.1 s once per session (incl. the host canary) |
+| Into HX Stomp mode | `reload_with_state` 5.6 s per file | 0 (host opens in the start state) |
+| Editor open + drop + load | 13.1 s (fixed 8 + 4 s waits) | editor 0.55 s once; per file 0.43-0.54 s (state polled every 0.1 s, 2 stable polls) |
+| Second instance for verification | `reload_with_state` 5.6 s | 0 (same host, `set_state`) |
+| CC verification, single block | 0.5-1.5 s (one render per CC, 3 s pre-roll) | 0.15-0.4 s (truth check or per-CC with 0.5 s pre-roll; bypass CCs not rendered) |
+| CC verification, 8-block C8 | 28.3 s (64 renders) | 1.1 s (truth check: one extra drop + 2 renders, -66 dB) |
+| Close | 0.1-0.2 s per file | 0.1 s once |
+| **Per chain, single block** | **30.6-32.1 s** | **1.20 s** (1 session, 60 chains); 0.75 (2); 0.60 (3); 0.51 (4) |
+| **Per chain, C8** | **59.3 s** | 1.7 s (drop 0.54 + truth check 1.13) plus the session's one-off ~7 s |
+| 216 drive/delay/reverb/comp/EQ/mod blocks | ~6,700 s projected | **84.6 s** (3 sessions, 0.39 s per chain) |
+| 661-model library | ~5.7 h projected | ~4.3 min projected at 3 sessions (~11 min one session) |
+
+- **States are unchanged.** Templates from the new flow are byte-equal (DPCP/BDCP chunks) to the old flow's on 8 of 8 chains; fresh-process replays of 22 sampled templates of the 216-chain run null at -295 to -321 dB. Only the VTCP chunk header's reserved word differs (1 vs 118); renders are unaffected.
+- **Truth check** (`verify_mode="auto"`, >= 8 params to check): the chain is also dropped with every mapped param moved 16 CC steps toward the middle (dB levels alternately up and down) and the template driven to the same values by CC must null against that drop to -50 dB. Single blocks null bit-exactly (-258 to -314 dB); C8 at -66 dB (its amp's 1-ulp sensitivity). Simulated ignored CCs on C8: 49 of 55 would fail the check; the other six move the render by less than -55 dB at those settings. Moving every param to 32/127 or 95/127 instead pushed C8's six Level params to about -43 dB each and the output to the float floor, where renders stopped repeating (-54.9 dB). On a miss it falls back to per-CC (2 of 215 blocks: Reverb NonLinear -42.6 dB, a shuffling delay -11.6 dB, which may be time-variant).
+- **The CC grid is linear: Native gives a param `lo + c/127 (hi - lo)` at CC c**, bit-exact (-260 to -317 dB) on Hz, dB, Q, ms and distance params of a cab, EQ, comp, chorus, delay and reverb (`scripts/native_cc_grid_probe.py`; `cc_value()`); log and c/128 grids miss by -13 to -71 dB. This closes the phase 2 "grid formula" question; the -66 to -70 dB seen on C8 is the amp/delay sensitivity, not the grid.
+- **Rejected files are detected and closed without a human.** The human saw "failure to load file" alerts on screen. Cause: the HX Edit 3.82 catalog lists `HD2_CompressorTransientShaper`, which Native 3.82 refuses ("Failed to load preset from file. HelixCore: Invalid model. [code -1000302]", an `_NSAlertPanel`). The old detection looked only for `L6DialogWindow` and Native still changed the state (loading the chain without the block), so four bench runs saved a wrong template for it (deleted) and left the alert up until the session ended. Now any window besides the editor, a drop that does not return in 10 s (modal loop) or an unchanged state ends the session at that file: the window is snapshotted to `cache/native/dialogs/`, its text read, the window closed (modal loops aborted), the file logged in `cache/native/rejected_drops.json`, and the files after it are retried in a fresh host. A model Native refused alone is never dropped again (`invalid_models()`). Amps, cabs and "other" models were not dropped (breadth-first order), so the list of refused models is complete only for the 216 blocks above.
+- **Accident (disclosure):** a `--help` sweep over the scripts started `scripts/native_hc_once.py`, which has no options parser and opened Native's editor (known.hlx) for about 2 minutes, waiting for a human to close it. I killed it; it saved nothing (`start_stomp.state` unchanged, 2026-10-14 16:50). It now has `--help`.
+
+**Host determinism** (two bugs, both fixed):
+- **About 1 Native host process in 10 renders every chain differently for its whole life** ("odd mode": DoubleTank -27.1 dB, Dig Delay -21.4, Ganymede -22.2, EQ Graphic -68.6, Buzz Saw -84.1, even the start state's impulse -51.6 dB). It is identical across odd hosts and consistent within one; params and saved states are identical; it is not CPU load, E-cores, drops or frame phase; cause unknown (12 of 133 sequential opens, 3 of 20 concurrent). It made the old capture replay check fail intermittently and silently mixed two renderings into search and parity. Fix: the **host canary** (`HostProcess`): every host opened in a start state renders a 0.5 s canary; votes are kept on disk (`cache/native/canary/`) and a host whose canary is not the majority (at least two votes) is replaced (~7 s, rare). `TONEMATCH_NATIVE_CANARY=0` disables it. After the fix 0 odd hosts in 30 checked; in the pool sweeps the canary replaced 6 of about 46 hosts.
+- **Latency was measured through the live chain at the first render's settings**: 0 to 30 samples on C8 (amp hum onset, filter group delay), so a pool and a single engine trimmed the same render differently (-22.8 dB). Now `latency()` is measured once per engine with an impulse through the chain with every block bypassed by CC (16 samples, Native's own latency), else 16. After the fix the pool equals a single engine at -290 dB (2 s) / -297.7 dB (10 s). **Renders and scores made before 2026-10-16T00:2x through chains whose first render had other settings may be shifted by up to 30 samples.**
+
+**Render pool** (`NativeRenderPool`; `scripts/native_pool_bench.py`; C8, test = render + MR-STFT score, 3 s pre-roll):
+
+| Hosts | 2 s clip tests/s | s/test | 10 s clip tests/s | Latency median 2 s / 10 s | Footprint total (per host) | Memory pressure | Swap |
+|---|---|---|---|---|---|---|---|
+| 1 | 1.70 | 0.587 | 0.81 | 0.54 / 1.14 s | 1.3 GB | green | - |
+| 2 | 3.52-3.55 | 0.28 | 1.69 | 0.54 / 1.16 s | 2.6-3.5 GB (1.3-1.75) | green | no growth |
+| 4 | 6.84-6.95 | 0.145 | 3.31 | 0.56 / 1.19 s | 5.3-7.0 GB | green | no growth |
+| 5 | 8.43 | 0.119 | 3.96 | 0.57 / 1.24 s | 6.5 GB | green | no growth |
+| 6 | 9.88-10.03 | 0.10 | 4.64-4.76 | 0.57 / 1.23 s | 7.8-9.0 GB | green | +0.9 GB while hosts opened |
+| 8 | 10.67-12.24 | 0.082-0.094 | 5.05-5.60 | 0.61-0.71 / 1.37-1.53 s | 10.4-10.6 GB | **yellow** | +0.9-1.9 GB |
+| 10 | 13.10 | 0.076 | 6.37 | 0.74 / 1.54 s | 13.0-13.2 GB | **yellow** | +2.2 GB |
+
+No watchdog recycles at any N; every N bit-identical to a single engine. Throughput scales linearly to 6 hosts and flattens after (per-test latency rises from 0.57 to 0.74 s). Recommended N = 6 (best tests/s with green pressure); `NativeRenderPool.DEFAULT_WORKERS = 6`, still capped at 5 by the RAM cap on 32 GB until the lead raises it (proposal in DECISIONS). Second sweep ran at load 10-13 (other agents), hence the 8-host spread.
+
+**API for search:** `pool.map_generation(preset, param_sets, dry, fn)` returns `fn(render)` per setting in order (`fn` = the loss), `render_generation` returns the renders, `ensure_templates(presets)` captures what no host can load (one capture shared by all hosts), `stats()` reports hosts, footprint, recycles and canary replacements. `capture_missing` captures presets that differ only in CC-mapped params once (`capture_key`).
 
 ## Routes, in order (after [T018n](../../board/TASKS.md#t018n "Hands-off Native loading"))
 

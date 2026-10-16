@@ -212,8 +212,45 @@ def readback_diff(chain: dict, hlx: dict, report: dict | None = None, check_inpu
         diff.checked += 1
         if inp is None or inp.get("routing") != dsp["inputA"]["@input"]:
             diff.mismatches.append(f"inputA routing {inp and inp.get('routing')} != file {dsp['inputA']['@input']}")
+    _compare_junctions(chain, hlx, diff)
     _compare_snapshot_controllers(chain, hlx, where, dev, diff)
     return diff
+
+
+def _compare_junctions(chain: dict, hlx: dict, diff: ReadbackDiff) -> None:
+    """Two-path files only (T063): the split and join model, enabled and values, and the attach
+    slot when the chain reports it (`stompd decode` of a document does; the live `chain` of the
+    USB helper does not)."""
+    from .stomp_layout import device_topology, junction_expectations
+
+    exp = junction_expectations(hlx)
+    if not exp:
+        return
+    want_topo = device_topology(hlx)
+    if chain.get("path_topology") is not None and want_topo is not None:
+        diff.checked += 1
+        if chain["path_topology"] != want_topo:
+            diff.mismatches.append(f"path topology code {chain['path_topology']} != {want_topo} for the file's layout "
+                                   "(the device re-derives a layout it does not accept)")
+    dsp = _tone(hlx).get("dsp0", {})
+    have = {s.get("kind", "").lower(): s for s in chain.get("slots", []) if s.get("kind") in ("Split", "Join")}
+    for key, e in exp.items():
+        d = have.get(key)
+        diff.checked += 1
+        if d is None:
+            diff.mismatches.append(f"{key}: the device has no {key}")
+            continue
+        if d.get("model_id") != e["model"]:
+            diff.mismatches.append(f"{key}: device model {d.get('model_id')} != file {e['model']}")
+            continue
+        diff.checked += 1
+        if bool(d.get("enabled")) != e["enabled"]:
+            diff.mismatches.append(f"{key}: enabled {d.get('enabled')} != file {e['enabled']}")
+        _compare_params(key, dsp.get(key, {}), e["values"], d.get("params"), diff)
+        if "attach" in d and e["attach"] is not None:
+            diff.checked += 1
+            if d["attach"] != e["attach"]:
+                diff.mismatches.append(f"{key}: attaches before slot {d['attach']}, file @position gives {e['attach']}")
 
 
 def _compare_snapshot_controllers(chain: dict, hlx: dict, where: dict, dev: dict, diff: ReadbackDiff) -> None:

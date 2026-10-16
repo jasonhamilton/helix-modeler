@@ -482,9 +482,18 @@ def _in_range(v, p) -> bool:
 
 
 def validate(preset: Preset, catalog: dict | None, costs: dict | None = None,
-             firmware: int | None = None) -> list[Violation]:
-    """Checks 1-5 and 7 of the hlx-validate skill (6, the golden diff, lives in ``golden_diff``)."""
+             firmware: int | None = None, engine: str | None = None) -> list[Violation]:
+    """Checks 1-5 and 7 of the hlx-validate skill (6, the golden diff, lives in ``golden_diff``).
+    ``engine="native"`` also fails models the user's Helix Native refuses (``native_unavailable``)."""
     v: list[Violation] = []
+    if engine == "native":
+        from .catalog import native_unavailable
+
+        bad = native_unavailable()
+        for s in preset.blocks():
+            if s.model_id in bad:
+                v.append(Violation("model", "fail", f"{s.key or s.model_id}: {s.model_id} is not "
+                                   "available on Helix Native (refused as an invalid model)"))
 
     def F(c: str, m: str) -> None:
         v.append(Violation(c, "fail", m))

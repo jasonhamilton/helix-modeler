@@ -14,6 +14,7 @@ Native's ``ChangeHWModeForFile`` preference before and after.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -41,6 +42,8 @@ def pref() -> object:
 
 
 def main() -> int:
+    # --help must never open Native's window (it waits for a human to close it)
+    argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter).parse_args()
     plugin = locate_plugin()
     if plugin is None or plugin.suffix != ".vst3":
         print("Helix Native VST3 not found.", file=sys.stderr)

@@ -62,3 +62,36 @@ def test_render_is_identical_after_random_cc_trials(native_engine):
     e.set_params(base)
     again = e.render(x)
     assert nat.null_db(first, again) <= -100.0
+
+
+MOD_WORDS = ("Chorus", "Flanger", "Phaser", "Trem", "Vibe", "Vibrato", "Rotary")
+
+
+def _mod_template():
+    dirs = [None, nat.cache_dir() / "bypass_patterns" / "cc_bypass_only"]
+    for d in dirs:
+        try:
+            variants = nat.ChainTemplate.load_variants(d)
+        except (OSError, ValueError, KeyError):
+            continue
+        for ts in variants.values():
+            for t in ts:
+                if any(m and any(w in m for w in MOD_WORDS) for _, m in t.chain):
+                    return t
+    return None
+
+
+def test_modulated_chain_repeats_bit_exact(native_engine):
+    """Native's modulation runs on a free-running 120 BPM beat clock that a state load does not
+    reset: with 16-sample alignment only, consecutive renders of a chorus chain cycled through
+    three versions (-30.3 / -36.2 dB). The host aligns reset renders to a whole beat."""
+    e, _ = native_engine
+    tpl = _mod_template()
+    if tpl is None:
+        pytest.skip("no captured template with a modulation block")
+    e._set_state(tpl.state)
+    e.current_chain = e.current_template = None
+    x = nat.test_signal(2.0)
+    first = e.render(x)
+    for _ in range(4):
+        assert nat.null_db(first, e.render(x)) <= -100.0

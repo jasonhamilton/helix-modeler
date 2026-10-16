@@ -621,3 +621,39 @@ def test_real_project_engines_section(real):
         assert "Real-world jobs" in txt and "Estimated time for 100 tests" in txt
     # every verdict that carries a 3.50-era Stomp claim is marked
     assert md.count("Verified on fw 3.50, recheck on 3.80 pending") >= 5
+
+
+def test_in_progress_is_optional_validated_and_shown_in_both_formats(tmp_path):
+    base = build(tmp_path)
+    assert base["changes"]["in_progress"] == []
+    assert "In progress now" not in sr.render_html(base)
+    cur = curated()
+    cur["in_progress"] = [{"area": "native-engine", "text": "Finishing the render pool.",
+                           "evidence": ["ev-led"]}]
+    m = build(tmp_path, cur=cur)
+    assert m["changes"]["in_progress"][0]["area"] == "native-engine"
+    for txt in (sr.render_html(m), sr.render_markdown(m, tmp_path)):
+        assert "In progress now" in txt and "Finishing the render pool." in txt
+    bad = curated()
+    bad["in_progress"] = [{"area": "x", "text": "no evidence", "evidence": []}]
+    errs = sr.validate_curated(bad, registry(), facts(tmp_path))
+    assert any("in_progress work without evidence" in e for e in errs)
+    bad["in_progress"] = [{"area": "x", "text": "t", "evidence": ["nope"]}]
+    assert any("unknown evidence id" in e for e in sr.validate_curated(bad, registry(), facts(tmp_path)))
+
+
+def test_up_next_is_optional_validated_and_shown_in_both_formats(tmp_path):
+    base = build(tmp_path)
+    assert base["changes"]["up_next"] == []
+    assert "Up next" not in sr.render_html(base)
+    cur = curated()
+    cur["up_next"] = [{"area": "Parity spot checks", "text": "Compare five models per category.",
+                       "evidence": ["ev-led"]}]
+    m = build(tmp_path, cur=cur)
+    for txt in (sr.render_html(m), sr.render_markdown(m, tmp_path)):
+        assert "Up next" in txt and "Compare five models per category." in txt
+        assert "Nothing is in progress right now." in txt
+    bad = curated()
+    bad["up_next"] = [{"area": "x", "text": "no evidence", "evidence": []}]
+    errs = sr.validate_curated(bad, registry(), facts(tmp_path))
+    assert any("up_next work without evidence" in e for e in errs)
