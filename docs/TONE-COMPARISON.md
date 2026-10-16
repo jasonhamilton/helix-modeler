@@ -1,6 +1,6 @@
 # How the Tone Comparison Works
 
-*Last updated: 2026-10-15. Kept current by `tone-metrics` (comparison methods and trust results) and the lead (search, hardware check), whenever any of these details change; see "Keeping this document current" at the end.*
+*Last updated: 2026-10-16. Kept current by `tone-metrics` (comparison methods and trust results) and the lead (search, hardware check), whenever any of these details change; see "Keeping this document current" at the end.*
 
 The matcher plays candidate presets through Helix Native and scores each one against the song's separated guitar using a set of spectral and dynamic measurements. It keeps adjusting the settings to lower that score. Those measurements are not yet trustworthy: none has passed its trust check. So the score points roughly the right way but cannot tell close candidates apart, and your ear is still the judge.
 
@@ -77,6 +77,38 @@ The search runs in Native, so a separate test checks that the HX Stomp plays the
 | First DS-Sample match (Early Reflections 0.783) | -3.6 dB | Different sound: the cab's Early Reflections differ between firmware 3.50 and Native 3.82 |
 | DS-Sample matches with Early Reflections fixed at 0 | -31.4 and -30.5 dB | Same sound |
 
+### Spot checks across block types (firmware 3.80, 2026-10-16)
+
+The same null test was run on 47 more files, one block changed at a time in the smoke chain (amp, cab, and one effect after the cab), all on Stomp firmware 3.80 against Native 3.82, with amp Hum and Ripple at 0 and the cab's Early Reflections at 0. A clean guitar clip of 4 s plus 2 s of silence was used. "Same sound" means a null of -30 dB or lower.
+
+| Block type | Models checked | Same sound | What was found |
+| --- | --- | --- | --- |
+| Amp | 5 | 5 | -37.5 to -47.5 dB |
+| Cab (including one IR-style cab) | 5 | 5 | -35.4 to -37.4 dB |
+| Dynamics (five compressors and a noise gate) | 6 | 6 | -33.6 to -37.2 dB |
+| EQ | 5 | 5 | -30.5 to -40.6 dB |
+| Distortion | 5 | 2 | Scream 808 -30.9 and Kinky Boost -33.5 pass; Heavy Dist -25.7, Bitcrusher -27.4 and Triangle Fuzz -28.6 are close but miss |
+| Reverb | 6 | 0 | -5.9 to -22.8 dB; the pedal repeats itself to -77.7 dB (Room), so the difference is real: reverb tails are not the same algorithm settings-for-settings |
+| Delay | 5 | echo level 5 of 5 | Echoes are as loud on both (within 0.5 dB) but arrive at slightly different times: Native is about 3 ms later per echo (0.8% of the delay time) on four models and about 2 ms earlier on Adriatic Delay, so the waveforms cannot null (-5 to -12 dB). Delays are judged by echo level and timing, not by null |
+| Modulation | 6 | 0 | -1.0 to -9.0 dB; the pedal does not repeat itself (-1.5 dB on a chorus rendered twice) because its LFO starts at a random point, so modulation cannot be judged by a null at all |
+
+Cab Early Reflections on firmware 3.80, same cab and clip: 0 gives -28.1 dB, 0.25 gives -12.1, 0.5 gives -6.6 and 1.0 gives -1.0 dB. That is the same pattern as on firmware 3.50, so upgrading did not fix it and Early Reflections stays held at 0 for anything bound for the pedal.
+
+Some models (Simple, Transistor Tape and Adriatic delays, and five modulation effects) had parameters in the catalog that the Stomp's block does not have (Scale, Spread, Stereo); the Stomp refused those files until the parameters were left out. Both engines then used their own default for them.
+
+### Delays, reverbs, modulation and drives judged by measurement (2026-10-16)
+
+A null is the wrong test for effects that move in time. A delay whose clock runs 1 % slow, a reverb with a different but equally long tail, or a chorus whose wobble started at another point all fail a null while sounding alike. So the same saved renders were measured instead, effect by effect. Nothing was re-rendered. Each measurement is compared with a proposed tolerance tied to what listeners can just tell apart (the "just-noticeable difference" in hearing studies), for example 1 dB for a level, 5 % for a decay time and 2 % for a delay time. Where one 4 s guitar clip cannot measure something precisely enough, the result says "unresolved" rather than pass or fail.
+
+| Block type | What was measured | Result |
+| --- | --- | --- |
+| Delay (5) | Time and level of each echo, how fast the echoes die away | All 5 within tolerance. Echo levels within 0.7 dB. Native's echoes come 0.8 % late (378 ms instead of 375 ms) on four models and 0.6 % early on Adriatic. That is under 10 ms in total over the echoes you can hear at this setting, but it adds up on long delays |
+| Distortion (5) | Spectrum in 1/3-octave bands, the level of each harmonic, noise, level | Same tone on all 5: spectra within 0.45 dB, harmonics within 0.3 dB, level within 0.2 dB. The failed nulls come from a tiny timing difference (about 5 microseconds) in the amp and open cab before the drive: that chain alone nulls at only -28 dB with spectra within 0.06 dB. Bitcrusher adds a little more aliasing on the Stomp |
+| Reverb (6) | Decay time per octave (early decay and full decay), when the reverb starts after the note (pre-delay), the tail's spectrum and level | Decay at 4 kHz within 2.3 % on all 6. Pre-delay differs by 5.3 ms on Hall and 4.8 ms on Chamber (Native starts earlier); at most 0.8 ms on the other four. Ganymede, which has its own modulation, decays 7 to 11 % faster on Native at 1 to 2 kHz. Low-frequency decay, the tail's spectrum and its level cannot be measured precisely enough from a 2 s tail of a guitar clip |
+| Modulation (6) | How fast the effect wobbles (rate), how deep, and the sound with the wobble averaged out | Tremolo matches (6.73 vs 6.76 Hz, depth 9.0 vs 9.2 dB). Chorus rate matches (1.78 vs 1.76 Hz) and so does its averaged sound; its depth may be about 25 % deeper on Native but this clip cannot confirm it. Vibrato agrees too (6.80 vs 6.76 Hz, depth 23 vs 24 cents) but the reading is just below the confidence bar. Flanger and phaser wobble too slowly for 4 s; the MM4 chorus gives no steady reading on this clip |
+
+**What this means for now (a proposal to the lead, not yet accepted):** Native can stand in for the Stomp on amps, cabs, dynamics, EQ, drives, delays and tremolo. Reverbs, other modulation, bitcrusher-type drives and long delays still need the Stomp. Two short test signals for the next pedal session would settle most "unresolved" rows: a 10 s steady tone for modulation and a noise burst with 6 s of silence for reverb.
+
 This test is reliable and has already caught one real mismatch. Its limit is that it checks the engines against each other, not against the song.
 
 ## Is it indicating properly?
@@ -121,6 +153,7 @@ All from this repository:
 - [`src/tonematch/metrics/`](../src/tonematch/metrics/): the comparison methods (`kit.py`, `ltas.py`, `crest.py`, `envelope.py`, `mrstft.py`, `afxrep.py`)
 - [`scripts/match_song.py`](../scripts/match_song.py): the search and the end-to-end run
 - [`scripts/parity_null.py`](../scripts/parity_null.py) and [`ledger/runs.csv`](../ledger/runs.csv) (kind `parity`): the null tests
+- [`scripts/parity_timefx.py`](../scripts/parity_timefx.py), [`src/tonematch/metrics/parity.py`](../src/tonematch/metrics/parity.py) (tolerances) and the measurements in `delay.py`, `reverb.py`, `modulation.py`, `nonlinear.py`; ledger dataset `parity-spot-fw380-timefx`: delays, reverbs, modulation and drives judged by measurement
 - [`scripts/loss_trust_check.py`](../scripts/loss_trust_check.py) and [`ledger/runs.csv`](../ledger/runs.csv) (kind `loss-trust`, dataset `proxy-dsp-v0`): the trust-check numbers
 - [`docs/DECISIONS.md`](DECISIONS.md): the Early Reflections finding, the memory fix, block-serial rendering, snapshot values
 - [`reports/status/README.md`](../reports/status/README.md): the overall project status

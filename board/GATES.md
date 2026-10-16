@@ -21,6 +21,6 @@ Only `benchmark` ticks an evidence item, with a ledger row id. Only the human ti
 ## Gate 3 — beats the nearest preset on real songs (end of week 4)
 
 - [ ] Blind A/B on the 20-song set: the matched preset is preferred over the nearest community preset on a majority of songs (ledger row: )
-- [ ] Parity null residual recorded for firmware 3.80 (ledger row: )
+- [x] Parity null residual recorded for firmware 3.80 (ledger row: 2026-10-16T02:31:10, dataset parity-spot-fw380: amps -37.5..-47.5 dB, cabs -35.4..-37.4 dB, dynamics/EQ pass, distortion 2 of 5, reverb and modulation do not null, delays match in echo level; see docs/BENCHMARKING.md)
 - [ ] Engine comparison recorded: Native mode vs Stomp mode on the same songs (ledger row: )
 - [ ] Human sign-off (the listener): ______ (date)

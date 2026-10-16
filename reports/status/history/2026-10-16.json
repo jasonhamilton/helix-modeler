@@ -167,7 +167,7 @@
    "title": "The tone comparison is not validated"
   }
  },
- "ledger_rows": 310,
+ "ledger_rows": 418,
  "milestones": {
   "Gate 1": {
    "done": 4,
@@ -182,15 +182,15 @@
    "total": 3
   },
   "Gate 3": {
-   "done": 0,
+   "done": 1,
    "signed": false,
-   "state": "Not Started",
+   "state": "In Progress",
    "total": 3
   }
  },
  "readiness": "Prototype",
  "schema": "tonematch.status-snapshot",
- "tasks_done": 49,
+ "tasks_done": 52,
  "technical": "Advancing",
  "version": 1
 }

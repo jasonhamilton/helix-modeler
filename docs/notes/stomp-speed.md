@@ -110,3 +110,39 @@ If the human wants it for listening sessions, it would take:
 - the measured-wait sequence with a fake stream;
 - the same-session restore check;
 - the original-chain regression.
+
+## [T062](../../board/TASKS.md#t062 "Wire the T061 Stomp speed options into scripts/match_song.py as the…"): speed options measured end to end in `match_song.py` (search, 2026-10-16, firmware 3.80)
+
+`scripts/match_song.py --engine stomp` on the DS-Sample intro (34.5-42.0 s, human's take 6 as `--user-di`), chain K only, seed 0, 10 beam trials then 20 refine trials (new flag `--max-scores 10`, so the budget is trials, not minutes). Each run started and ended on 04C "Smoke Known"; the edit buffer was byte-equal to the backup after restore in every run. Run folders: `cache/matches/DS-Sample_stomp_speed_{default,legacy,default_rebased}/`. Ledger: `kind=render-cost` (times) and `benchmark` (scores), `dataset=ds-sample-intro` (`search` is not a ledger kind yet; proposed to the lead).
+
+| | `--stomp-legacy` (before) | default (after) | Ratio |
+|---|---|---|---|
+| Search clip | 7.5 s | loudest 3 s | |
+| Seconds per trial (beam 11 renders 92 s; refine 21 renders 176 s) | 8.4 | 3.8 (42 s and 80 s) | 2.2x |
+| Total wall clock, 39 renders | 329 s | 169 s | 1.9x |
+| Search score, last trial | 7.339 (7.5 s clip) | 9.178 (3 s clip) | not comparable |
+| Final score, full 7.5 s excerpt | **7.345** | **13.061** | default is worse |
+
+- Per trial is lower than the [T061](../../board/TASKS.md#t061 "Stomp speed improvements and assignment-free base") bench (3.8 s) only because here the loss and guard are included; the 2.2x matches the 2.9x bench less the fixed per-trial loss and the load.
+- **The default found a worse tone.** The 3 s clip is the loudest part of the DI, and the search fitted it (9.18) but the same settings score 13.06 on the full excerpt, against 7.35 for the legacy run that searched the full clip. One seed each, so the gap is indicative, but it is large. Speed here costs quality unless the final check re-ranks several candidates or a second search stage uses a longer clip. Next step for `search`: try a 5 s clip or a two-stage (3 s beam, full-excerpt refine).
+- **Level guard:** it did not penalise in either run (penalty 0). The reference came from the 3 s clip (-22.8 dBFS) in the default run and from the full clip (-23.1) in legacy; the final level of the default winner was -17.3, which is +5.5 dB from the short-clip reference, close to the 6 dB tolerance. The 3 s versus full-excerpt reference gap itself was small (0.4 dB). The fix: the final check now re-measures the reference on the full excerpt (`rebase_level_reference`, test in `tests/test_match_song.py`). A rerun gave -23.2 dBFS, +5.9 dB, still no penalty, final 13.069. The guard is not the cause of the score gap; the high level is a symptom of fitting the loud clip.
+
+## [T065](../../board/TASKS.md#t065 "Clip-length study on Native"): clip policy study on Native (search, 2026-10-16)
+
+[T062](../../board/TASKS.md#t062 "Wire the T061 Stomp speed options into scripts/match_song.py as the…") showed that searching the loudest 3 s finds a worse tone. This study asks which clip policy keeps the quality of searching the full clip. It ran on the **Native** engine (the pedal was in use), because clip length affects quality the same way on both engines. Same section and DI as [T062](../../board/TASKS.md#t062 "Wire the T061 Stomp speed options into scripts/match_song.py as the…") (DS-Sample 34.5-42.0 s, take 6), chain K, 10 beam trials then 20 refine trials per run, seeds 0-4, one Native host at a time. The score is the final check on the full 7.5 s excerpt (lower is better). Run folders: `cache/matches/cliplen/<policy>_s<seed>/`. Ledger: `kind=search`, `dataset=ds-sample-intro-cliplen`.
+
+| Policy | Median final score | Seeds (min-max) | Worse than full on | Stomp s/trial (estimate) | Stomp search wall (estimate) | Native wall per run |
+|---|---|---|---|---|---|---|
+| (a) full excerpt, 7.5 s | **8.36** | 7.35-9.35 | | 8.3 | 266 s | 33 s |
+| (b) loudest 3 s | 11.95 | 11.10-13.18 | 5 of 5 seeds | 3.8 | 122 s | 25 s |
+| (c) loudest 5 s | 10.98 | 10.10-13.59 | 5 of 5 | 5.8 | 186 s | 29 s |
+| (d) 3 s beam, refine on full | 9.16 | 8.25-9.51 | 4 of 5 | 6.75 | 216 s | 30 s |
+| (e) 3 clips of 1.5 s, one per third | 9.47 | 8.76-10.26 | 4 of 5 | 5.3 | 170 s | 29 s |
+
+- **Seed noise of the full excerpt:** standard deviation 0.72 across seeds (range 2.0).
+- **How the Stomp estimate is made:** a Stomp render takes the clip length plus 0.67 s, and the loss and loading add about 0.13 s ([T061](../../board/TASKS.md#t061 "Stomp speed improvements and assignment-free base") and [T062](../../board/TASKS.md#t062 "Wire the T061 Stomp speed options into scripts/match_song.py as the…") rows). So seconds per trial is the clip length plus 0.8 s. The formula reproduces the two measured points (8.4 s for 7.5 s and 3.8 s for 3 s). For (d) it is 11 trials at 3 s and 21 at 7.5 s. Native render seconds per call were 0.58 (full), 0.40 (3 s), 0.48 (5 s), 0.51 (d), 0.47 (e), with other jobs loading the machine, so treat them as rough.
+- **Short single clips are clearly worse.** The loudest 3 s and 5 s lose on every seed, by 3.6 and 2.6 points in the median (5 and 3.6 noise units).
+- **(d) and (e) are closer but not equal.** (d) is 0.8 worse in the median (1.1 noise units; paired p 0.24 on five seeds, which is too few seeds to call it noise) and 19% faster on Stomp. (e) is 1.1 worse (paired p 0.06) and 36% faster. Both lost on four of five seeds. Neither passes the rule "within the seed noise of (a)" with confidence.
+- **Decision:** no policy qualifies, so the Stomp default is the full excerpt with the readback-every-10 and measured-tail options (the [T061](../../board/TASKS.md#t061 "Stomp speed improvements and assignment-free base") savings that do not touch quality). Short clips stay selectable: `--clip-policy loudest3|loudest5|beam3-refine-full|spread`. If time on the pedal is the limit, `beam3-refine-full` is the one to try first, with a re-check on more seeds.
+- **What it costs.** On Stomp the default per trial is about 8 s ([T061](../../board/TASKS.md#t061 "Stomp speed improvements and assignment-free base") measured 3.76 s with a 3 s clip and 10.9 s with a 10 s clip and legacy options), so a 30-trial search takes about 4.5 minutes.
+- Tests: `tests/test_match_song.py` (`test_spread_view_*`, `test_clip_policy_views_lengths`, `test_stomp_default_searches_the_full_excerpt_*`, `test_stomp_short_clip_policy_is_opt_in`, `test_stomp_beam_short_then_refine_full`).

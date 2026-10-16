@@ -161,7 +161,7 @@ Each milestone is a gate in the project plan with a written checklist and the ow
 |---|---|---|---|---|
 | [Gate 1](#gate-1-both-engines-driven-by-code-end-of-week-1) | Foundational | **Complete** | 4 of 4 | given |
 | [Gate 2](#gate-2-recovers-known-presets-end-of-week-3-next-milestone) (next) | Core method | **At Risk** | 0 of 3 | pending |
-| [Gate 3](#gate-3-beats-the-nearest-preset-on-real-songs-end-of-week-4) | Product-level | **Not Started** | 0 of 3 | pending |
+| [Gate 3](#gate-3-beats-the-nearest-preset-on-real-songs-end-of-week-4) | Product-level | **In Progress** | 1 of 3 | pending |
 
 ### Gate 2: recovers known presets (end of week 3) (next milestone)
 
@@ -193,10 +193,10 @@ Evidence: [Gate 1](../../board/GATES.md#gate-1--both-engines-driven-by-code-end-
 
 ### Gate 3: beats the nearest preset on real songs (end of week 4)
 
-**State: Not Started** · Product-level milestone. Show that, for real songs, the tool's preset beats the nearest ready-made community preset in blind listening.
+**State: In Progress** · Product-level milestone. Show that, for real songs, the tool's preset beats the nearest ready-made community preset in blind listening.
 
 - [ ] In blind listening on a 20-song set, the matched preset is preferred over the nearest community preset on most songs.
-- [ ] The difference between the pedal and Native on firmware 3.80 has been recorded.
+- [x] The difference between the pedal and Native on firmware 3.80 has been recorded.
 - [ ] Native-mode and pedal-mode matching have been compared on the same songs.
 
 **Demonstrated.** One song section was matched and listened to informally (not blind). Pedal versus Native agreement was measured on firmware 3.50 for a few presets and has not been re-measured on 3.80.  
@@ -311,9 +311,10 @@ _None today: no human action is currently holding up the agents' work._
 
 Compared with the report snapshot of 2026-10-15.
 
+- [Gate 3](../../board/GATES.md#gate-3--beats-the-nearest-preset-on-real-songs-end-of-week-4 "Gate 3 — beats the nearest preset on real songs (end of week 4)") moved from Not Started to In Progress.
 - Human action removed: Decide whether to update the pedal from firmware 3.50 to 3.80.
-- Board tasks done: 43 to 49 (bookkeeping, not progress by itself).
-- Ledger rows: 228 to 310.
+- Board tasks done: 43 to 52 (bookkeeping, not progress by itself).
+- Ledger rows: 228 to 418.
 
 ### Progress and findings
 
@@ -534,9 +535,9 @@ Typical sizes come from the repository (cited in each row); times are those size
 
 | Job and what it is for | Engine | Typical size (source) | Per-unit time used | One after another | In parallel | What dominates |
 |---|---|---|---|---|---|---|
-| Match one song section: Search for the settings that make a preset sound like one 10 s section of a song. | Native | 508 renders (median of 4 local runs, range 449 to 576) (source: cache/matches/\*/report.md (local, not in the repo)) | one test (render + score) of a 10 s excerpt, one host, 1.24 s | 11 min (est., from 2026-10-16) | 1.8 min (est., from 2026-10-16); 6 hosts; render and score together | rendering (11 min); earlier runs: 2.29 s per render + 0.15 s per score, median wall-clock 25 min |
-| Match one section, same time budget as before: The same search given the same wall-clock budget: how many more tries now fit. | Native | 25 min budget buys 1,209 renders (6,958 with 6 hosts) (source: the 25 min request in cache/matches/\*/report.md (local)) | one test (render + score) of a 10 s excerpt, one host, 1.24 s | 25 min (est., from 2026-10-16) | 25 min (est., from 2026-10-16) | rendering (25 min); earlier runs: 2.29 s per render + 0.15 s per score, median wall-clock 25 min |
-| Match a whole song (up to 3 snapshot sections): One preset with up to three snapshots, one per kind of section in the song. | Native | 3 sections x 508 renders = 1,526 (source: [docs/PLAN.md](../../docs/PLAN.md "HX Stomp Tone Matcher — Project Plan") (up to 3 tones) times the section size above) | one test (render + score) of a 10 s excerpt, one host, 1.24 s | 32 min (est., from 2026-10-16) | 5.5 min (est., from 2026-10-16); 6 hosts; render and score together | rendering (32 min); upper bound: the one real run searched one section in full and refined another briefly |
+| Match one song section: Search for the settings that make a preset sound like one 10 s section of a song. | Native | 449 renders (median of 7 local runs, range 39 to 576) (source: cache/matches/\*/report.md (local, not in the repo)) | one test (render + score) of a 10 s excerpt, one host, 1.24 s | 9.3 min (est., from 2026-10-16) | 96.8 s (est., from 2026-10-16); 6 hosts; render and score together | rendering (9.3 min); earlier runs: 2.34 s per render + 0.13 s per score, median wall-clock 23 min |
+| Match one section, same time budget as before: The same search given the same wall-clock budget: how many more tries now fit. | Native | 25 min budget buys 1,209 renders (6,958 with 6 hosts) (source: the 25 min request in cache/matches/\*/report.md (local)) | one test (render + score) of a 10 s excerpt, one host, 1.24 s | 25 min (est., from 2026-10-16) | 25 min (est., from 2026-10-16) | rendering (25 min); earlier runs: 2.34 s per render + 0.13 s per score, median wall-clock 23 min |
+| Match a whole song (up to 3 snapshot sections): One preset with up to three snapshots, one per kind of section in the song. | Native | 3 sections x 449 renders = 1,347 (source: [docs/PLAN.md](../../docs/PLAN.md "HX Stomp Tone Matcher — Project Plan") (up to 3 tones) times the section size above) | one test (render + score) of a 10 s excerpt, one host, 1.24 s | 28 min (est., from 2026-10-16) | 4.8 min (est., from 2026-10-16); 6 hosts; render and score together | rendering (28 min); upper bound: the one real run searched one section in full and refined another briefly |
 | Verify the top 3 candidates on the pedal: Check the best three presets on the real Stomp before a human listens. | Stomp | 3 finalists, each whole-written and rendered twice on 10 s clips (source: [scripts/match_song.py](../../scripts/match_song.py "End-to-end match of ONE song section on Helix Native (T041). LOCAL ONLY: no song audio leaves the machine.") (final check of the top 3); [T061](../../board/TASKS.md#t061 "Stomp speed improvements and assignment-free base") verification batch) | 24.7 s per finalist + one session 0.77 s | 74.7 s (est., from 2026-10-16) | not measured | writing to the pedal and rendering on it (74.0 s); the Native render of each finalist is not included; not yet timed through match_song ([T062](../../board/TASKS.md#t062 "Wire the T061 Stomp speed options into scripts/match_song.py as the…")) |
 | One parity check per preset: Prove that the two engines agree on one preset. | Stomp + Native | 1 preset (source: benchmark suite parity step) | 28.4 s per preset | 28.4 s (est., from 2026-10-15) | not measured | the two engines and the analysis (28.4 s) |
 | Synthetic benchmark, quick check (Native): A small known-answer test that can run after every code change. | Native | 240 renders (6 items x budget 40) (source: [docs/notes/synthetic-benchmark-design.md](../../docs/notes/synthetic-benchmark-design.md "Synthetic recovery set v1: design, cost, capture request, proposed thresholds (T024)") (cost table)) | one test (render + score), 2 s clip: 0.59 s on one host, 0.10 s with 6 hosts | 2.3 min (est., from 2026-10-16) | 24.3 s (est., from 2026-10-16); 6 hosts for render and score together | rendering (2.3 min) |
@@ -602,13 +603,13 @@ Supporting material: per-feature detail, gate checklists, evidence references, t
 - **unit-tests**: [tests/test_native.py](../../tests/test_native.py "NativeEngine tests that run without Helix Native."); [tests/test_native_memory.py](../../tests/test_native_memory.py "Native host memory fix (2026-10-15): reset renders must not re-create the plugin instance,"); [tests/test_native_autocapture.py](../../tests/test_native_autocapture.py "T018n autocapture: load() captures an unknown chain by in-process drop. Fake hosts only:"); [tests/test_native_determinism.py](../../tests/test_native_determinism.py "Native-gated: renders are history-independent under the host's state reset (T043/T044)."); [tests/test_native_setlist.py](../../tests/test_native_setlist.py "Tests for the .hls codec and CC assignment (no Line 6 files needed)."); [tests/test_blockserial.py](../../tests/test_blockserial.py "T045 block-serial spike helpers: preset builders and alignment/null analysis (no Native).")
 - **hardware**: ledger [2026-10-14T17:33:57+00:00](../../ledger/runs.csv?plain=1#L19 "smoke · native · smoke · peak_dbfs = -13.5 (first of 2 rows at this time)") (2 rows) smoke/native peak_dbfs -13.5 ([Gate 1](../../board/GATES.md#gate-1--both-engines-driven-by-code-end-of-week-1 "Gate 1 — both engines driven by code (end of week 1)")); ledger [2026-10-15T18:54:10+00:00](../../ledger/runs.csv?plain=1#L127 "render-cost · native · smoke · seconds_per_render = 0.282 (first of 3 rows at this time)") (3 rows) render-cost: 0.282 s per render over 40 renders, memory growth 0.0 MB per render (was +353 MB), repeat null -313.2 dB; ledger [2026-10-15T19:01:31+00:00](../../ledger/runs.csv?plain=1#L130 "parity · native · smoke · cc_route_vs_own_capture_db = -317.1 (first of 2 rows at this time)") (2 rows) CC route versus own drop capture -317.1 dB (worst of four files); ledger [2026-10-15T19:21:10+00:00](../../ledger/runs.csv?plain=1#L134 "parity · native · blockserial-v0 · blockserial_null_db = -78.6 (first of 7 rows at this time)") (7 rows) blockserial-v0 x7: 8-block chain -67.1 dB above 20 Hz, amp to cab -78.6 dB; ledger [2026-10-15T19:42:45+00:00](../../ledger/runs.csv?plain=1#L145 "parity · native · smoke · snapshot_stale_vs_block_db = -330.1 (first of 2 rows at this time)") (2 rows) Native applies block values, not stale snapshot values (-330.1 dB); [docs/notes/native-spike.md](../../docs/notes/native-spike.md "T002 / T013 Native spike: can a whole preset be written into Helix Native's state?"); ledger [2026-10-15T23:57:11+00:00](../../ledger/runs.csv?plain=1#L261 "render-cost · native · block-library-v0 · capture_per_chain_s = 31.0 (first of 4 rows at this time)") (4 rows) capture 31.0 s per chain before, 1.2 s in one session, 0.39 s with three sessions (216 chains in 84.64 s); ledger [2026-10-16T00:38:02+00:00](../../ledger/runs.csv?plain=1#L294 "render-cost · native · smoke · renders_per_s = 9.879") render pool, 6 hosts: 9.879 tests per second on 2 s clips; ledger [2026-10-16T00:38:03+00:00](../../ledger/runs.csv?plain=1#L295 "render-cost · native · smoke · renders_per_s = 4.639 (first of 5 rows at this time)") (5 rows) 4.639 on 10 s clips (a test is a render plus its score); ledger [2026-10-16T00:29:34+00:00](../../ledger/runs.csv?plain=1#L285 "parity · native · smoke · bypass_patterns_cc_vs_drop_truth_db = -328.7") bypass patterns by CC versus separate captures, worst -328.7 dB; ledger [2026-10-16T00:50:49+00:00](../../ledger/runs.csv?plain=1#L300 "render-cost · native · templates-B-B0 · capture_per_chain_s = 9.51 (first of 2 rows at this time)") (2 rows) templates B and B0 re-captured at frozen values, replay -313.7 dB; ledger [2026-10-16T00:58:52+00:00](../../ledger/runs.csv?plain=1#L302 "smoke · native · catalog-3.82 · native_invalid_models = 2.0 (first of 2 rows at this time)") (2 rows) refused-model scan: 2 of 607 Stomp block models refused by Native 3.82
 
-**Live ledger rows:** 109 match (`engine=native`)
+**Live ledger rows:** 119 match (`engine=native`)
 
 | timestamp | agent | kind | dataset | metric | value |
 |---|---|---|---|---|---|
-| [2026-10-16T00:58:52+00:00](../../ledger/runs.csv?plain=1#L302 "smoke · native · catalog-3.82 · native_invalid_models = 2.0 (first of 2 rows at this time)") (2 rows) | native-engine | render-cost | catalog-3.82 | capture_per_chain_s | 0.22 |
-| [2026-10-16T00:58:52+00:00](../../ledger/runs.csv?plain=1#L302 "smoke · native · catalog-3.82 · native_invalid_models = 2.0 (first of 2 rows at this time)") (2 rows) | native-engine | smoke | catalog-3.82 | native_invalid_models | 2.0 |
-| [2026-10-16T00:50:49+00:00](../../ledger/runs.csv?plain=1#L300 "render-cost · native · templates-B-B0 · capture_per_chain_s = 9.51 (first of 2 rows at this time)") (2 rows) | native-engine | smoke | templates-B-B0 | fresh_replay_null_db | -313.7 |
+| [2026-10-16T03:44:31+00:00](../../ledger/runs.csv?plain=1#L389 "search · native · ds-sample-intro-cliplen · seconds_per_trial_spread = 5.3") | search | search | ds-sample-intro-cliplen | seconds_per_trial_spread | 5.3 |
+| [2026-10-16T03:44:21+00:00](../../ledger/runs.csv?plain=1#L388 "search · native · ds-sample-intro-cliplen · final_score_median_spread = 9.47") | search | search | ds-sample-intro-cliplen | final_score_median_spread | 9.47 |
+| [2026-10-16T03:44:06+00:00](../../ledger/runs.csv?plain=1#L387 "search · native · ds-sample-intro-cliplen · seconds_per_trial_beam3-refine-full = 6.75") | search | search | ds-sample-intro-cliplen | seconds_per_trial_beam3-refine-full | 6.75 |
 
 **Challenges and findings**
 
@@ -677,13 +678,13 @@ Supporting material: per-feature detail, gate checklists, evidence references, t
 - **unit-tests**: [tests/test_stomp.py](../../tests/test_stomp.py "Offline tests for the HX Stomp engine and reamp maths. No pedal, no helper, no Line 6 data."); [tests/test_stomp_readback.py](../../tests/test_stomp_readback.py "T051: full-parameter readback for HX Stomp whole-preset loads. Offline: fake bridge, fake") (28); [tests/test_user_di.py](../../tests/test_user_di.py "Offline tests for the play-along user-DI capture (reamp-capture --user-di --play). Fake audio") (13, fake device); [tests/test_parity_null.py](../../tests/test_parity_null.py "parity_null.py offline: DSP (alignment, level match, bands) and the whole flow with fake engines.")
 - **hardware**: ledger [2026-10-14T17:28:04+00:00](../../ledger/runs.csv?plain=1#L16 "smoke · stomp · smoke · peak_dbfs = -13.49") and [18:09:13](../../ledger/runs.csv?plain=1#L24 "smoke · stomp · smoke · peak_dbfs = -13.47 (first of 2 rows at this time)") (2 rows) smoke/stomp; ledger [2026-10-14T23:18:39](../../ledger/runs.csv?plain=1#L62 "render-cost · stomp · smoke · whole_preset_write_s = 0.319 (first of 4 rows at this time)") (4 rows) and [23:47](../../ledger/runs.csv?plain=1#L75 "smoke · stomp · smoke · whole_preset_rendered = 4.0 (first of 11 rows at this time)") (11 rows) whole-preset injection, 4 of 4 presets rendered, restore byte-exact; ledger [2026-10-15T19:39:28+00:00](../../ledger/runs.csv?plain=1#L144 "smoke · stomp · DS-Sample · whole_preset_full_readback_ok = 1.0") full readback ok, delay Time 0.375 Feedback 0.40 Mix 0.25 as in the file; ledger [2026-10-15T19:36:29+00:00](../../ledger/runs.csv?plain=1#L142 "smoke · stomp · DS-Sample · whole_preset_doc_mismatches = 6.0 (first of 2 rows at this time)") (2 rows) offline decode of 20 presets, 6 document mismatches found before the fix; restore_bytes_equal 1.0 after every parity run; [docs/notes/T003-stomp-control-spike.md](../../docs/notes/T003-stomp-control-spike.md "T003 spike: driving the HX Stomp from code (stomp-engine, 2026-10-13)"); ledger [2026-10-15T23:20:15+00:00](../../ledger/runs.csv?plain=1#L233 "smoke · stomp · smoke · engine_smoke_pass = 1.0 (first of 2 rows at this time)") (2 rows) engine_smoke_pass on firmware 3.80; session-close sent on every channel; ledger [2026-10-15T23:40:20+00:00](../../ledger/runs.csv?plain=1#L235 "smoke · stomp · fw380-write · whole_preset_landed = 9.0") 9 of 9 whole writes landed on 3.80, restore byte-equal; ledger [2026-10-16T00:17:11+00:00](../../ledger/runs.csv?plain=1#L274 "render-cost · stomp · stomp-speed · search_batch_per_trial_s_before = 10.861 (first of 2 rows at this time)") (2 rows) search trial 10.861 s before, 3.765 s after; ledger [2026-10-15T23:47:32+00:00](../../ledger/runs.csv?plain=1#L240 "render-cost · stomp · stomp-speed · session_overhead_per_test_old_s = 3.8123 (first of 2 rows at this time)") (2 rows) session overhead 3.81 s before, 0.77 s after; [docs/notes/stomp-speed.md](../../docs/notes/stomp-speed.md "HX Stomp speed (T061, stomp-engine, 2026-10-16, firmware 3.80)"); ledger [2026-10-16T01:06:38+00:00](../../ledger/runs.csv?plain=1#L304 "parity · stomp · stomp-two-path · null_vs_hxedit_db = -9.3 (first of 4 rows at this time)") (4 rows) two-path load versus the HX Edit preset: -9.3 dB before the fix, -85.7 dB after (repeat floor -85.7); single-path unchanged (-79.65 dB versus floor -68.7); dual pass versus single: Path A -72.9 dB, Path B -52.6 dB; ledger [2026-10-15T23:57:03+00:00](../../ledger/runs.csv?plain=1#L258 "render-cost · stomp · stomp-speed · param_load_s_readback_every1 = 0.1955 (first of 2 rows at this time)") (2 rows) in-place parameter loads on firmware 3.80, final readback ok
 
-**Live ledger rows:** 109 match (`engine=stomp`)
+**Live ledger rows:** 117 match (`engine=stomp`)
 
 | timestamp | agent | kind | dataset | metric | value |
 |---|---|---|---|---|---|
-| [2026-10-16T01:34:25+00:00](../../ledger/runs.csv?plain=1#L310 "smoke · stomp · golden-fw380 · hlx_validate_fail = 0.0 (first of 2 rows at this time)") (2 rows) | tone-matcher-lead | smoke | golden-fw380 | hlx_validate_fail_known | 0.0 |
-| [2026-10-16T01:34:25+00:00](../../ledger/runs.csv?plain=1#L310 "smoke · stomp · golden-fw380 · hlx_validate_fail = 0.0 (first of 2 rows at this time)") (2 rows) | tone-matcher-lead | smoke | golden-fw380 | hlx_validate_fail | 0.0 |
-| [2026-10-16T01:34:13+00:00](../../ledger/runs.csv?plain=1#L308 "smoke · stomp · golden-fw380 · hlx_validate_fail = 0.0 (first of 2 rows at this time)") (2 rows) | human | smoke | golden-fw380 | hlx_validate_fail | 0.0 |
+| [2026-10-16T12:18:39+00:00](../../ledger/runs.csv?plain=1#L415 "parity · stomp · parity-spot-fw380-timefx · stomp_repeat_null_db = -77.73") | tone-metrics | parity | parity-spot-fw380-timefx | stomp_repeat_null_db | -77.73 |
+| [2026-10-16T12:15:09+00:00](../../ledger/runs.csv?plain=1#L403 "parity · stomp · parity-spot-fw380-timefx · stomp_repeat_lfo_rate_diff_pct = -0.662") | tone-metrics | parity | parity-spot-fw380-timefx | stomp_repeat_lfo_rate_diff_pct | -0.662 |
+| [2026-10-16T12:13:13+00:00](../../ledger/runs.csv?plain=1#L396 "parity · stomp · parity-spot-fw380-timefx · stomp_repeat_rt60_max_abs_diff_pct = 0.0006") | tone-metrics | parity | parity-spot-fw380-timefx | stomp_repeat_rt60_max_abs_diff_pct | 0.0006 |
 
 **Challenges and findings**
 
@@ -1179,13 +1180,13 @@ Supporting material: per-feature detail, gate checklists, evidence references, t
 - **unit-tests**: [tests/test_synthetic_benchmark.py](../../tests/test_synthetic_benchmark.py "tests/test_synthetic_benchmark.py"); [tests/test_parity_null.py](../../tests/test_parity_null.py "parity_null.py offline: DSP (alignment, level match, bands) and the whole flow with fake engines."); [tests/test_scaffold.py](../../tests/test_scaffold.py "tests/test_scaffold.py")
 - **hardware**: [Gate 1](../../board/GATES.md#gate-1--both-engines-driven-by-code-end-of-week-1 "Gate 1 — both engines driven by code (end of week 1)") rows: ledger [2026-10-14T18:04:42+00:00](../../ledger/runs.csv?plain=1#L23 "gate · both · gate1 · gate_passed = 1.0") gate_passed 1; ledger [2026-10-15T00:25:36+00:00](../../ledger/runs.csv?plain=1#L96 "parity · both · parity-v0 · null_residual_db = -30.96 (first of 9 rows at this time)") (9 rows) parity-v0 null residual: K -30.96, A -30.41, B0 -37.5, delay preset B -19.12 dB; ledger [2026-10-15T02:48:51](../../ledger/runs.csv?plain=1#L108 "parity · both · parity-v0 · null_residual_db = -31.35 (first of 5 rows at this time)") (5 rows) to 02:48:52 cab Early Reflections bisect: 0 gives -31.4 dB, 0.25 -14.7, 0.5 -9.1, 0.783 -3.6, 1.0 -1.1; ledger [2026-10-15T03:20:31](../../ledger/runs.csv?plain=1#L121 "parity · both · parity-v0 · null_residual_db = -31.37 (first of 2 rows at this time)") (2 rows) and [18:21:21](../../ledger/runs.csv?plain=1#L125 "parity · both · parity-v0 · null_residual_db = -30.49 (first of 2 rows at this time)") (2 rows): search winner with Early Reflections 0 nulls at -31.4 and -30.5 dB; ledger [2026-10-15T19:21:10](../../ledger/runs.csv?plain=1#L134 "parity · native · blockserial-v0 · blockserial_null_db = -78.6 (first of 7 rows at this time)") (7 rows) blockserial-v0 (native-engine)
 
-**Live ledger rows:** 77 match (`kind=gate; kind=benchmark; kind=stress; kind=parity; kind=engine-compare`)
+**Live ledger rows:** 173 match (`kind=gate; kind=benchmark; kind=stress; kind=parity; kind=engine-compare`)
 
 | timestamp | agent | kind | dataset | metric | value |
 |---|---|---|---|---|---|
-| [2026-10-16T01:06:38+00:00](../../ledger/runs.csv?plain=1#L304 "parity · stomp · stomp-two-path · null_vs_hxedit_db = -9.3 (first of 4 rows at this time)") (4 rows) | stomp-engine | parity | stomp-two-path | dual_vs_single_null_db | -72.9 |
-| [2026-10-16T01:06:38+00:00](../../ledger/runs.csv?plain=1#L304 "parity · stomp · stomp-two-path · null_vs_hxedit_db = -9.3 (first of 4 rows at this time)") (4 rows) | stomp-engine | parity | stomp-two-path | null_vs_hxedit_db | -85.7 |
-| [2026-10-16T01:06:38+00:00](../../ledger/runs.csv?plain=1#L304 "parity · stomp · stomp-two-path · null_vs_hxedit_db = -9.3 (first of 4 rows at this time)") (4 rows) | stomp-engine | parity | stomp-two-path | null_vs_hxedit_db | -9.3 |
+| [2026-10-16T12:19:43+00:00](../../ledger/runs.csv?plain=1#L419 "parity · both · parity-spot-fw380-timefx · models_in_tolerance = 5.0") | tone-metrics | parity | parity-spot-fw380-timefx | models_in_tolerance | 5.0 |
+| [2026-10-16T12:19:29+00:00](../../ledger/runs.csv?plain=1#L418 "parity · both · parity-spot-fw380-timefx · models_in_tolerance = 1.0") | tone-metrics | parity | parity-spot-fw380-timefx | models_in_tolerance | 1.0 |
+| [2026-10-16T12:19:15+00:00](../../ledger/runs.csv?plain=1#L417 "parity · both · parity-spot-fw380-timefx · models_in_tolerance = 0.0") | tone-metrics | parity | parity-spot-fw380-timefx | models_in_tolerance | 0.0 |
 
 **Challenges and findings**
 
@@ -1537,10 +1538,10 @@ _Nothing implemented yet._
 - [ ] Block-type F1, model accuracy and parameter MAE meet the week-2 thresholds (ledger rows: )
 - [ ] Separation stress curve recorded (ledger row: )
 
-**[Gate 3](../../board/GATES.md#gate-3--beats-the-nearest-preset-on-real-songs-end-of-week-4 "Gate 3 — beats the nearest preset on real songs (end of week 4)"): beats the nearest preset on real songs (end of week 4)** (0 of 3 criteria ticked, sign-off pending)
+**[Gate 3](../../board/GATES.md#gate-3--beats-the-nearest-preset-on-real-songs-end-of-week-4 "Gate 3 — beats the nearest preset on real songs (end of week 4)"): beats the nearest preset on real songs (end of week 4)** (1 of 3 criteria ticked, sign-off pending)
 
 - [ ] Blind A/B on the 20-song set: the matched preset is preferred over the nearest community preset on a majority of songs (ledger row: )
-- [ ] Parity null residual recorded for firmware 3.80 (ledger row: )
+- [x] Parity null residual recorded for firmware 3.80 (ledger row: [2026-10-16T02:31:10](../../ledger/runs.csv?plain=1#L356 "parity · both · parity-spot-fw380 · null_residual_db = -37.45 (first of 15 rows at this time)") (15 rows), dataset parity-spot-fw380: amps -37.5..-47.5 dB, cabs -35.4..-37.4 dB, dynamics/EQ pass, distortion 2 of 5, reverb and modulation do not null, delays match in echo level; see [docs/BENCHMARKING.md](../../docs/BENCHMARKING.md "How Benchmarking Works"))
 - [ ] Engine comparison recorded: Native mode vs Stomp mode on the same songs (ledger row: )
 
 ### Evidence references
@@ -1607,10 +1608,11 @@ _Nothing implemented yet._
 
 ### Ledger and board
 
-310 ledger rows (ab: 2, benchmark: 1, gate: 1, loss-trust: 26, parity: 75, render-cost: 107, separate: 9, smoke: 89). Board: 49 tasks done, 5 in progress, 61 listed.
+418 ledger rows (ab: 2, benchmark: 3, gate: 1, loss-trust: 26, parity: 169, render-cost: 109, search: 10, separate: 9, smoke: 89). Board: 52 tasks done, 5 in progress, 63 listed.
 
 ### Recent commits
 
+- 59dcde5 2026-10-15 Native phase 3, two-path layout fix, Stomp speed in search, Hum/Ripple freeze
 - 07b66ed 2026-10-15 Fix CI: skip the CC-grid snap test when the local-only known.hlx is absent
 - 2c7f563 2026-10-15 Stomp engine on fw 3.80, session-release fix, Stomp speed; reporting tooling
 - 3829a89 2026-10-15 Fix CI: skip tests that need the local-only known.hlx; record the EULA review
@@ -1618,7 +1620,6 @@ _Nothing implemented yet._
 - 51a3f90 2026-10-15 Native memory fix, block-serial rendering, probe kit, Stomp readback, Markdown status page
 - 194e2a0 2026-10-15 Hands-off Native loading, Stomp preset injection, parity checks, first real-song match
 - 41c8dc3 2026-10-14 Adopt the MIT licence; record approvals for firmware, [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") targets and next spikes
-- 4dd71a2 2026-10-14 Cycle 3 follow-ups: envelope v1, Native cost fix, serial search planning, licence checker, status reporting
 
 ## Glossary
 
@@ -1665,7 +1666,7 @@ _Nothing implemented yet._
 
 ## Report information
 
-Generated 2026-10-16 01:58:58 UTC for Cycle 4 (mode 2), end-of-cycle refresh after the 2026-10-15 work. Git commits: 11, last: 07b66ed 2026-10-15 Fix CI: skip the CC-grid snap test when the local-only known.hlx is absent, 48 uncommitted paths.
+Generated 2026-10-16 14:04:03 UTC for Cycle 4 (mode 2), end-of-cycle refresh after the 2026-10-15 work. Git commits: 12, last: 59dcde5 2026-10-15 Native phase 3, two-path layout fix, Stomp speed in search, Hum/Ripple freeze, 22 uncommitted paths.
 
 _Checks were not run for this report (use --run-checks)._
 

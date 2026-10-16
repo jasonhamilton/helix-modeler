@@ -274,6 +274,52 @@ def search_view(section, seconds: float):
     return Section(section.song, section.name, cut(section.target), x, stems=stems, mask=cut(section.mask))
 
 
+# Clip policies (T064): what the search renders. The final check always uses the full excerpt.
+CLIP_POLICIES = ("full", "loudest3", "loudest5", "beam3-refine-full", "spread")
+STOMP_DEFAULT_POLICY = "full"       # chosen by the T064 study on Native, docs/notes/stomp-speed.md
+SPREAD_N, SPREAD_CLIP_S = 3, 1.5    # "spread": this many clips of this length, one per equal part
+
+
+def spread_view(section, n: int = SPREAD_N, seconds: float = SPREAD_CLIP_S):
+    """`n` clips of `seconds` each, the loudest one inside each of `n` equal parts of the section,
+    joined in time order (target, stems and mask cut at the same samples). Unchanged when the
+    section is too short to hold them."""
+    from tonematch import reamp
+    from tonematch.search import Section
+
+    L, m = len(section.dry), round(seconds * SR)
+    if n <= 1 or L < n * m:
+        return section
+    idx = []
+    for k in range(n):
+        a, b = k * L // n, (k + 1) * L // n
+        _, i = reamp.excerpt(section.dry[a:b], seconds, SR)
+        idx.append(a + i)
+
+    def cut(v):
+        return None if v is None else np.concatenate([v[i:i + m] for i in idx]).astype(v.dtype)
+
+    stems = None if section.stems is None else {k: cut(v) for k, v in section.stems.items()}
+    return Section(section.song, section.name, cut(section.target), cut(section.dry), stems=stems,
+                   mask=cut(section.mask))
+
+
+def clip_policy_views(section, policy: str):
+    """(search section, refine section or None). `refine` is only set by beam3-refine-full: the beam
+    runs on the loudest 3 s, the refine on the whole excerpt."""
+    if policy == "full":
+        return section, None
+    if policy == "loudest3":
+        return search_view(section, 3.0), None
+    if policy == "loudest5":
+        return search_view(section, 5.0), None
+    if policy == "beam3-refine-full":
+        return search_view(section, 3.0), section
+    if policy == "spread":
+        return spread_view(section), None
+    raise ValueError(f"clip policy must be one of {CLIP_POLICIES}, got {policy!r}")
+
+
 # ------------------------------------------------------------------------------------- DI picking
 
 
@@ -541,6 +587,24 @@ class LevelGuardKit:
         return sc
 
 
+def rebase_level_reference(engine, kit, results, section, log=print) -> tuple[float, float]:
+    """The level guard's reference is the median start-render level on the clip the search used. When
+    that is a shorter, louder clip than the final-check excerpt (Stomp default, T062), the reference
+    is too high for the final check and a good chain is pushed toward the penalty. Re-measure it as
+    the same median on the final excerpt. Returns (old, new)."""
+    old = kit.ref_db
+    levels = []
+    for r in results:
+        if r.skipped:
+            continue
+        load_candidate(engine, r.cand, apply_values(r.cand.preset, r.space, r.start_values))
+        levels.append(LevelGuardKit.level_db(engine.render(section.dry)))
+    if levels:
+        kit.ref_db = float(np.median(levels))
+    log(f"level reference re-measured on the final excerpt: {old:.1f} -> {kit.ref_db:.1f} dBFS rms")
+    return old, kit.ref_db
+
+
 def make_prior(space, weight: float, mean: float = 0.5, std: float = 0.3):
     """Weak neutral Gaussian prior (MAP) over the free parameters: mean 0.5, std 0.3, loss + weight * mean z^2.
     NOT fit on factory or community presets (none is available locally); it only keeps the search
@@ -636,8 +700,9 @@ def run_phase(engine, kit, section, budget, plan, cr: ChainResult, phase: str, c
 def search(engine, cands: list[Cand], section, kit, *, wall_s: float, beam: int = 2,
            beam_frac: float = 0.35, reserve_s: float = 150.0, seed: int = 0,
            log=print, progress=None, max_scores_per_chain: float | None = None,
-           prior_weight: float = 0.0) -> dict:
-    """Beam over chains then refine on the best. Returns the ChainResults and timing facts."""
+           prior_weight: float = 0.0, refine_section=None) -> dict:
+    """Beam over chains then refine on the best. Returns the ChainResults and timing facts.
+    `refine_section` (clip policy beam3-refine-full): the refine runs on this longer section."""
     from tonematch.search import Budget
 
     t0 = time.perf_counter()
@@ -694,6 +759,15 @@ def search(engine, cands: list[Cand], section, kit, *, wall_s: float, beam: int 
             seen.add(key)
     survivors = survivors[:max(1, beam)]
     log("survivors: " + ", ".join(f"{c.cand.name} ({c.loss:.4f})" for c in survivors))
+    rsec, rbudget, spr_r = section, budget, spr
+    if refine_section is not None and survivors:
+        rsec = refine_section
+        rbudget = Budget(max_renders=10 ** 6, clip_s=len(rsec.target) / SR, short_s=len(rsec.target) / SR,
+                         seed=seed, top_k_final=3)
+        if hasattr(kit, "ref_db") and kit.ref_db is not None:
+            kit.ref_db_search = kit.ref_db       # the short-clip reference, for later short-clip refines
+            rebase_level_reference(engine, kit, survivors, rsec, log)
+        spr_r = spr * len(rsec.dry) / len(section.dry)        # a longer clip costs about proportionally more
     end = t0 + wall_s - reserve_s
     shares = [0.6, 0.4][:len(survivors)]
     shares = [s / sum(shares) for s in shares]
@@ -703,16 +777,18 @@ def search(engine, cands: list[Cand], section, kit, *, wall_s: float, beam: int 
             slice_s = remain * sh
         else:
             slice_s = remain
-        if slice_s < 3 * spr:
+        if slice_s < 3 * spr_r:
             log(f"  {cr.cand.name}: no time left for refine")
             continue
-        cap = max(6.0, slice_s / spr - 2)
+        cap = max(6.0, slice_s / spr_r - 2)
         cap = min(cap, 2 * max_scores_per_chain if max_scores_per_chain else cap)
-        run_phase(engine, kit, section, budget, plan, cr, "refine", cap, 0.15,
+        run_phase(engine, kit, rsec, rbudget, plan, cr, "refine", cap, 0.15,
                   seed + 1000 + k, time.perf_counter() + slice_s, log, prior_weight)
         if progress:
             progress(results, {"stage": "refine"})
     return {"results": results, "plan": plan, "spr": spr, "budget": budget, "survivors": survivors,
+            "refine_s": sum(p["wall_s"] for r in results for p in r.phases if p["phase"] == "refine"),
+            "beam_s": sum(p["wall_s"] for r in results for p in r.phases if p["phase"] == "beam"),
             "t_render": t_render, "t_loss": t_loss, "search_wall_s": time.perf_counter() - t0,
             "levels_db": levels, "level_ref_db": getattr(kit, "ref_db", None), "prior_weight": prior_weight}
 
@@ -939,11 +1015,11 @@ def write_report(path: Path, ctx: dict) -> None:
            f"**weak neutral prior** (every knob ~ N(0.5, 0.3), weight {ctx['args']['prior_weight']}; not fit "
            "on factory or community presets, none is available locally)."),
           ("- the Stomp was not used." if not ctx.get("stomp_speed") else
-           f"- Stomp engine, speed options {ctx['stomp_speed']}: search renders use the short clip "
-           "(loudest excerpt of the DI), the final check the full excerpt; readback_every is how often "
+           f"- Stomp engine, speed options {ctx['stomp_speed']}: search renders use the clip policy "
+           "named in clip_policy (default full excerpt; short clips are opt-in, they overfit the loudest part), the final check the full excerpt; readback_every is how often "
            "the engine reads the whole chain back; tail_mode measured sizes each wait to the chain's "
            "own decay (legacy: a full readback every load and fixed upper-bound waits). The level "
-           "guard reference is measured on the short clip."),
+           "guard reference is measured on the clip the beam used."),
           (f"- frozen for Stomp parity (default): {ctx['frozen']}" if ctx["frozen"] else
            "- **NATIVE-ONLY run: Stomp will differ** (parity-frozen parameters such as cab EarlyReflections were free)."),
           ("- `listen/di_search.wav` is the true-level DI the search used (the only file for hardware); "
@@ -1065,6 +1141,7 @@ def jsonable(o):
 
 
 def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> int:
+    max_scores_per_chain = max_scores_per_chain or getattr(args, "max_scores", None)
     from tonematch.metrics import LossKit
     from tonematch.preset import read_hlx  # noqa: F401  (import check for the preset module)
 
@@ -1117,25 +1194,33 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
     if own:
         engine = make_stomp_engine() if args.engine == "stomp" else make_native_engine(args.preroll)
     speed = None
-    s_search = section
+    policy = args.clip_policy or (STOMP_DEFAULT_POLICY if args.engine == "stomp" else "full")
+    if args.engine == "stomp" and args.stomp_legacy and not args.clip_policy:
+        policy = "full"
+    s_search, s_refine = clip_policy_views(section, policy)
     if args.engine == "stomp":
         speed = apply_stomp_speed(engine, args.stomp_legacy)
-        if not args.stomp_legacy:
-            from tonematch import reamp
-            s_search = search_view(section, reamp.SEARCH_CLIP_S)
         speed["search_clip_s"] = len(s_search.dry) / SR
         speed["final_clip_s"] = len(section.dry) / SR
         speed["legacy"] = bool(args.stomp_legacy)
+        speed["clip_policy"] = policy
         log(f"stomp speed options: {speed}")
+    else:
+        log(f"clip policy {policy}: search clip {len(s_search.dry) / SR:.1f} s, final {len(section.dry) / SR:.1f} s")
+    clip_info = {"policy": policy, "search_clip_s": len(s_search.dry) / SR,
+                 "refine_clip_s": len((s_refine or s_search).dry) / SR, "final_clip_s": len(section.dry) / SR}
     eng = TimedEngine(engine, log, rss_limit_mb=args.rss_limit_mb)
     try:
         sr_ = search(eng, cands, s_search, kit, wall_s=args.wall_min * 60, beam=args.beam,
                      beam_frac=args.beam_frac, reserve_s=args.reserve_s, seed=args.seed, log=log,
                      max_scores_per_chain=max_scores_per_chain, prior_weight=args.prior_weight,
-                     progress=lambda res, info: (out / "progress.json").write_text(json.dumps(
+                     refine_section=s_refine, progress=lambda res, info: (out / "progress.json").write_text(json.dumps(
                          {"info": info, "chains": [{"name": r.cand.name, "start": r.start_loss,
                                                     "loss": r.loss, "phases": r.phases} for r in res]},
                          default=jsonable, indent=1)))
+        ref_short = getattr(kit, "ref_db_search", kit.ref_db)   # before any rebase to a longer clip
+        if s_search is not section and s_refine is None and ref_short is not None:
+            rebase_level_reference(eng, kit, sr_["results"], section, log)
         fin = final_check(eng, kit, section, sr_["results"], 3, other_dis=[
             (f"{c.path}@{c.start_s:.0f}s", d) for c, d in picks[1:]], log=log,
             prior_weight=args.prior_weight)
@@ -1158,10 +1243,10 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
             try:
                 w0 = pick_window(fc, fp, song.sections, 0, args.dur, total_s)
                 s0 = build_section(song, w0, fc, "snapshot0", dry, args.song)
-                if speed and not args.stomp_legacy:
-                    s0 = search_view(s0, len(s_search.dry) / SR)
+                if policy != "full":
+                    s0 = clip_policy_views(s0, "loudest3" if policy == "beam3-refine-full" else policy)[0]
                 k0 = LevelGuardKit(MaskedKit(LossKit(), s0.mask), args.level_tol_db, args.level_slope)
-                k0.ref_db = kit.ref_db
+                k0.ref_db = ref_short
                 v0, before, after, n0 = refine_other_snapshot(
                     eng, k0, s0, best["result"], args.snap0_renders, args.seed + 7, log,
                     args.prior_weight)
@@ -1180,7 +1265,7 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
                "di": {"desc": desc, "picks": [{"clip": dataclasses.asdict(c)} for c, _ in picks]},
                "search": sr_, "final": fin, "missing": missing, "wall_s": wall, "wall_min": args.wall_min,
                "frozen": {f"{c}.{n}": v for (c, n), v in (NATIVE_FROZEN if args.native_only else STOMP_FROZEN).items()},
-               "stomp_speed": speed, "renders": eng.renders, "restarts": eng.restarts, "proactive": eng.proactive,
+               "stomp_speed": speed, "clip": clip_info, "renders": eng.renders, "restarts": eng.restarts, "proactive": eng.proactive,
                "args": vars(args),
                "hlx": str(hlx.relative_to(ROOT)) if hlx.is_relative_to(ROOT) else str(hlx),
                "hlx0": str(hlx0) if hlx0 else None, "top_hlx": top_hlx, "note": args.note, "validate_text": f"exit {code}, see {hlx.stem}.validate.md",
@@ -1189,8 +1274,10 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
                "native_version": getattr(getattr(engine, "capabilities", lambda: None)(), "firmware_version", "")}
         write_report(out / "report.md", ctx)
         (out / "result.json").write_text(json.dumps({
-            "label": LABEL, "window": win, "stomp_speed": speed, "renders": eng.renders, "host_restarts": eng.restarts, "proactive_restarts": eng.proactive,
-            "level_ref_db": sr_["level_ref_db"], "start_levels_db": sr_["levels_db"], "wall_s": wall,
+            "label": LABEL, "window": win, "stomp_speed": speed, "clip": clip_info, "render_s": eng.render_s,
+            "search_wall_s": sr_["search_wall_s"], "beam_s": sr_["beam_s"], "refine_s": sr_["refine_s"],
+            "t_render_probe_s": sr_["t_render"], "t_loss_probe_s": sr_["t_loss"], "renders": eng.renders, "host_restarts": eng.restarts, "proactive_restarts": eng.proactive,
+            "level_ref_db": sr_["level_ref_db"], "level_ref_final_db": kit.ref_db, "start_levels_db": sr_["levels_db"], "wall_s": wall,
             "finals": [{"chain": d["result"].cand.name, "loss": d["loss"], "terms": d["terms"], "level_db": d["level_db"],
                         "values": {f"{i}:{k}": float(v) for (i, k), v in zip(d["result"].space.refs,
                                                                              d["values"], strict=True)}}
@@ -1245,6 +1332,13 @@ def parse(argv=None):
                     help="engine that renders the search (stomp: the pedal, one session, restore byte-checked)")
     ap.add_argument("--stomp-legacy", action="store_true",
                     help="Stomp: old behaviour (whole clip every render, readback every load, fixed tail waits)")
+    ap.add_argument("--clip-policy", choices=CLIP_POLICIES, default=None,
+                    help="what the search renders (the final check always uses the full excerpt): full | "
+                         "loudest3 | loudest5 | beam3-refine-full | spread. Default: "
+                         f"{STOMP_DEFAULT_POLICY} for --engine stomp, full for native")
+    ap.add_argument("--max-scores", type=float, default=None,
+                    help="cap on scores per chain in the beam (the refine gets twice that): a trial budget "
+                         "that does not depend on how fast the engine is")
     ap.add_argument("--dry-run", action="store_true", help="pick target, DI and chains; render nothing")
     return ap.parse_args(argv)
 

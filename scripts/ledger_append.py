@@ -11,7 +11,7 @@ from pathlib import Path
 
 LEDGER = Path(__file__).resolve().parents[1] / "ledger" / "runs.csv"
 KINDS = {"smoke", "render-cost", "separate", "loss-trust", "benchmark", "stress",
-         "parity", "engine-compare", "ab", "gate"}
+         "parity", "engine-compare", "ab", "gate", "search"}
 
 
 def git_commit() -> str:

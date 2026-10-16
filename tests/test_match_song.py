@@ -420,14 +420,35 @@ def _stomp_run(tmp_path, *extra):
     return eng, lens, json.loads((tmp_path / "out" / "result.json").read_text())
 
 
-def test_stomp_default_uses_short_search_clips_and_speed_options(tmp_path, monkeypatch):
+def test_stomp_default_searches_the_full_excerpt_with_speed_options(tmp_path, monkeypatch):
     monkeypatch.delenv("TONEMATCH_STOMP_READBACK_EVERY", raising=False)
     monkeypatch.delenv("TONEMATCH_STOMP_TAIL", raising=False)
     eng, lens, res = _stomp_run(tmp_path)
     assert (eng.readback_every, eng.tail_mode) == (10, "measured")
-    assert res["stomp_speed"]["search_clip_s"] == 3.0 and res["stomp_speed"]["final_clip_s"] == 5.0
-    assert lens.count(3 * SR) > 10 and lens.count(5 * SR) >= 3     # search short, final check full
+    assert MS.STOMP_DEFAULT_POLICY == "full"
+    assert res["stomp_speed"]["clip_policy"] == "full"
+    assert res["stomp_speed"]["search_clip_s"] == res["stomp_speed"]["final_clip_s"] == 5.0
+    assert set(lens) == {5 * SR}                                    # every render is the full excerpt
     assert "Stomp engine, speed options" in (tmp_path / "out" / "report.md").read_text()
+
+
+def test_stomp_short_clip_policy_is_opt_in(tmp_path, monkeypatch):
+    monkeypatch.delenv("TONEMATCH_STOMP_READBACK_EVERY", raising=False)
+    monkeypatch.delenv("TONEMATCH_STOMP_TAIL", raising=False)
+    _eng, lens, res = _stomp_run(tmp_path, "--clip-policy", "loudest3")
+    assert res["stomp_speed"]["search_clip_s"] == 3.0 and res["clip"]["policy"] == "loudest3"
+    assert lens.count(3 * SR) >= 1 and lens.count(5 * SR) >= 1     # search short, final check full
+    assert max(i for i, n in enumerate(lens) if n == 3 * SR) < lens.index(5 * SR)
+
+
+def test_stomp_beam_short_then_refine_full(tmp_path, monkeypatch):
+    monkeypatch.delenv("TONEMATCH_STOMP_READBACK_EVERY", raising=False)
+    monkeypatch.delenv("TONEMATCH_STOMP_TAIL", raising=False)
+    _eng, lens, res = _stomp_run(tmp_path, "--clip-policy", "beam3-refine-full")
+    assert res["clip"] == {"policy": "beam3-refine-full", "search_clip_s": 3.0, "refine_clip_s": 5.0,
+                           "final_clip_s": 5.0}
+    first_full = lens.index(5 * SR)
+    assert 3 * SR in lens[:first_full] and lens.count(5 * SR) >= 2   # refine renders, not only the final check
 
 
 def test_stomp_legacy_flag_restores_the_old_behaviour(tmp_path, monkeypatch):
@@ -435,4 +456,64 @@ def test_stomp_legacy_flag_restores_the_old_behaviour(tmp_path, monkeypatch):
     monkeypatch.delenv("TONEMATCH_STOMP_TAIL", raising=False)
     eng, lens, res = _stomp_run(tmp_path, "--stomp-legacy")
     assert (eng.readback_every, eng.tail_mode) == (1, "bound")
-    assert set(lens) == {5 * SR} and res["stomp_speed"]["legacy"] is True
+    assert set(lens) == {5 * SR} and res["stomp_speed"]["legacy"] is True and res["stomp_speed"]["clip_policy"] == "full"
+
+
+def test_rebase_level_reference_measures_the_final_excerpt(tmp_path):
+    from tonematch.search.stubs import FakeEngine, fake_preset
+
+    class Eng(FakeEngine):
+        def render(self, x):
+            return (0.1 * x).astype(np.float32)
+
+    cands = [MS.Cand("lo", fake_preset(0.3, 0.5, 0.5)), MS.Cand("hi", fake_preset(0.8, 0.4, 0.5))]
+    results = []
+    for c in cands:
+        sp = MS.make_space(c)
+        results.append(MS.ChainResult(c, sp, sp.start.copy(), sp.start.copy()))
+    dry = (0.5 * np.sin(np.arange(2 * SR) * 0.05)).astype(np.float32)
+    sec = type("S", (), {"dry": dry})()
+    kit = MS.LevelGuardKit(object())
+    kit.ref_db = -10.0                                  # taken on a louder short clip
+    old, new = MS.rebase_level_reference(Eng(), kit, results, sec, log=lambda *_: None)
+    assert old == -10.0 and new == pytest.approx(MS.LevelGuardKit.level_db(0.1 * dry))
+    assert kit.ref_db == new
+
+
+def _ramp_section(n_s=9):
+    from tonematch.search import Section
+
+    n = n_s * SR
+    dry = np.zeros(n, np.float32)
+    for k in range(3):                                     # one burst in each third, at different offsets
+        a = k * n // 3 + (k + 1) * SR // 2
+        dry[a:a + 2 * SR] = 0.5 + 0.1 * k
+    ramp = np.arange(n, dtype=np.float32)
+    return Section("s", "x", ramp.copy(), dry, stems={"others": ramp * 2}, mask=ramp / 3), dry, ramp
+
+
+def test_spread_view_takes_the_loudest_clip_of_each_third():
+    sec, dry, _ramp = _ramp_section()
+    v = MS.spread_view(sec, 3, 1.5)
+    m = round(1.5 * SR)
+    assert len(v.dry) == len(v.target) == len(v.mask) == len(v.stems["others"]) == 3 * m
+    for k in range(3):
+        seg = slice(k * m, (k + 1) * m)
+        i = int(v.target[k * m])
+        assert k * 3 * SR <= i < (k + 1) * 3 * SR                     # inside its own third
+        assert np.array_equal(v.dry[seg], dry[i:i + m])
+        assert v.stems["others"][k * m] == pytest.approx(2 * i)
+    assert MS.spread_view(sec, 3, 4.0) is sec                          # too short to hold them
+
+
+def test_clip_policy_views_lengths():
+    sec, _, _ = _ramp_section()
+    L = len(sec.dry)
+    assert MS.clip_policy_views(sec, "full") == (sec, None)
+    assert len(MS.clip_policy_views(sec, "loudest3")[0].dry) == 3 * SR
+    assert len(MS.clip_policy_views(sec, "loudest5")[0].dry) == 5 * SR
+    b, r = MS.clip_policy_views(sec, "beam3-refine-full")
+    assert len(b.dry) == 3 * SR and r is sec
+    assert len(MS.clip_policy_views(sec, "spread")[0].dry) == round(1.5 * SR) * 3 < L
+    with pytest.raises(ValueError):
+        MS.clip_policy_views(sec, "nope")

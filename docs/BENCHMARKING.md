@@ -1,6 +1,6 @@
 # How Benchmarking Works
 
-*Last updated: 2026-10-15. Kept current by `benchmark` whenever a test, a threshold, a gate or a verdict changes, and checked by the lead at every `plan-sync`.*
+*Last updated: 2026-10-16. Kept current by `benchmark` whenever a test, a threshold, a gate or a verdict changes, and checked by the lead at every `plan-sync`.*
 
 The benchmark is the project's referee. It does not build or tune anything. It runs fixed tests with known answers, records every result as a row in the ledger, compares each result with the previous one, and ticks a gate only when the ledger shows the gate's evidence. Today it can tell us that the two engines work and agree with each other. It cannot yet tell us whether a match is good, because the test that answers that (the Helix synthetic set) has not been rendered.
 
@@ -74,7 +74,24 @@ Three rules govern every conclusion:
 | Song match with the cab's Early Reflections at 0 | -30.5 and -31.4 dB | Same sound on both |
 | Song match with Early Reflections at 0.783 | -3.6 dB | Different: this setting behaves differently on firmware 3.50 than in Native 3.82, so it is held at 0 for anything bound for the pedal |
 | Delay tails, fixed delay time | +4.3 dB over the tail | Echoes are equally loud but Native's arrive about 0.8% later, so delay tails cannot null across engines; judge delays by level and time, not by null |
-| Rendering two chains at once on the Stomp's two paths | -18 to -22 dB against single-path renders | Twice as fast, but only comparable with other two-path renders; cause unknown |
+| Rendering two chains at once on the Stomp's two paths | -18 to -22 dB against single-path renders (before the layout fix); -72.9 dB after it | The gap was a bug in how two-path presets were written; two-path passes may be used again (lead, 2026-10-16). The spot checks below used single-path renders only |
+
+### Parity spot checks by block type (T060, firmware 3.80, 2026-10-16)
+
+At least five models per block category, each rendered on the Stomp (fw 3.80) and on Native 3.82 from the same `.hlx` and the same clip (4 s of guitar and 2 s of silence), Hum and Ripple at 0, cab Early Reflections at 0. Passing means a null of -30 dB or lower; delays are judged by echo level (within 2 dB) and echo timing. Dataset `parity-spot-fw380`, rows from 2026-10-16T02:31 in the ledger. Two pedal sessions, single-path only.
+
+| Category | Models | Null at -30 dB or lower | Median null | Note |
+| --- | --- | --- | --- | --- |
+| Distortion | 5 | 2 | -28.6 dB | Scream 808, Kinky Boost pass; Heavy Dist -25.7, Triangle Fuzz -28.6, Bitcrusher -27.4 miss by 1 to 5 dB |
+| Delay | 5 | echo level 5 of 5 | -7.0 dB (not a criterion) | Level within 0.5 dB; Native later by ~2.96 ms per echo (+0.79%) on four models, earlier by ~2.1 ms on Adriatic |
+| Reverb | 6 | 0 | -15.4 dB | -5.9 (Ganymede) to -22.8 ('63 Spring); the pedal repeats itself at -77.7 dB (Room) |
+| Dynamics | 6 | 6 | -36.9 dB | |
+| EQ | 5 | 5 | -32.5 dB | |
+| Modulation | 6 | 0 | -2.2 dB | The pedal's repeat floor is -1.5 dB (free-running LFO), so a null cannot be used for modulation |
+| Amp | 5 | 5 | -41.0 dB | |
+| Cab | 5 | 5 | -35.6 dB | |
+
+Cab Early Reflections on 3.80 (K's Blue Bell, ER 0 / 0.25 / 0.5 / 1.0): -28.1 / -12.1 / -6.6 / -1.0 dB. Unchanged from 3.50; the freeze at 0 stays. The first pass refused eight files because the Stomp's block lacks Helix-only parameters (Scale, Spread, Stereo); those files were regenerated without them and passed readback.
 
 ### Gate 2 targets (approved as working targets, not frozen)
 
