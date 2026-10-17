@@ -46,3 +46,8 @@ reports/local/
 fixtures/golden/*.hls
 fixtures/golden/setlists/
 fixtures/golden/presets/
+
+# Human-supplied local data (2026-10-17): curated .hlx presets and impulse responses. Never commit.
+data/presets/
+data/ir/
+.DS_Store

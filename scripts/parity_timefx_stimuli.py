@@ -230,7 +230,7 @@ def cmd_stomp(a) -> int:
     import soundfile as sf
 
     from tonematch import reamp
-    from tonematch.engines.stomp import StompEngine
+    from tonematch.engines.stomp import StompEngine, restore_verdict
 
     for var in ("TONEMATCH_STOMPD", "TONEMATCH_STOMPD_COMPILE"):
         if not os.environ.get(var):
@@ -295,14 +295,17 @@ def cmd_stomp(a) -> int:
             res["restore_report"] = eng.restore_report
             res["session_close"] = eng.bridge.release_report
             res["bytes_equal_backup"] = bool(eng.restore_report.get("bytes_equal_backup"))
+            res["decoded_equal_backup"] = eng.restore_report.get("decoded_equal_backup")
+            res["restore_ok"] = restore_verdict(eng.restore_report)   # decoded equality (T097)
     finally:
         res["session_wall_clock_s"] = round(time.perf_counter() - t_all, 1)
         (run_dir / "summary.json").write_text(json.dumps(res, indent=1, default=str))
         (OUT / "stomp_summary.json").write_text(json.dumps(res, indent=1, default=str))
         PS.release_lock()
-    print(json.dumps({k: res.get(k) for k in ("restore_report", "session_close", "bytes_equal_backup", "errors", "session_wall_clock_s")},
+    print(json.dumps({k: res.get(k) for k in ("restore_report", "session_close", "restore_ok", "decoded_equal_backup",
+                                              "bytes_equal_backup", "errors", "session_wall_clock_s")},
                      default=str))
-    return 1 if res["errors"] or not res.get("bytes_equal_backup") else 0
+    return 1 if res["errors"] or not res.get("restore_ok") else 0
 
 
 # ----------------------------------------------------------------------------- analysis

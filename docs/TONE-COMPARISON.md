@@ -1,8 +1,8 @@
 # How the Tone Comparison Works
 
-*Last updated: 2026-10-16 (search now moves delay time, modulation speed and reverb decay; second pass with purpose-made test signals; third pass: flanger and phaser closed). Kept current by `tone-metrics` (comparison methods and trust results) and the lead (search, hardware check), whenever any of these details change; see "Keeping this document current" at the end.*
+*Last updated: 2026-10-16 (fine-detail method retuned as `mrstft_v2` and passed its trust check with a matching DI, proposed for admission; earlier the same day: search moves delay time, modulation speed and reverb decay; purpose-made test signals; flanger and phaser closed). Kept current by `tone-metrics` (comparison methods and trust results) and the lead (search, hardware check), whenever any of these details change; see "Keeping this document current" at the end.*
 
-The matcher plays candidate presets through Helix Native and scores each one against the song's separated guitar using a set of spectral and dynamic measurements. It keeps adjusting the settings to lower that score. Those measurements are not yet trustworthy: none has passed its trust check. On real Helix sounds (tested 2026-10-16) the score tells clearly different chains apart some of the time, but when the notes played differ from the target it cannot tell close settings apart at all. Your ear is still the judge.
+The matcher plays candidate presets through Helix Native and scores each one against the song's separated guitar using a set of spectral and dynamic measurements. It keeps adjusting the settings to lower that score. Those measurements are not yet trustworthy when the notes differ: none of those has passed its trust check. With a lined-up DI of the same performance, the retuned fine-detail method (`mrstft_v2`) passed (0.99) and is proposed for admission. On real Helix sounds (tested 2026-10-16) the score tells clearly different chains apart some of the time, but when the notes played differ from the target it cannot tell close settings apart at all. Your ear is still the judge.
 
 ## At a glance
 
@@ -39,6 +39,7 @@ The score is built from separate measurements, called terms. Each one is a dista
 | `crest_flatness_hnr` (distortion) | Is the amount and kind of gain the same? | Per 2048-sample frame: crest factor (peak over RMS in dB; clipping lowers it), spectral flatness from 150 Hz to 8 kHz (distortion fills the gaps between harmonics and raises it), and harmonic-to-noise ratio from the autocorrelation peak. The median and spread of each across frames. | Level | Yes (weight 1, provisional) |
 | `envelope` (dynamics) | Are compression, sag, gating and note attack the same? | Two level envelopes (10 ms and 2 ms). Note onsets are found by spectral flux across quarter-octave bands. From those: per-note attack time, decay slope and overshoot, sustain slope, dynamic range and noise floor. | Level, rhythm | Yes (weight 1, provisional) |
 | `mrstft` (fine detail) | Does the spectrum match moment by moment? | Short-time FFTs at 512, 2048 and 8192 samples. Spectral convergence plus the mean log-magnitude difference, averaged over the three sizes. | Level only | No: it needs a sample-aligned DI of the same performance |
+| `mrstft_v2` (fine detail, retuned) | The same question, asked better | The same three FFT sizes, but the spectrum is grouped into 64 bands spaced like the ear's frequency resolution (ERB bands), and the distance is the summed absolute difference of band magnitudes divided by the target's total. Version 2.0, chosen on training items only. | Level only (so it cannot see an Output knob) | Proposed for admission when a matching DI exists (passed 0.99); not yet switched on |
 | `embed_afxrep` (learned) | Does a trained effects model think the processing is the same? | A neural network (AFx-Rep, from the ST-ITO paper) turns each clip into 512 numbers. Distance is 1 minus the cosine similarity. | Level, notes (by training) | No: weight 0. About 0.11 s per 10 s clip on the CPU, half a Native render |
 
 The combined score is the weighted sum of the active terms. Today that is the three provisional terms, at weight 1 each. The project's default weights are all 0 until a term passes its trust check, so any score you see is explicitly labelled "unadmitted".
@@ -178,6 +179,24 @@ Each number is the share of the 40 targets where the true preset scored best. Wi
 
 **How far to trust the separated stem (stress curve `sep-stress-v1`, 2026-10-16).** Guitar-TECHS DI through a plain amp stand-in, mixed with synthetic bass, drums, keys and a second guitar, separated with `htdemucs_6s` on MPS (39 mixes of 20 s, about 3 s each). Guitar SDR falls from about 21 dB (guitar alone) to 15.9 (plus bass), 15.4 (plus drums), 11.2 (plus keys) and 7.3 dB (full band with a second guitar); at guitar 6 dB below the accompaniment the full band falls to 3.9 dB. The tone terms move too: the spectrum term (`ltas_tilt`) between the true and separated stem goes from 2.0 to 2.6, and the tilt is off by 0.6 to 0.8 dB per octave, against 3.4 for a clean-versus-driven amp change. So separation error on dense mixes is as large as a clear amp change, and spectrum comparison inside the dense sections is not safe on its own. The confidence proxy barely moves (0.93 to 0.90) while SDR falls by 14 dB, so it ranks mixes but does not warn early; the masked comparison did not reduce the shift. Prefer exposed-guitar windows and the separation-consistent comparison for dense sections. Caveat: accompaniment is synthetic and the amp is a stand-in, so real songs are unmeasured.
 
+**With a matching DI, the fine-detail method now passes (test set `helix-trust-v2`, 2026-10-16).** This test covers the case where the candidate is played from exactly the same DI as the target, lined up to the sample. That is how Gate 2's synthetic recovery works, and how a song works once you supply a lined-up take. 192 target presets, each a single block (drive, delay, reverb, compressor, EQ, modulation, amp or cab), with 19 distractors each: 9 near misses, 4 neighbouring models and 6 random blocks. They are split in half. The method was tuned on one half only, with different block models and different DI recordings. It was then scored once on the other half. Each target is tested two ways:
+
+- **Aligned:** the target as a real lined-up capture would give it, with up to half a sample of timing error, up to 3 dB of level difference, and faint noise 60 dB down.
+- **After separation:** the separation stand-in on top (bleed from other instruments, mask errors).
+
+Distractors that sound the same as the true preset count as ties, not failures. "Sound the same" means that, played with the same notes, the difference is 30 dB or more below the signal; 118 of the 1,824 test distractors are like that.
+
+| Method | Aligned: right preset first | After separation | Worst category (aligned) |
+| --- | --- | --- | --- |
+| `mrstft` (before tuning) | 0.78 | 0.85 | cab 0.00 |
+| `mrstft_v2` 2.0 (tuned) | **0.99** | **0.95** | drive 0.92 (after separation: drive 0.67) |
+
+The bar is 0.90, so `mrstft_v2` passes in both conditions. The training half gave the same numbers (0.99 and 0.95), so the tuning did not overfit. The change that mattered was comparing band magnitudes on an ear-like frequency scale, using the plain (not logarithmic) magnitude difference. Excluding quiet frames and other ways of matching level made no difference or made it worse.
+
+The failures are mostly distractors that only turn a drive's Output knob. They are the same sound 4 to 14 dB louder or quieter, which this method ignores by design: loudness is the level guard's job. The rest are near misses that the separation stand-in hides, such as a tilt EQ moved by about 1 dB.
+
+It is proposed to the lead as the only term in the score when a matching DI exists, at weight 1. It is not switched on yet: the lead decides, and two things in Gate 2's own check need changing first (see docs/DECISIONS.md, [T096](../board/TASKS.md#t096 "Gate 2 option A + rule B")). It does not help with a library DI, where the notes differ.
+
 **Bottom line:** treat the score as a rough guide that finds the right neighbourhood, and your listening as the decision.
 
 ## What would make it trustworthy
@@ -185,14 +204,14 @@ Each number is the share of the 40 targets where the true preset scored best. Wi
 1. **Make the methods ignore the notes played** well enough to see a near miss. On the Helix test, a note change moves every method 4.5 to 10 times more than a near miss does (see above). Ideas to try: compare notes of the same pitch region rather than whole-clip averages, average over several DI passages, use longer clips, and train a guitar-specific learned method on Helix renders. Each is re-checked on the Helix test set.
 2. **Probe each block** with sine sweeps, stepped sines, two-tone signals, bursts and impulses. The analysis kit is built and verified on synthetic blocks. It shows how each control changes frequency response, clipping and dynamics, so the search can start near the right settings.
 3. **Build the per-block library**, with every Stomp-compatible block captured alone. Chaining single blocks was shown to sound the same as one chain (null -67 to -79 dB). The search can then choose models, not just a few fixed chains.
-4. **Use your own aligned takes**, so the fine-detail method (`mrstft`, 0.78 with the same notes) can join the score.
+4. **Use your own aligned takes**, so the fine-detail method can join the score. Its retuned version (`mrstft_v2`) passes with a matching DI (0.99 aligned, 0.95 after separation, see above) and is proposed for admission.
 5. **Collect your listening verdicts** in blind A/B sessions and check the score against them. Where they disagree, the score changes, not your ear.
 
 ## Sources
 
 All from this repository:
 
-- [`src/tonematch/metrics/`](../src/tonematch/metrics/): the comparison methods (`kit.py`, `ltas.py`, `crest.py`, `envelope.py`, `mrstft.py`, `afxrep.py`)
+- [`src/tonematch/metrics/`](../src/tonematch/metrics/): the comparison methods (`kit.py`, `ltas.py`, `crest.py`, `envelope.py`, `mrstft.py`, `mrstft_v2.py`, `afxrep.py`; `trust.py` holds the same-sound tie rule)
 - [`scripts/match_song.py`](../scripts/match_song.py): the search and the end-to-end run
 - [`scripts/parity_null.py`](../scripts/parity_null.py) and [`ledger/runs.csv`](../ledger/runs.csv) (kind `parity`): the null tests
 - [`scripts/parity_timefx.py`](../scripts/parity_timefx.py), [`src/tonematch/metrics/parity.py`](../src/tonematch/metrics/parity.py) (tolerances) and the measurements in `delay.py`, `reverb.py`, `modulation.py`, `nonlinear.py`; ledger dataset `parity-spot-fw380-timefx`: delays, reverbs, modulation and drives judged by measurement

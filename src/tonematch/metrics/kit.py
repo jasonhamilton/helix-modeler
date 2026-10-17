@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from tonematch.metrics import afxrep, crest, envelope, ltas, mrstft
+from tonematch.metrics import afxrep, crest, envelope, ltas, mrstft, mrstft_v2
 from tonematch.metrics._common import as_mono
 
 Audio = np.ndarray
@@ -31,11 +31,11 @@ Stems = dict[str, np.ndarray]  # the song's other stems for `sepcons`, name -> 4
 
 TERMS: tuple[str, ...] = (
     "ltas_tilt", "crest_flatness_hnr", "envelope", "embed_afxrep", "embed_fxenc", "embed_openamp",
-    "delay_echo", "reverb_tail", "mod_periodicity", "mrstft", "sepcons",
+    "delay_echo", "reverb_tail", "mod_periodicity", "mrstft", "sepcons", "mrstft_v2",
 )
 # terms with features(x, mask) / distance(a, b): target features are cached across calls
 _FEATURE_TERMS = {ltas.NAME: ltas, crest.NAME: crest, envelope.NAME: envelope}
-_ALIGNED_TERMS = {mrstft.NAME: mrstft}
+_ALIGNED_TERMS = {mrstft.NAME: mrstft, mrstft_v2.NAME: mrstft_v2}
 # learned embeddings: feature terms too (target embedding cached), but only run at non-zero weight
 _EMBED_TERMS = {afxrep.NAME: afxrep}
 NO_DI_TERMS: tuple[str, ...] = tuple(_FEATURE_TERMS)      # the cheap numpy DSP no-DI terms
@@ -50,6 +50,11 @@ DEFAULT_WEIGHTS: dict[str, float] = {name: 0.0 for name in (*NO_DI_TERMS, *EMBED
 
 # NOT ADMITTED. Equal weights in each term's own scale units; for development and proxy runs only.
 PROVISIONAL_WEIGHTS: dict[str, float] = {name: 1.0 for name in NO_DI_TERMS}
+
+# ADMITTED for the known-DI mode only (a sample-aligned DI of the same performance, e.g. Gate 2's
+# synthetic-v1 recovery): mrstft_v2 2.0 passed loss-trust-check on helix-trust-v2 test
+# aligned/same_notes at 0.990 under rule B (bar 0.90; lead 2026-10-16). Not valid without an aligned DI.
+KNOWN_DI_WEIGHTS: dict[str, float] = {"mrstft_v2": 1.0}
 
 
 @dataclass

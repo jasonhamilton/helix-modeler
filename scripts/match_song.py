@@ -593,6 +593,12 @@ class MaskedKit:
         return self.kit.score(target, candidate, stems=stems, mask=m, weights=weights)
 
 
+# Known-DI level guard (lead Ruling 3, 2026-10-16). mrstft_v2: truth ~0.001, near miss ~0.08, random ~0.7,
+# so 1 dB beyond the tolerance costs about one near miss.
+KNOWN_DI_LEVEL_TOL_DB = 0.25
+KNOWN_DI_LEVEL_SLOPE = 0.08
+
+
 class LevelGuardKit:
     """Adds a loss penalty when a candidate's loudness is far from a reference level.
 
@@ -602,21 +608,45 @@ class LevelGuardKit:
     (a typical patch level for this DI); `tol_db` is free, beyond it the penalty is `slope` loss units
     per dB. `ref_db` None means no penalty (before the reference is measured)."""
 
-    def __init__(self, inner, tol_db: float = 6.0, slope: float = 0.5):
-        self.inner, self.tol_db, self.slope, self.ref_db = inner, tol_db, slope, None
+    def __init__(self, inner, tol_db: float | None = None, slope: float | None = None, known_di: bool = False):
+        self.known_di = known_di
+        self.tol_db = tol_db if tol_db is not None else (KNOWN_DI_LEVEL_TOL_DB if known_di else 6.0)
+        self.slope = slope if slope is not None else (KNOWN_DI_LEVEL_SLOPE if known_di else 0.5)
+        self.inner, self.ref_db = inner, None
 
     @staticmethod
     def level_db(x) -> float:
         return float(20 * np.log10(rms(x)))
 
+    @staticmethod
+    def active_level_db(x, frame: int = 2048, span_db: float = 40.0) -> float:
+        """RMS level (dBFS) over active frames: frames within `span_db` of the loudest frame."""
+        x = np.asarray(x, np.float64).ravel()
+        n = len(x) // frame
+        if n < 2:
+            return float(20 * np.log10(max(float(np.sqrt(np.mean(x ** 2))) if len(x) else 0.0, 1e-12)))
+        p = (x[: n * frame].reshape(n, frame) ** 2).mean(axis=1)
+        act = p >= p.max() * 10 ** (-span_db / 10)
+        return float(10 * np.log10(max(float(p[act].mean()), 1e-24)))
+
     def score(self, target, candidate, **kw):
         sc = self.inner.score(target, candidate, **kw)
-        if self.ref_db is not None:
-            d = self.level_db(candidate) - self.ref_db
+        if self.known_di:                       # Ruling 3: the reference is the target's own level
+            ref, lvl = self.active_level_db(target), self.active_level_db(candidate)
+        else:
+            ref, lvl = self.ref_db, None
+        if ref is not None:
+            d = (lvl if lvl is not None else self.level_db(candidate)) - ref
             pen = self.slope * max(0.0, abs(d) - self.tol_db)
             sc.total = float(sc.total) + pen
             sc.terms = {**sc.terms, "level_db_vs_ref": d, "level_penalty": pen}
         return sc
+
+
+def is_known_di_mode(weights=None, admitted: bool = False, flag: bool = False) -> bool:
+    """Known-DI mode: explicit flag, admitted weights, or the weights are exactly KNOWN_DI_WEIGHTS."""
+    from tonematch.metrics import KNOWN_DI_WEIGHTS
+    return bool(flag or admitted or (weights is not None and dict(weights) == dict(KNOWN_DI_WEIGHTS)))
 
 
 def rebase_level_reference(engine, kit, results, section, log=print) -> tuple[float, float]:
@@ -732,6 +762,43 @@ def run_phase(engine, kit, section, budget, plan, cr: ChainResult, phase: str, c
     log(f"  {cr.cand.name} {phase}: loss {start:.4f} -> {f:.4f} in {ev.calls} renders "
         f"({time.perf_counter() - t:.0f} s, load {t_load:.1f} s"
         + (f", host {rss / 1024:.1f} GB" if rss else "") + ")")
+
+
+def model_choice_advice(eng, kit, section, cats: list[str], seed: int, log=print, budget: int = 300,
+                        k: int = 6, out: Path | None = None) -> dict:
+    """Advisory (T050, `--model-choice`): rank every eligible Native library model of each category on
+    this section with `search.model_choice.choose_models` (fingerprint screen, top k, successive halving).
+    The chain search is not changed: the chains are whole 8-slot templates, so this is a hint about
+    which model suits a slot, written to the log and to model_choice.json."""
+    import synthetic_v1 as SV
+
+    from tonematch.catalog import load_catalog, native_unavailable
+    from tonematch.engines import native_library as NL
+    from tonematch.search import Budget
+    from tonematch.search.model_choice import choose_models
+
+    catalog = load_catalog()
+    idx = NL.load_index()["models"]
+    bad = set(native_unavailable()) | {m for m, e in idx.items() if e.get("time_variant")}
+    advice = {}
+    for c in cats:
+        blocks = {}
+        for m in sorted(m for m, e in idx.items() if e["category"] == c and SV.eligible(m, c, bad)
+                        and not NL.is_routing(m)):
+            tpl = NL.template_for(m)
+            fp = SV.free_params(m, tpl, catalog, c) if tpl is not None else []
+            if fp:
+                blocks[m] = SV.Block(m, c, fp, catalog)
+        if not blocks:
+            continue
+        ch = choose_models(section, eng, kit, SV.model_candidates(blocks),
+                           Budget(max_renders=budget, clip_s=len(section.target) / SR, seed=seed), k=k)
+        advice[c] = [{"model": s.model, "screen": s.screen, "refined": s.refined} for s in ch.ranked[:5]]
+        log(f"model choice ({c}, {len(blocks)} models, {ch.renders:.0f} renders): "
+            + ", ".join(f"{s.model[4:]} {(s.refined if s.refined is not None else s.screen):.2f}" for s in ch.ranked[:5]))
+    if out is not None:
+        (out / "model_choice.json").write_text(json.dumps(advice, indent=1))
+    return advice
 
 
 def search(engine, cands: list[Cand], section, kit, *, wall_s: float, beam: int = 2,
@@ -1254,6 +1321,8 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
                  "refine_clip_s": len((s_refine or s_search).dry) / SR, "final_clip_s": len(section.dry) / SR}
     eng = TimedEngine(engine, log, rss_limit_mb=args.rss_limit_mb)
     try:
+        if getattr(args, "model_choice", False):
+            model_choice_advice(eng, kit, s_search, args.model_choice_cats.split(","), args.seed, log, out=out)
         sr_ = search(eng, cands, s_search, kit, wall_s=args.wall_min * 60, beam=args.beam,
                      beam_frac=args.beam_frac, reserve_s=args.reserve_s, seed=args.seed, log=log,
                      max_scores_per_chain=max_scores_per_chain, prior_weight=args.prior_weight,
@@ -1348,6 +1417,9 @@ def parse(argv=None):
     ap.add_argument("--reserve-s", type=float, default=150.0, help="seconds kept for the final check")
     ap.add_argument("--beam", type=int, default=2, help="chains refined after the beam")
     ap.add_argument("--beam-frac", type=float, default=0.35)
+    ap.add_argument("--model-choice", action="store_true",
+                    help="advisory model choice per slot (T050) before the chain search; changes no chain")
+    ap.add_argument("--model-choice-cats", default="drive,amp", help="categories --model-choice ranks")
     ap.add_argument("--snap0-renders", type=int, default=30, help="0 skips the snapshot 0 refine")
     ap.add_argument("--preroll", type=int, default=144_000)
     ap.add_argument("--chains", help="comma list from " + ",".join(TEMPLATE_SETS))

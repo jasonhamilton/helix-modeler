@@ -107,7 +107,8 @@ def main(argv=None) -> int:
         res["lock_released"] = not pedal_lock.lock_dir().exists()
         res["wall_clock_s"] = round(time.perf_counter() - t_all, 1)
         (run_dir / "summary.json").write_text(json.dumps(res, indent=1, default=str))
-        print(json.dumps({k: res.get(k) for k in ("errors", "bytes_equal_backup", "session_close", "lock_released",
+        print(json.dumps({k: res.get(k) for k in ("errors", "restore_ok", "decoded_equal_backup",
+                                                  "bytes_equal_backup", "session_close", "lock_released",
                                                   "wall_clock_s")}, default=str))
         print(f"summary: {run_dir / 'summary.json'}")
 
@@ -117,7 +118,7 @@ def _session(res: dict, run_dir: Path, dry, cat: dict, t_all: float, control_onl
 
     from tonematch import pedal_lock, reamp
     from tonematch.engines.base import render_many
-    from tonematch.engines.stomp import StompEngine, merge_two_path
+    from tonematch.engines.stomp import StompEngine, merge_two_path, restore_verdict
     from tonematch.engines.stomp_bridge import BridgeError, PowerCycleNeeded
     from tonematch.engines.stomp_readback import readback_diff
 
@@ -318,10 +319,12 @@ def _session(res: dict, run_dir: Path, dry, cat: dict, t_all: float, control_onl
             eng.close(verify_bytes=True)
             res["restore_report"] = eng.restore_report
             res["bytes_equal_backup"] = bool(eng.restore_report.get("bytes_equal_backup"))
+            res["decoded_equal_backup"] = eng.restore_report.get("decoded_equal_backup")
+            res["restore_ok"] = restore_verdict(eng.restore_report)   # decoded equality (T097)
             res["session_close"] = eng.bridge.release_report
             res["whole_writes"] = len(eng.whole_writes)
             res["two_path_passes"] = eng.two_path_passes
-    return 1 if res["errors"] or not res["bytes_equal_backup"] else 0
+    return 1 if res["errors"] or not res["restore_ok"] else 0
 
 
 if __name__ == "__main__":

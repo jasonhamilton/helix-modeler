@@ -40,7 +40,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from tonematch import catalog as C
 from tonematch import preset as P
-from tonematch.engines.stomp import compile_document, decode_document, reamp_hlx_dict
+from tonematch.engines.stomp import (
+    compile_document,
+    decode_document,
+    reamp_hlx_dict,
+    restore_verdict,
+)
 from tonematch.engines.stomp_layout import HX_EDIT_JOIN, HX_EDIT_SPLIT_Y
 from tonematch.engines.stomp_readback import readback_diff
 
@@ -345,7 +350,7 @@ def cmd_run(a) -> int:
                       "single_bytes_equal": res.get("single_bytes_equal"), "restore": res["restore_report"],
                       "session_close": res["session_close"], "errors": res["errors"]}, indent=1, default=str))
     print("summary:", run_dir / "summary.json")
-    ok = not res["errors"] and res["restore_report"].get("match") and res["restore_report"].get("bytes_equal_backup")
+    ok = not res["errors"] and restore_verdict(res["restore_report"])   # decoded equality (T097)
     return 0 if ok else 1
 
 

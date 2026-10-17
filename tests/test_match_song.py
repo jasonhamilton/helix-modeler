@@ -245,6 +245,37 @@ def test_level_guard_penalises_a_collapsed_output_only():
     assert g.score(x, x * 10 ** (20 / 20)).total > 1.0                   # and so is too loud
 
 
+def test_level_guard_known_di_reference_is_the_target_level():
+    class K:
+        def score(self, t, c, **kw):
+            return SimpleNamespace(total=0.0, terms={})      # a level-free loss: sees no difference
+
+    t = (0.2 * np.sin(np.arange(20000) * 0.05)).astype(np.float32)
+    g = MS.LevelGuardKit(K(), known_di=True)
+    g.ref_db = -99.0                                          # ignored in known-DI mode
+    assert (g.tol_db, g.slope) == (MS.KNOWN_DI_LEVEL_TOL_DB, MS.KNOWN_DI_LEVEL_SLOPE)
+    same = g.score(t, t)
+    assert same.terms["level_db_vs_ref"] == pytest.approx(0.0, abs=1e-6) and same.total == 0.0
+    low = g.score(t, t * 10 ** (-3 / 20))
+    assert low.terms["level_db_vs_ref"] == pytest.approx(-3.0, abs=1e-3)
+    assert low.total == pytest.approx(0.08 * (3.0 - 0.25), abs=1e-3)
+    # a level-only difference is recovered: a 1-D search over gain on a fake engine lands on the target level
+    gains = np.linspace(0.05, 1.0, 96)
+    best = min(gains, key=lambda x: g.score(t, t * (x / 0.2)).total)
+    assert abs(20 * np.log10(best / 0.2)) < 0.5
+    # custom tolerance and slope stay configurable; the mode switch
+    g2 = MS.LevelGuardKit(K(), tol_db=0.0, slope=1.0, known_di=True)
+    assert g2.score(t, t * 10 ** (-2 / 20)).total == pytest.approx(2.0, abs=1e-3)
+    from tonematch.metrics import KNOWN_DI_WEIGHTS
+    assert MS.is_known_di_mode(KNOWN_DI_WEIGHTS) and MS.is_known_di_mode({"x": 1.0}, admitted=True)
+    assert MS.is_known_di_mode(None, flag=True) and not MS.is_known_di_mode({"ltas_tilt": 1.0})
+
+
+def test_level_guard_song_mode_defaults_unchanged():
+    g = MS.LevelGuardKit(object())
+    assert (g.tol_db, g.slope, g.known_di, g.ref_db) == (6.0, 0.5, False, None)
+
+
 @needs_known
 def test_make_prior_is_off_at_zero_weight_and_pulls_to_the_middle():
     from tonematch.preset import read_hlx

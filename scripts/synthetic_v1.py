@@ -69,9 +69,10 @@ REVERBS = ("HD2_ReverbRoom", "HD2_ReverbPlate", "HD2_Reverb63Spring", "HD2_Rever
 MOD_KEEP = ("HD2_Chorus70sChorus", "HD2_VibratoBubbleVibrato", "HD2_MM4AnalogChorus")
 SAME_SOUND_DB = -30.0          # a neighbour that nulls this far against the truth is the same sound
 MAX_MACHINE_HOSTS = 6
-TOLERANCE = {"block_f1": 0.02, "model_acc": 0.02, "param_mae": 0.01, "rank1_rate": 0.02,
+LEVEL_KNOBS = {"Output", "Volume", "Level"}   # known-DI mode: reported as param_mae_level, not in param_mae
+TOLERANCE = {"block_f1": 0.02, "model_acc": 0.02, "param_mae": 0.01, "param_mae_level": 0.01, "rank1_rate": 0.02,
              "rank1_rate_audible": 0.02, "loss_heldout": 0.5, "heldout_ratio": 0.05}
-LOWER_BETTER = ("param_mae", "loss_heldout", "heldout_ratio")
+LOWER_BETTER = ("param_mae", "param_mae_level", "loss_heldout", "heldout_ratio")
 TARGETS = {"block_f1": 0.85, "model_acc": 0.80, "param_mae": 0.15, "rank1_rate": 0.95}  # working, not frozen
 
 
@@ -332,6 +333,44 @@ def make_engine():
     return MS.TimedEngine(NativeEngine(templates_dir=NL.library_templates()), log=lambda *_: None)
 
 
+def model_candidates(blocks: dict[str, Block], cache: dict = {}) -> list:  # noqa: B006 - process cache
+    """ModelCandidates for the pool: each block's fingerprint settings (block library, `coarse-v1`
+    grid, normalised 0..1) mapped onto the block's parameter ranges."""
+    from tonematch.engines import native_library as NL
+    from tonematch.search.model_choice import ModelCandidate, Setting, fingerprint_settings
+
+    out = []
+    for m, b in blocks.items():
+        if m not in cache:
+            sets = []
+            for st in fingerprint_settings(m, NL.fingerprint_set(m)):
+                vals = {(0, n): b.rng[n][0] + float(u) * (b.rng[n][1] - b.rng[n][0])
+                        for (_, n), u in st.values.items() if n in b.rng}
+                sets.append(Setting(st.label, vals))
+            cache[m] = ModelCandidate(m, b.category, b.preset, b.space, sets)
+        out.append(cache[m])
+    return out
+
+
+def search_item_mc(engine, blocks: dict[str, Block], section, kit, weights: dict, budget: int, beam: int,
+                   seed: int, clip_s: float, screen_frac: float = 0.5) -> dict:
+    """Model choice (T050): fingerprint screen, top `beam` models, successive halving, same render budget."""
+    from tonematch.search import Budget
+    from tonematch.search.model_choice import choose_models
+
+    bud = Budget(max_renders=budget, clip_s=clip_s, seed=seed, weights=weights)
+    ch = choose_models(section, engine, kit, model_candidates(blocks), bud, k=beam, screen_frac=screen_frac)
+    best = ch.best
+    b = blocks[best.model]
+    vals = best.values if best.values is not None else b.space.start
+    return {"model": best.model,
+            "values": {n: float(x) for (_, n), x in zip(b.space.refs, vals, strict=True)},
+            "loss_fit": float(best.refined if best.refined is not None else best.screen),
+            "screen": {s.model: float(s.screen) for s in ch.ranked},
+            "refined": {s.model: float(s.refined) for s in ch.ranked if s.refined is not None},
+            "screen_renders": ch.screen_renders, "notes": ch.notes}
+
+
 def search_item(engine, blocks: dict[str, Block], section, kit, weights: dict, budget: int, beam: int,
                 seed: int, clip_s: float) -> dict:
     """Screen every pool model at its catalog defaults (one render each), then refine the best `beam`
@@ -362,11 +401,81 @@ def search_item(engine, blocks: dict[str, Block], section, kit, weights: dict, b
             "refined": {m: float(r[0]) for m, r in refined.items()}}
 
 
+def rank1_fields(rows: list[dict]) -> dict:
+    """Rank-1 of rows[0] (the truth) against rows[1:] under rule B, through the helper shared with
+    loss-trust-check (`tonematch.metrics.trust`): a neighbour that nulls at SAME_SOUND_DB or lower
+    against the truth on the same notes is a tie, not a failure."""
+    from tonematch.metrics.trust import rank1_rule_b
+
+    nb = rows[1:]
+    r = rank1_rule_b(rows[0]["loss"], [x["loss"] for x in nb], [x["null_db"] for x in nb], SAME_SOUND_DB)
+    return {"rank1": r.rank1, "rank1_audible": r.rank1_audible, "n_same_sound": r.n_same_sound,
+            "true_loss_heldout": rows[0]["loss"], "neighbour_rank": r.rank,
+            "neighbour_rank_audible": r.rank_audible, "rank1_margin": r.margin,
+            "rank1_margin_audible": r.margin_audible}
+
+
+def split_level(errs: dict, known_di: bool) -> tuple[dict, dict]:
+    """Known-DI mode: (non-level errors, Output/Volume/Level errors). Otherwise (all errors, {})."""
+    if not known_di:
+        return errs, {}
+    return ({n: e for n, e in errs.items() if n not in LEVEL_KNOBS},
+            {n: e for n, e in errs.items() if n in LEVEL_KNOBS})
+
+
+def rank1_rows(engine, it: dict, pool: dict, kit, weights, dry: dict, target_a, target_c,
+               known_di: bool) -> tuple[list[dict], dict]:
+    """Rows for rank1_fields (truth first) plus extra result fields.
+
+    Default: the target is the true preset on DI A; the truth and its neighbours are rendered on the
+    held-out notes (DI C). Known-DI mode (Ruling 2, 2026-10-16): the target is the true render on
+    DI A passed through `loss_trust_check.aligned_capture`; the truth and neighbours are rendered
+    on the same DI A, ties by null against the clean A render. The different-notes (C) rank-1 is
+    kept as the `*_diffnotes` diagnostic, not the gate."""
+    from tonematch.metrics.trust import null_db
+
+    def render(nb, d):
+        b = pool[nb["model"]]
+        engine.load(b.with_values(b.from_knobs(nb["knobs"])))
+        return np.asarray(engine.render(d), np.float32)
+
+    if not known_di:
+        # Scoring on A as well would hand the truth a loss of exactly 0 (same render), so it tests nothing.
+        rows = [{"label": "true", "model": it["model"],
+                 "loss": float(kit.score(target_a, target_c, weights=weights).total), "null_db": 0.0}]
+        for nb in it["neighbours"]:
+            y = render(nb, dry["C"])
+            rows.append({"label": nb["label"], "model": nb["model"],
+                         "loss": float(kit.score(target_a, y, weights=weights).total),
+                         "null_db": float(null_db(target_c, y))})
+        return rows, {}
+    from loss_trust_check import aligned_capture
+
+    cap = aligned_capture(target_a, np.random.default_rng([SEED, 98, int(it["id"][1:])]))
+    rows = [{"label": "true", "model": it["model"],
+             "loss": float(kit.score(cap, target_a, weights=weights).total), "null_db": 0.0}]
+    diff = [{"label": "true", "model": it["model"],
+             "loss": float(kit.score(target_a, target_c, weights=weights).total), "null_db": 0.0}]
+    for nb in it["neighbours"]:
+        ya, yc = render(nb, dry["A"]), render(nb, dry["C"])
+        rows.append({"label": nb["label"], "model": nb["model"],
+                     "loss": float(kit.score(cap, ya, weights=weights).total),
+                     "null_db": float(null_db(target_a, ya))})
+        diff.append({"label": nb["label"], "model": nb["model"],
+                     "loss": float(kit.score(target_a, yc, weights=weights).total),
+                     "null_db": float(null_db(target_c, yc))})
+    d = rank1_fields(diff)
+    extra = {"rank1_mode": "known_di_same_notes_aligned", "rank1_diffnotes": d["rank1"],
+             "rank1_audible_diffnotes": d["rank1_audible"], "n_same_sound_diffnotes": d["n_same_sound"],
+             "neighbour_rank_diffnotes": d["neighbour_rank"]}
+    return rows, extra
+
+
 def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budget, beam, do_rank1,
-             clip_s: float) -> dict:
+             clip_s: float, model_choice: bool = False, search_kit=None,
+             known_di: bool = False) -> dict:
     import soundfile as sf
 
-    from tonematch.engines.native import null_db
     from tonematch.search import Section
 
     t0 = now_s()
@@ -380,7 +489,8 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
     target_a = np.asarray(engine.render(dry["A"]), np.float32)
     sec = Section("synthetic-v1", it["id"], target_a, dry["A"])
     allowed = {m: b for m, b in pool.items()}
-    s = search_item(engine, allowed, sec, kit, weights, budget, beam, int(it["id"][1:]), clip_s)
+    searcher = search_item_mc if model_choice else search_item
+    s = searcher(engine, allowed, sec, search_kit or kit, weights, budget, beam, int(it["id"][1:]), clip_s)
     t_search = now_s() - t0
     pb = pool[s["model"]]
     res = {
@@ -393,9 +503,13 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
     }
     if res["model_ok"]:
         tn, pn = tb.norm(it["values"]), tb.norm(s["values"])
-        res["param_abs_err"] = {n: abs(tn[n] - pn[n]) for n in tn}
-        res["param_mae_item"] = float(np.mean(list(res["param_abs_err"].values())))
-        res["param_mid_err"] = float(np.mean([abs(v - 0.5) for v in tn.values()]))
+        res["param_abs_err"], lvl = split_level({n: abs(tn[n] - pn[n]) for n in tn}, known_di)
+        if known_di:
+            res["param_abs_err_level"] = lvl
+        res["param_mae_item"] = float(np.mean(list(res["param_abs_err"].values()))) \
+            if res["param_abs_err"] else float("nan")
+        res["param_mid_err"] = float(np.mean([abs(v - 0.5) for n, v in tn.items()
+                                              if not (known_di and n in LEVEL_KNOBS)] or [float("nan")]))
     # held-out notes (DI C): the found preset scored against the true preset on the same new notes
     engine.load(true_p)
     target_c = np.asarray(engine.render(dry["C"]), np.float32)
@@ -403,30 +517,283 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
     found_c = np.asarray(engine.render(dry["C"]), np.float32)
     res["loss_heldout"] = float(kit.score(target_c, found_c, weights=weights).total)
     if do_rank1:
-        # The gate's rank-1: the target is the true preset on the fit notes (DI A); the true preset and its
-        # neighbours are rendered on the held-out notes (DI C, another passage of the same recording).
-        # Scoring them on A as well would hand the truth a loss of exactly 0 (same render), so it
-        # tests nothing.
-        rows = [{"label": "true", "model": it["model"], "loss": float(kit.score(target_a, target_c, weights=weights).total),
-                 "null_db": 0.0}]
-        for nb in it["neighbours"]:
-            b = pool[nb["model"]]
-            engine.load(b.with_values(b.from_knobs(nb["knobs"])))
-            y = np.asarray(engine.render(dry["C"]), np.float32)
-            rows.append({"label": nb["label"], "model": nb["model"],
-                         "loss": float(kit.score(target_a, y, weights=weights).total),
-                         "null_db": float(null_db(target_c, y))})
-        true_loss = rows[0]["loss"]
-        nb = rows[1:]
-        audible = [r for r in nb if r["null_db"] > SAME_SOUND_DB]
-        res["rank1"] = bool(all(true_loss < r["loss"] for r in nb))
-        res["rank1_audible"] = bool(all(true_loss < r["loss"] for r in audible))
-        res["n_same_sound"] = len(nb) - len(audible)
-        res["true_loss_heldout"] = true_loss
-        res["neighbour_rank"] = 1 + sum(r["loss"] <= true_loss for r in nb)
+        rows, extra = rank1_rows(engine, it, pool, kit, weights, dry, target_a, target_c, known_di)
+        res.update(rank1_fields(rows))
+        res.update(extra)
     res["renders"] = engine.renders - r0
     res["wall_s"] = round(now_s() - t0, 1)
     return res
+
+
+# --------------------------------------------------------------------------- baselines (T097)
+# Two reference points for the Gate 2 targets, at the same budget as the gate run:
+#   middle : every knob at the middle of its range. Settings error = the true model at middle. Model
+#            choice = the best-scoring of the TRUE CATEGORY's pool models at middle (category given);
+#            the same renders over all pool models give the category and model baselines with no
+#            category given.
+#   random : a random pool model with random settings (uniform over the range, on the CC grid), `budget`
+#            draws, best by score.
+# Both are scored with the loss weights given (provisional unless admitted) and are labelled so.
+
+BASELINES = ("middle", "random")
+
+
+def mid_values(block: Block) -> dict[str, float]:
+    """The middle of every knob of a block, snapped to the search grid."""
+    v = block.space.from_unit(np.full(len(block.free), 0.5))
+    return {n: float(x) for (_, n), x in zip(block.space.refs, v, strict=True)}
+
+
+def random_draws(rng: np.random.Generator, blocks: dict, n: int) -> list[tuple[str, dict[str, float]]]:
+    """n (model, values) draws: model uniform over the pool, every knob uniform over its range."""
+    names = sorted(blocks)
+    out = []
+    for _ in range(n):
+        m = names[int(rng.integers(len(names)))]
+        b = blocks[m]
+        v = b.space.from_unit(rng.random(len(b.free)))
+        out.append((m, {n_: float(x) for (_, n_), x in zip(b.space.refs, v, strict=True)}))
+    return out
+
+
+def best_index(scores: list[float]) -> int:
+    """Index of the lowest finite score (ties: first); -1 if none is finite."""
+    ok = [(s, i) for i, s in enumerate(scores) if s is not None and np.isfinite(s)]
+    return min(ok)[1] if ok else -1
+
+
+def baseline_item_fields(it: dict, pool: dict, pred_model: str, pred_values: dict | None) -> dict:
+    """Category / model / setting-error fields of one baseline pick against the item's truth."""
+    pb = pool[pred_model]
+    tb = pool[it["model"]]
+    res = {"pred_category": pb.category, "pred_model": pred_model,
+           "category_ok": pb.category == it["category"], "model_ok": pred_model == it["model"]}
+    if res["model_ok"] and pred_values is not None:
+        tn, pn = tb.norm(it["values"]), tb.norm(pred_values)
+        res["param_abs_err"] = {n: abs(tn[n] - pn[n]) for n in tn}
+    return res
+
+
+def _scores(engine, kit, weights, target, dry, presets) -> list[float]:
+    """Score each preset on the fit notes through render_many, chunked."""
+    from tonematch.engines.base import render_many
+    from tonematch.search.model_choice import CHUNK, _score_one
+
+    out: list[float] = []
+    for a in range(0, len(presets), CHUNK):
+        part = presets[a:a + CHUNK]
+        ys = render_many(engine, dry, part)
+        out += [float("inf") if y is None else _score_one(kit, target, y, weights) for y in ys]
+    return out
+
+
+def run_baseline_item(engine, kind: str, it: dict, pool: dict, kit, weights, budget: int, clip_s: float,
+                      do_rank1: bool, known_di: bool = False) -> dict:
+    import soundfile as sf
+
+    t0 = now_s()
+    r0 = engine.renders
+    dry = {t: sf.read(str(ROOT / it["di"][t]["file"]), dtype="float32")[0][: int(clip_s * SR)]
+           for t in ("A", "C")}
+    tb = pool[it["model"]]
+    true_p = tb.with_values(it["values"])
+    engine.load(true_p)
+    target_a = np.asarray(engine.render(dry["A"]), np.float32)
+    res: dict = {"id": it["id"], "category": it["category"], "model": it["model"], "baseline": kind}
+    names = sorted(pool)
+    if kind == "middle":
+        presets = [pool[m].with_values(mid_values(pool[m])) for m in names]
+        sc = _scores(engine, kit, weights, target_a, dry["A"], presets)
+        cat = [i for i, m in enumerate(names) if pool[m].category == it["category"]]
+        bi = cat[best_index([sc[i] for i in cat])]          # best of the true category's models, category given
+        ba = best_index(sc)                                 # best of all pool models, nothing given
+        m_cat, m_all = names[bi], names[ba]
+        res.update(baseline_item_fields(it, pool, m_cat, mid_values(pool[m_cat])))
+        res["loss_fit"] = sc[bi]
+        al = baseline_item_fields(it, pool, m_all, mid_values(pool[m_all]))
+        res["all"] = {"pred_model": m_all, "pred_category": al["pred_category"],
+                      "category_ok": al["category_ok"], "model_ok": al["model_ok"], "loss_fit": sc[ba]}
+        tn = tb.norm(it["values"])                          # settings error: the TRUE model at middle
+        res["param_mid_abs_err"], lvl = split_level({n: abs(v - 0.5) for n, v in tn.items()}, known_di)
+        if known_di:
+            res["param_mid_abs_err_level"] = lvl
+        res["param_mid_err"] = float(np.mean(list(res["param_mid_abs_err"].values()))) \
+            if res["param_mid_abs_err"] else float("nan")
+        pv, pm = mid_values(pool[m_cat]), m_cat
+        res["draws"] = len(presets)
+    else:
+        rng = np.random.default_rng([SEED, 97, int(it["id"][1:])])
+        draws = random_draws(rng, pool, budget)
+        sc = _scores(engine, kit, weights, target_a, dry["A"], [pool[m].with_values(v) for m, v in draws])
+        bi = best_index(sc)
+        pm, pv = draws[bi]
+        res.update(baseline_item_fields(it, pool, pm, pv))
+        res["loss_fit"] = sc[bi]
+        res["draws"] = len(draws)
+    # new notes: the baseline pick against the true preset on DI C
+    engine.load(true_p)
+    target_c = np.asarray(engine.render(dry["C"]), np.float32)
+    engine.load(pool[pm].with_values(pv))
+    found_c = np.asarray(engine.render(dry["C"]), np.float32)
+    res["loss_heldout"] = float(kit.score(target_c, found_c, weights=weights).total)
+    if do_rank1:   # a property of the score, not of the search: the true preset vs 24 neighbours
+        rows, extra = rank1_rows(engine, it, pool, kit, weights, dry, target_a, target_c, known_di)
+        res.update(rank1_fields(rows))
+        res.update(extra)
+    res["renders"] = engine.renders - r0
+    res["wall_s"] = round(now_s() - t0, 1)
+    return res
+
+
+def summarize_baseline(results: list[dict], pools: dict, labels: list[dict]) -> dict:
+    """Baseline metrics over the items run. Model accuracy and block F1 count a missing item as a miss."""
+    ok = [r for r in results if "error" not in r]
+    n = len(results)
+    out: dict = {"items": n, "errors": n - len(ok)}
+    if not ok:
+        return out
+    kind = ok[0]["baseline"]
+    out["baseline"] = kind
+    out["model_acc"] = sum(r["model_ok"] for r in ok) / n
+    out["block_f1"] = sum(r["category_ok"] for r in ok) / n       # one block per item: F1 = category accuracy
+    if kind == "middle":
+        out["model_acc_category_given"] = out.pop("model_acc")
+        out.pop("block_f1")                                        # 1.0 by construction when the category is given
+        out["model_acc_no_category"] = sum(r["all"]["model_ok"] for r in ok) / n
+        out["block_f1_no_category"] = sum(r["all"]["category_ok"] for r in ok) / n
+        errs = [e for r in ok for e in r["param_mid_abs_err"].values()]
+        out["param_mae"] = float(np.mean(errs))                    # true model at middle, every item
+        if any("param_mid_abs_err_level" in r for r in ok):
+            out["param_mae_level"] = float(np.mean([e for r in ok for e in
+                                                    r.get("param_mid_abs_err_level", {}).values()] or [float("nan")]))
+    else:
+        errs = [e for r in ok for e in r.get("param_abs_err", {}).values()]
+        out["param_mae"] = float(np.mean(errs)) if errs else float("nan")
+        out["items_model_right"] = sum(r["model_ok"] for r in ok)
+    r1 = [r for r in ok if "rank1" in r]
+    if r1:
+        out["score_rank1_rate"] = float(np.mean([r["rank1"] for r in r1]))
+        out["score_rank1_rate_audible"] = float(np.mean([r["rank1_audible"] for r in r1]))
+        out["same_sound_neighbours_per_item"] = float(np.mean([r["n_same_sound"] for r in r1]))
+    out["loss_fit"] = float(np.mean([r["loss_fit"] for r in ok]))
+    out["loss_heldout"] = float(np.mean([r["loss_heldout"] for r in ok]))
+    out["heldout_ratio"] = out["loss_heldout"] / max(out["loss_fit"], 1e-9)
+    by_id = {x["id"]: x for x in labels}
+    out["model_acc_chance"] = float(np.mean([1 / len(pools[by_id[r["id"]]["category"]]) for r in ok]))
+    out["model_acc_chance_no_category"] = 1 / sum(len(p) for p in pools.values())
+    out["block_f1_chance"] = 1 / len(CATEGORIES)
+    out["renders"] = sum(r.get("renders", 0) for r in ok)
+    out["item_wall_s_mean"] = float(np.mean([r["wall_s"] for r in ok]))
+    return out
+
+
+BASELINE_LEDGER = {
+    "middle": {"model_acc_category_given": "baseline_middle_model_acc_cat_given",
+               "model_acc_no_category": "baseline_middle_model_acc_no_cat",
+               "block_f1_no_category": "baseline_middle_block_f1_no_cat",
+               "param_mae": "baseline_middle_param_mae",
+               "score_rank1_rate": "baseline_score_rank1",
+               "score_rank1_rate_audible": "baseline_score_rank1_audible",
+               "heldout_ratio": "baseline_middle_heldout_ratio"},
+    "random": {"model_acc": "baseline_random_model_acc", "block_f1": "baseline_random_block_f1",
+               "param_mae": "baseline_random_param_mae", "heldout_ratio": "baseline_random_heldout_ratio"},
+}
+
+
+def write_baseline_ledger(summary: dict, dataset: str, notes: str, wall: float) -> list[str]:
+    rows = []
+    env = {**os.environ, "TONEMATCH_AGENT": "benchmark"}
+    for k, metric in BASELINE_LEDGER[summary["baseline"]].items():
+        v = summary.get(k)
+        if v is None or not np.isfinite(v):
+            continue
+        subprocess.run([sys.executable, str(ROOT / "scripts" / "ledger_append.py"), "--kind", "benchmark",
+                        "--engine", "native", "--dataset", dataset, "--metric", metric, "--value", f"{v:.6g}",
+                        "--renders", str(summary["renders"]), "--wall-clock-s", f"{wall:.1f}",
+                        "--notes", notes], check=True, env=env, cwd=ROOT)
+        rows.append(metric)
+    return rows
+
+
+def cmd_baseline(a) -> int:
+    man = json.loads((SET_DIR / "manifest.json").read_text())
+    labels = json.loads((SET_DIR / "labels.json").read_text())
+    shard = tuple(int(x) for x in a.shard.split("/")) if a.shard else None
+    items = select_items(labels, a.items, a.ids, shard)
+    weights, admitted, wlabel = load_weights(a.weights)
+    running = machine_hosts()
+    print(f"native_host processes before start: {running}; this run opens 1", flush=True)
+    if running + 1 > MAX_MACHINE_HOSTS:
+        print(f"refusing: {running} native_host processes already running (limit {MAX_MACHINE_HOSTS})",
+              file=sys.stderr)
+        return 3
+    from tonematch.catalog import load_catalog
+    from tonematch.engines import native_library as NL
+    from tonematch.metrics import LossKit
+
+    catalog = load_catalog()
+    pool = {}
+    for c in CATEGORIES:
+        for m in man["pool"][c]:
+            pool[m] = Block(m, c, free_params(m, NL.template_for(m), catalog, c), catalog)
+    run_dir = SET_DIR / "runs" / a.tag
+    run_dir.mkdir(parents=True, exist_ok=True)
+    kit = LossKit()
+    engine = make_engine()
+    print(f"baseline {a.baseline}: {len(items)} items, budget {a.budget}, weights: {wlabel}", flush=True)
+    results = []
+    try:
+        for it in items:
+            f = run_dir / f"{it['id']}.json"
+            if f.exists() and not a.redo:
+                results.append(json.loads(f.read_text()))
+                continue
+            try:
+                r = run_baseline_item(engine, a.baseline, it, pool, kit, weights, a.budget,
+                                      man["clip_seconds"], a.baseline == "middle" and not a.no_rank1,
+                                      a.known_di or admitted)
+            except Exception as e:  # noqa: BLE001 - recorded, counted as a miss
+                r = {"id": it["id"], "category": it["category"], "model": it["model"], "baseline": a.baseline,
+                     "category_ok": False, "model_ok": False, "error": f"{type(e).__name__}: {e}",
+                     "renders": 0, "wall_s": 0.0}
+            f.write_text(json.dumps(r, indent=1))
+            results.append(r)
+            print(f"{it['id']} {it['category']:6s} {it['model'][4:]:28s} -> {(r.get('pred_model') or '?')[4:]:28s} "
+                  f"cat {'ok' if r['category_ok'] else 'NO'} model {'ok' if r['model_ok'] else 'NO'} "
+                  f"{r.get('renders', 0)} renders {r.get('wall_s', 0)} s", flush=True)
+    finally:
+        engine.close()
+    summ = summarize_baseline(results, {c: man["pool"][c] for c in CATEGORIES}, labels)
+    summ.update({"weights": wlabel, "admitted": admitted, "budget": a.budget})
+    (run_dir / f"summary_shard{a.shard.replace('/', 'of') if a.shard else 'all'}.json").write_text(
+        json.dumps(summ, indent=1))
+    print(json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in summ.items()}, indent=1))
+    return 0
+
+
+def cmd_baseline_summarize(a) -> int:
+    man = json.loads((SET_DIR / "manifest.json").read_text())
+    labels = json.loads((SET_DIR / "labels.json").read_text())
+    run_dir = SET_DIR / "runs" / a.tag
+    keep = {x["id"] for x in select_items(labels, a.items, a.ids, None)}
+    results = [json.loads(p.read_text()) for p in sorted(run_dir.glob("i*.json")) if p.stem in keep]
+    results = [r for r in results if r.get("baseline") == a.baseline]
+    pools = {c: man["pool"][c] for c in CATEGORIES}
+    summ = summarize_baseline(results, pools, labels)
+    _weights, admitted, wlabel = load_weights(a.weights)
+    full = len(keep) == len(labels)
+    dataset = DATASET if full else f"{DATASET}-dev{len(keep)}" if a.items else f"{DATASET}-n{len(keep)}"
+    summ.update({"dataset": dataset, "weights": wlabel, "admitted": admitted, "budget": a.budget})
+    (run_dir / f"summary_{a.baseline}_{dataset}.json").write_text(json.dumps(summ, indent=1))
+    print(json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in summ.items()}, indent=1))
+    if a.ledger and len(results) == len(keep) and not summ["errors"]:
+        notes = (f"BASELINE {a.baseline}, {wlabel}; {len(results)} items; budget {a.budget} renders per item; "
+                 f"one-block set; DI A fit, C new notes" + (f"; {a.note}" if a.note else ""))
+        wrote = write_baseline_ledger(summ, dataset, notes, float(sum(r.get("wall_s", 0) for r in results)))
+        print(f"ledger: {len(wrote)} rows, dataset {dataset}: {', '.join(wrote)}")
+    elif a.ledger:
+        print("not written to the ledger: the run is incomplete or has errors", file=sys.stderr)
+    return 0
 
 
 def summarize(results: list[dict], labels: list[dict], pools: dict) -> dict:
@@ -439,6 +806,9 @@ def summarize(results: list[dict], labels: list[dict], pools: dict) -> dict:
            "model_acc": sum(r["model_ok"] for r in ok) / n if n else float("nan")}
     mae = [e for r in ok for e in r.get("param_abs_err", {}).values()]
     out["param_mae"] = float(np.mean(mae)) if mae else float("nan")
+    lvl = [e for r in ok for e in r.get("param_abs_err_level", {}).values()]
+    if any("param_abs_err_level" in r for r in ok):
+        out["param_mae_level"] = float(np.mean(lvl)) if lvl else float("nan")
     mid = [r["param_mid_err"] for r in ok if "param_mid_err" in r]
     out["param_mae_always_middle"] = float(np.mean(mid)) if mid else float("nan")
     r1 = [r for r in ok if "rank1" in r]
@@ -446,6 +816,10 @@ def summarize(results: list[dict], labels: list[dict], pools: dict) -> dict:
         out["rank1_rate"] = float(np.mean([r["rank1"] for r in r1]))
         out["rank1_rate_audible"] = float(np.mean([r["rank1_audible"] for r in r1]))
         out["same_sound_neighbours_per_item"] = float(np.mean([r["n_same_sound"] for r in r1]))
+        dn = [r for r in r1 if "rank1_diffnotes" in r]
+        if dn:   # known-DI mode: the different-notes check is a diagnostic, not the gate
+            out["rank1_rate_diffnotes"] = float(np.mean([r["rank1_diffnotes"] for r in dn]))
+            out["rank1_rate_audible_diffnotes"] = float(np.mean([r["rank1_audible_diffnotes"] for r in dn]))
     if ok:
         out["loss_heldout"] = float(np.mean([r["loss_heldout"] for r in ok]))
         out["loss_fit"] = float(np.mean([r["loss_fit"] for r in ok]))
@@ -510,7 +884,7 @@ def regressions(current: dict, prev: dict, dataset: str) -> list[str]:
     return out
 
 
-LEDGER_METRICS = ("block_f1", "model_acc", "param_mae", "rank1_rate", "rank1_rate_audible", "loss_heldout",
+LEDGER_METRICS = ("block_f1", "model_acc", "param_mae", "param_mae_level", "rank1_rate", "rank1_rate_audible", "loss_heldout",
                   "heldout_ratio")
 
 
@@ -530,6 +904,8 @@ def write_ledger(summary: dict, dataset: str, notes: str, wall: float) -> list[s
 
 
 def cmd_run(a) -> int:
+    if getattr(a, "baseline", None):
+        return cmd_baseline(a)
     man = json.loads((SET_DIR / "manifest.json").read_text())
     labels = json.loads((SET_DIR / "labels.json").read_text())
     shard = tuple(int(x) for x in a.shard.split("/")) if a.shard else None
@@ -555,6 +931,9 @@ def cmd_run(a) -> int:
     run_dir = SET_DIR / "runs" / a.tag
     run_dir.mkdir(parents=True, exist_ok=True)
     kit = LossKit()
+    import match_song as MS  # Ruling 3: known-DI mode guards level against the target's own level
+    known_di = MS.is_known_di_mode(weights, admitted, flag=bool(getattr(a, "known_di", False)))
+    search_kit = MS.LevelGuardKit(kit, known_di=True) if known_di else None
     t0 = now_s()
     engine = make_engine()
     t_open = now_s() - t0
@@ -569,7 +948,7 @@ def cmd_run(a) -> int:
                 continue
             try:
                 r = run_item(engine, it, blocks_by_cat, catalog, kit, weights, a.budget, a.beam,
-                             not a.no_rank1, man["clip_seconds"])
+                             not a.no_rank1, man["clip_seconds"], a.model_choice, search_kit=search_kit, known_di=known_di)
             except Exception as e:  # noqa: BLE001 - recorded, counted as a miss
                 r = {"id": it["id"], "category": it["category"], "model": it["model"], "category_ok": False,
                      "model_ok": False, "error": f"{type(e).__name__}: {e}", "renders": 0, "wall_s": 0.0}
@@ -587,7 +966,8 @@ def cmd_run(a) -> int:
     dataset = DATASET if full else f"{DATASET}-n{len(items)}" + (f"-shard{a.shard.replace('/', 'of')}" if shard else "")
     pools = {c: man["pool"][c] for c in CATEGORIES}
     summ = summarize(results, labels, pools)
-    summ.update({"dataset": dataset, "weights": wlabel, "admitted": admitted, "budget": a.budget,
+    summ.update({"dataset": dataset, "weights": wlabel, "admitted": admitted, "known_di": known_di,
+                 "budget": a.budget,
                  "wall_s": round(wall, 1), "engine_open_s": round(t_open, 1),
                  "full_run_estimate_s": round(summ["item_wall_s_mean"] * len(labels), 0),
                  "gate_evidence": bool(full and admitted and not a.no_rank1)})
@@ -607,6 +987,8 @@ def cmd_run(a) -> int:
 
 
 def cmd_summarize(a) -> int:
+    if getattr(a, "baseline", None):
+        return cmd_baseline_summarize(a)
     man = json.loads((SET_DIR / "manifest.json").read_text())
     labels = json.loads((SET_DIR / "labels.json").read_text())
     run_dir = SET_DIR / "runs" / a.tag
@@ -627,13 +1009,28 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--budget", type=int, default=150, help="search renders per item (screen + refine)")
     r.add_argument("--beam", type=int, default=3)
     r.add_argument("--weights", default="provisional", help="'provisional' or a JSON file of loss weights")
+    r.add_argument("--model-choice", action="store_true",
+                   help="model choice per slot (T050): fingerprint screen + successive halving")
+    r.add_argument("--known-di", action="store_true",
+                   help="known-DI mode (implied by admitted weights): rank-1 on the target's own DI A through "
+                        "aligned_capture, rule B; Output/Volume/Level error reported as param_mae_level")
     r.add_argument("--no-rank1", action="store_true")
     r.add_argument("--ledger", action="store_true")
     r.add_argument("--redo", action="store_true")
+    r.add_argument("--baseline", choices=BASELINES, default=None,
+                   help="run a baseline instead of the search: middle (all knobs at the middle) or random "
+                        "(random model and settings, --budget draws); labelled with the weights used")
     r.add_argument("--tag", default="default")
     r.add_argument("--note", default="", help="free text appended to the ledger notes")
     s = sub.add_parser("summarize")
     s.add_argument("--tag", default="default")
+    s.add_argument("--baseline", choices=BASELINES, default=None, help="merge the shards of a baseline run")
+    s.add_argument("--items", type=int, default=None)
+    s.add_argument("--ids", nargs="+", default=None)
+    s.add_argument("--weights", default="provisional")
+    s.add_argument("--budget", type=int, default=300)
+    s.add_argument("--ledger", action="store_true")
+    s.add_argument("--note", default="")
     a = ap.parse_args(argv)
     if a.cmd == "generate":
         man = generate(a.seed)

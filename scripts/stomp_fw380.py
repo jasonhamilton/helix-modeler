@@ -171,7 +171,7 @@ def cmd_write(a) -> int:
     import soundfile as sf
 
     from tonematch import reamp
-    from tonematch.engines.stomp import StompEngine
+    from tonematch.engines.stomp import StompEngine, restore_verdict
     cat = C.load_catalog("current")
     run_dir = ROOT / "cache" / "stomp" / "hw" / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-fw380-write"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -217,11 +217,13 @@ def cmd_write(a) -> int:
         res["session_close"] = eng.bridge.release_report
         res["usb_reset"] = eng.bridge.reset_report
         res["bytes_equal_backup"] = bool(eng.restore_report.get("bytes_equal_backup"))
+        res["decoded_equal_backup"] = eng.restore_report.get("decoded_equal_backup")
+        res["restore_ok"] = restore_verdict(eng.restore_report)   # decoded equality (T097)
         (run_dir / "summary.json").write_text(json.dumps(res, indent=1, default=str))
         print(json.dumps({k: res.get(k) for k in ("restore_report", "session_close", "usb_reset",
-                                                    "bytes_equal_backup", "errors")}, default=str))
+                                                    "restore_ok", "decoded_equal_backup", "bytes_equal_backup", "errors")}, default=str))
         print("summary:", run_dir / "summary.json")
-    return 1 if res["errors"] or not res.get("bytes_equal_backup") else 0
+    return 1 if res["errors"] or not res.get("restore_ok") else 0
 
 
 def main(argv=None) -> int:

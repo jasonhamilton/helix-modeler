@@ -280,7 +280,7 @@ def cmd_run(a) -> int:
     import soundfile as sf
 
     from tonematch import reamp
-    from tonematch.engines.stomp import StompEngine, chain_signature
+    from tonematch.engines.stomp import StompEngine, chain_signature, compare_backups
     from tonematch.engines.stomp_bridge import BridgeError, StompBridge
 
     if subprocess.run(["pgrep", "-f", "HX Edit.app/Contents/MacOS/HX Edit"], capture_output=True, check=False).stdout.strip():
@@ -378,12 +378,16 @@ def cmd_run(a) -> int:
             b.call("backup", path=str(after))
             chain = b.call("chain")
         summary["after"] = {k: info[k] for k in ("setlist", "index", "label", "name")}
-        summary["after_bytes_equal_backup"] = after.read_bytes() == Path(eng.backup_path).read_bytes()
+        cmp = compare_backups(Path(eng.backup_path), after)   # decoded equality is the verdict (T097)
+        summary["after_bytes_equal_backup"] = cmp["bytes_equal_backup"]
+        summary["after_decoded_equal_backup"] = cmp["decoded_equal_backup"]
+        summary["after_restore_compare"] = cmp["restore_compare"]
         summary["after_signature_equal"] = chain_signature(chain) == chain_signature(eng.original_chain)
     except Exception as e:  # noqa: BLE001
         summary["errors"].append(f"after-check: {type(e).__name__}: {e}")
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=1, default=str))
-    print(json.dumps({k: summary.get(k) for k in ("errors", "restore_report", "after", "after_bytes_equal_backup",
+    print(json.dumps({k: summary.get(k) for k in ("errors", "restore_report", "after", "after_decoded_equal_backup",
+                                                  "after_bytes_equal_backup",
                                                   "after_signature_equal")}, default=str))
     print(f"summary: {run_dir / 'summary.json'}")
     return 1 if summary["errors"] else 0

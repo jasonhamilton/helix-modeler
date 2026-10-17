@@ -315,14 +315,16 @@ def evaluate_parity(summary: dict) -> Result:
         parts_tail = "delay tail not measured"
         fails.append(f"{PARITY_DELAY_PAIR[1]}: no tail measurement")
     rc = summary.get("engines", {}).get("stomp", {}).get("restore_check", {})
-    restored = rc.get("bytes_equal_backup")
+    # T097: the verdict is decoded equality (restore_ok); older summaries carry the bytes only.
+    restored = rc.get("restore_ok", rc.get("bytes_equal_backup"))
     if restored is not True:
-        fails.append("pedal restore byte-diff not confirmed" if restored is None
+        fails.append("pedal restore not confirmed" if restored is None
+                     else "pedal NOT restored to its backup after the run (restore_ok false)" if "restore_ok" in rc
                      else "pedal NOT byte-equal to its backup after the run")
     for e in summary.get("errors", []):
         fails.append(f"error: {_tail(str(e), 120)}")
     key = ("null (dB, lower is closer): " + ", ".join(parts) + f"; {parts_tail}; "
-           + ("pedal restored byte for byte" if restored else "restore not confirmed"))
+           + ("pedal restored to its backup" if restored else "restore not confirmed"))
     extra = {"stomp_firmware": summary.get("engines", {}).get("stomp", {}).get("firmware_version"),
              "native_version": summary.get("engines", {}).get("native", {}).get("firmware_version")}
     return Result(FAIL if fails else PASS, "; ".join(fails), key, metrics, extra)

@@ -173,12 +173,14 @@ What it still waits on: admitted loss weights from `tone-metrics` (pass `--weigh
 | --- | --- | --- |
 | Which blocks are on (block F1, higher is better) | 0.85 or more | 0.64 for "everything on" on multi-block chains; on synthetic-v1's one-block items the category is the only block, chance 0.125 |
 | Right model on the Stomp set (higher is better) | 0.60 or more | about 0.17 by chance |
-| Right chain structure on the Native set | 0.80 or more | 0.33 by chance |
+| Right chain structure on the Native set | 0.80 or more (waived for Gate 2 by the human 2026-10-16; Gate 2 is single-block; moves to Gate 3) | 0.33 by chance |
 | Setting error, 0 to 1 scale (lower is better) | 0.15 or less | 0.19 for "always the middle" |
 | Trust check, combined score / per method | 0.95 / 0.90 | 1 in 16 by chance |
 | Score on new notes vs the fitted notes | no more than 1.25 times | 1.0 |
 
 They freeze only after two baselines are measured at the same budget: a "middle of every knob" preset, and a random search.
+
+Known-DI mode (lead's ruling 2, 2026-10-16; coded in `scripts/synthetic_v1.py`, in force for admitted weights or `--known-di`): the rank-1 check is scored on the target's own clean guitar clip (the same notes), with the target first passed through the aligned-capture model (up to half a sample of delay, level within 3 dB, faint noise 60 dB down), and ties counted under rule B. The different-notes check is kept as a reported diagnostic (`rank1_rate_diffnotes`) and for the new-notes ratio, but it is not the rank-1 gate. The summary reports `rank1_rate` (plain) and `rank1_rate_audible` (rule B). Error on the Output, Volume and Level knobs is reported separately as `param_mae_level` and is left out of `param_mae` until search's level-guard ruling is in use. Without known-DI mode nothing changes. No run has used this yet: all Native slots were busy when the code was written.
 
 ## How a gate is passed
 

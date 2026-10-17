@@ -81,13 +81,17 @@ def engine(run_dir: Path, **kw):
 
 
 def finish(eng, res: dict, run_dir: Path) -> bool:
+    from tonematch.engines.stomp import restore_verdict
+
     eng.close(verify_bytes=True)
     res["restore_report"] = eng.restore_report
     res["session_close"] = eng.bridge.release_report
     res["usb_reset"] = eng.bridge.reset_report
     (run_dir / "summary.json").write_text(json.dumps(res, indent=1, default=str))
-    ok = bool(eng.restore_report.get("bytes_equal_backup"))
-    print(json.dumps({"restore_match": eng.restore_report.get("match"), "bytes_equal_backup": ok,
+    ok = restore_verdict(eng.restore_report)   # chain match and decoded equality (T097)
+    print(json.dumps({"restore_match": eng.restore_report.get("match"), "restore_ok": ok,
+                      "decoded_equal_backup": eng.restore_report.get("decoded_equal_backup"),
+                      "bytes_equal_backup": eng.restore_report.get("bytes_equal_backup"),
                       "release_sent": (eng.bridge.release_report or {}).get("release_sent")}))
     print("summary:", run_dir / "summary.json")
     return ok

@@ -12,6 +12,7 @@ from tonematch.metrics.kit import (
     DSP_TERMS,
     EMBED_TERMS,
     IMPLEMENTED,
+    KNOWN_DI_WEIGHTS,
     NO_DI_TERMS,
     PROVISIONAL_WEIGHTS,
     TERMS,
@@ -22,5 +23,5 @@ from tonematch.metrics.kit import (
     Stems,
 )
 
-__all__ = ["DEFAULT_WEIGHTS", "DSP_TERMS", "EMBED_TERMS", "IMPLEMENTED", "NO_DI_TERMS", "PROVISIONAL_WEIGHTS", "TERMS", "Audio",
+__all__ = ["DEFAULT_WEIGHTS", "DSP_TERMS", "EMBED_TERMS", "IMPLEMENTED", "KNOWN_DI_WEIGHTS", "NO_DI_TERMS", "PROVISIONAL_WEIGHTS", "TERMS", "Audio",
            "LossKit", "Mask", "Score", "Stems"]

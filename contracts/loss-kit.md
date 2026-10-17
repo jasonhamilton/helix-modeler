@@ -13,12 +13,12 @@ Owner: `tone-metrics`. Consumed by `search`, `benchmark`, `learning`.
 
 ## Terms (names are stable; they are ledger columns)
 
-`ltas_tilt`, `crest_flatness_hnr`, `envelope`, `embed_afxrep`, `embed_fxenc`, `embed_openamp`, `delay_echo`, `reverb_tail`, `mod_periodicity`, `mrstft` (needs an aligned DI), `sepcons` (needs stems).
+`ltas_tilt`, `crest_flatness_hnr`, `envelope`, `embed_afxrep`, `embed_fxenc`, `embed_openamp`, `delay_echo`, `reverb_tail`, `mod_periodicity`, `mrstft` (needs an aligned DI), `sepcons` (needs stems), `mrstft_v2` (needs an aligned DI; added 2026-10-16 by the lead, additive: v1 rows stay comparable).
 
 ## Admission rule
 
-A term joins the default weights only after `loss-trust-check` shows it ranks the true preset first on the synthetic set at the threshold `benchmark` sets. Until then it is available but weighted 0 by default.
+A term joins the default weights only after `loss-trust-check` shows it ranks the true preset first on the synthetic set at the threshold `benchmark` sets. Until then it is available but weighted 0 by default. Terms admitted only for a mode (for example `mrstft_v2` for the known-DI mode) are listed in that mode's weights (`KNOWN_DI_WEIGHTS`), not in `DEFAULT_WEIGHTS`, because they are invalid outside it.
 
 ## Invariances
 
-Terms other than `mrstft` must be insensitive to which notes were played: `score(target, candidate_same_tone_different_notes)` must be small. That is the point of the kit and it is tested.
+Terms other than `mrstft` and `mrstft_v2` must be insensitive to which notes were played: `score(target, candidate_same_tone_different_notes)` must be small. That is the point of the kit and it is tested.

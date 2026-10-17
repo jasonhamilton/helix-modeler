@@ -42,7 +42,7 @@ import stomp_fw380 as F
 
 from tonematch import catalog as C
 from tonematch import preset as P
-from tonematch.engines.stomp import compile_document, decode_document
+from tonematch.engines.stomp import compile_document, decode_document, restore_verdict
 from tonematch.engines.stomp_layout import HX_EDIT_JOIN, HX_EDIT_SPLIT_Y
 from tonematch.engines.stomp_readback import readback_diff
 
@@ -290,7 +290,7 @@ def cmd_run(a) -> int:
                                               "lock_released", "wall_clock_s")}, indent=1, default=str))
     print("summary:", run_dir / "summary.json")
     rr = res.get("restore_report") or {}
-    return 0 if not res["errors"] and rr.get("match") and rr.get("bytes_equal_backup") else 1
+    return 0 if not res["errors"] and rr and restore_verdict(rr) else 1   # decoded equality (T097)
 
 
 def main(argv=None) -> int:

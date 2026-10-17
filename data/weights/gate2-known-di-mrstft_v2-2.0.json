@@ -1,0 +1,14 @@
+{
+  "weights": {
+    "mrstft_v2": 1.0
+  },
+  "admitted": true,
+  "mode": "known-DI (same notes, aligned DI): Gate 2 synthetic-v1 recovery",
+  "mrstft_version": "2.0",
+  "requires": "Term `mrstft_v2` (tonematch.metrics.mrstft_v2 FROZEN['2.0']), added to the loss kit as its own name (lead ruling 2026-10-16; contract loss-kit.md amended, additive).",
+  "evidence": "helix-trust-v2 TEST split, aligned/same_notes, rule-B rank-1 0.990 (v1 0.781); sep/same_notes 0.948 (v1 0.854)",
+  "ledger_row": "ledger/runs.csv 2026-10-17T00:29:36+00:00 loss-trust native helix-trust-v2 rank1_rate_audible 0.9896 term=mrstft_v2 subset=aligned/same_notes split=test",
+  "proposed_by": "tone-metrics",
+  "date": "2026-10-16",
+  "admitted_by": "tone-matcher-lead, 2026-10-16"
+}

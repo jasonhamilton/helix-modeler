@@ -214,7 +214,7 @@ def test_weights_and_names(pair):
     assert kit.score(*pair, weights={"embed_afxrep": 0.0, "envelope": 1.0}).terms.keys() == {"envelope"}
     with pytest.raises(ValueError):
         kit.score(*pair, weights={"sepcons": 1.0})
-    assert len(TERMS) == 11
+    assert len(TERMS) == 12   # mrstft_v2 added 2026-10-16 (contract amendment, additive)
 
 
 def test_cache_and_mask(pair):
@@ -313,3 +313,13 @@ def test_trust_check_without_synthetic_set_exits_2():
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "loss_trust_check.py"), "--all"],
                        check=False, capture_output=True, text=True, timeout=60)
     assert r.returncode == 2 and "--proxy" in r.stderr
+
+
+def test_known_di_weights_admit_only_mrstft_v2(pair):
+    """mrstft_v2 is admitted for the known-DI mode only, and is level-free (lead 2026-10-16)."""
+    from tonematch.metrics import DEFAULT_WEIGHTS, KNOWN_DI_WEIGHTS
+    assert KNOWN_DI_WEIGHTS == {"mrstft_v2": 1.0} and "mrstft_v2" not in DEFAULT_WEIGHTS
+    t, c = pair
+    kit = LossKit()
+    assert kit.score(t, 0.5 * t, weights=KNOWN_DI_WEIGHTS).total == pytest.approx(0.0, abs=1e-9)
+    assert kit.score(t, c, weights=KNOWN_DI_WEIGHTS).total > 0.0

@@ -334,22 +334,29 @@ def default_native_factory(name: str):
 
 
 def default_verify_restore(eng) -> dict:
-    """The pedal's edit buffer is byte-equal to the backup taken at open. Since T061 the engine checks
-    this in its own session (close(verify_bytes=True)); a fresh helper session only for engines
-    that did not."""
+    """The pedal's edit buffer is the same document as the backup taken at open: decoded equality,
+    bytes as a secondary signal (T097). Since T061 the engine checks this in its own session
+    (close(verify_bytes=True)); a fresh helper session only for engines that did not."""
+    from tonematch.engines.stomp import compare_backups, restore_verdict
+
     rr = getattr(eng, "restore_report", {}) or {}
     if "bytes_equal_backup" in rr:
         o = rr.get("original") or {}
         return {"after": {k: o.get(k) for k in ("setlist", "index", "label", "name")},
-                "bytes_equal_backup": bool(rr["bytes_equal_backup"]), "same_session": True}
+                "bytes_equal_backup": bool(rr["bytes_equal_backup"]),
+                "decoded_equal_backup": rr.get("decoded_equal_backup"),
+                "restore_compare": rr.get("restore_compare"),
+                "restore_ok": restore_verdict(rr), "same_session": True}
     from tonematch.engines.stomp_bridge import StompBridge
 
     with StompBridge() as b:
         info = b.call("info")
         after = Path(eng.backup_path).with_name("parity_after_restore.bin")
         b.call("backup", path=str(after))
-    return {"after": {k: info.get(k) for k in ("setlist", "index", "label", "name")},
-            "bytes_equal_backup": after.read_bytes() == Path(eng.backup_path).read_bytes()}
+    cmp = compare_backups(Path(eng.backup_path), after)
+    same = cmp["decoded_equal_backup"] if cmp["decoded_equal_backup"] is not None else cmp["bytes_equal_backup"]
+    return {"after": {k: info.get(k) for k in ("setlist", "index", "label", "name")}, **cmp,
+            "restore_ok": bool(same)}
 
 
 def render_all(factory, presets: dict[str, Path], dry: np.ndarray, raw_dir: Path, engine: str, reuse: bool,
@@ -499,7 +506,9 @@ def run(presets: dict[str, Path], di_path: Path, out_dir: Path, *, engines=("sto
     if "bytes_equal_backup" in rc:
         ledger(["--kind", "parity", "--engine", "stomp", "--dataset", DATASET, "--metric", "restore_bytes_equal",
                 "--value", str(int(bool(rc["bytes_equal_backup"]))), "--notes",
-                f"edit buffer byte-diff against the backup after the parity run; pedal now {rc.get('after')}"], use_ledger)
+                (f"edit buffer byte-diff against the backup after the parity run (secondary; verdict "
+                 f"restore_ok={rc.get('restore_ok')}, decoded_equal={rc.get('decoded_equal_backup')}); "
+                 f"pedal now {rc.get('after')}")], use_ledger)
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=1, default=str))
     print("summary:", out_dir / "summary.json")
     return summary

@@ -48,6 +48,7 @@ import atexit
 import datetime as dt
 import importlib.util
 import json
+import logging
 import os
 import subprocess
 import tempfile
@@ -72,9 +73,10 @@ from .stomp_bridge import BridgeError, StompBridge, helper_path, stomp_on_bus
 from .stomp_layout import ensure_sabj
 from .stomp_readback import ReadbackMismatch, check, snapshot_conflicts, sync_snapshot_controllers
 
-__all__ = ["LayoutRefused", "ReadbackMismatch", "StompEngine", "compile_document", "decode_document",
-           "merge_two_path", "reamp_hlx_dict", "two_path_fit"]
+__all__ = ["LayoutRefused", "ReadbackMismatch", "StompEngine", "compare_backups", "compile_document",
+           "decode_document", "merge_two_path", "reamp_hlx_dict", "restore_verdict", "two_path_fit"]
 
+log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[3]
 SESSION_DIR = ROOT / "cache" / "stomp" / "session"
 EPS = 1e-5
@@ -177,6 +179,72 @@ def decode_document(doc: Path, compiler: Path | None = None) -> dict:
     if not msg.get("ok"):
         raise EngineError(f"stompd decode failed: {msg.get('error')}")
     return msg["chain"]
+
+
+def _first_difference(a, b, path: str = "") -> str | None:
+    """Where two decoded documents first differ (dicts compared by key, never by order)."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        for k in sorted(set(a) | set(b), key=str):
+            if k not in a or k not in b:
+                return f"{path}.{k}: only in {'after' if k not in a else 'backup'}"
+            d = _first_difference(a[k], b[k], f"{path}.{k}")
+            if d:
+                return d
+        return None
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return f"{path}: {len(a)} vs {len(b)} items"
+        for i, (x, y) in enumerate(zip(a, b, strict=True)):
+            d = _first_difference(x, y, f"{path}[{i}]")
+            if d:
+                return d
+        return None
+    return None if a == b else f"{path}: {a!r} vs {b!r}"
+
+
+def compare_backups(backup: Path, after: Path, decoder=decode_document) -> dict:
+    """Judge a restore: is the edit buffer read after the restore the same document as the backup?
+
+    The device may re-encode a buffer after another preset was selected (2459 vs 2456 bytes in the
+    20:27Z push session, field-for-field identical once decoded), so the verdict is decoded
+    equality (lead ruling "S1 closed", 2026-10-16); the byte comparison stays as a secondary
+    signal. Without a decoder (none given, or no stompd compiler configured) the verdict falls
+    back to the bytes and says so in ``restore_compare``.
+
+    Returns ``bytes_equal_backup``, ``decoded_equal_backup`` (None when not decoded),
+    ``restore_compare`` ("bytes-identical", "decoded" or "bytes") and, when useful,
+    ``decoded_difference`` or ``decode_unavailable``."""
+    ba, bb = Path(backup).read_bytes(), Path(after).read_bytes()
+    out: dict = {"bytes_equal_backup": ba == bb}
+    if ba == bb:   # the same bytes decode to the same document
+        out.update(decoded_equal_backup=True, restore_compare="bytes-identical")
+        return out
+    if decoder is None:
+        out.update(decoded_equal_backup=None, restore_compare="bytes",
+                   decode_unavailable="no decoder configured: judged by bytes")
+        return out
+    try:
+        da, db = decoder(Path(backup)), decoder(Path(after))
+    except (EngineError, OSError, subprocess.SubprocessError) as e:
+        out.update(decoded_equal_backup=None, restore_compare="bytes",
+                   decode_unavailable=f"decode unavailable ({e}): judged by bytes")
+        return out
+    diff = _first_difference(da, db)
+    out.update(decoded_equal_backup=diff is None, restore_compare="decoded")
+    if diff is None:
+        log.info("restore: edit buffer re-encoded by the device (%d vs %d bytes), decoded identical",
+                 len(ba), len(bb))
+    else:
+        out["decoded_difference"] = diff
+    return out
+
+
+def restore_verdict(report: dict) -> bool:
+    """The headline restore verdict from a restore report: ``restore_ok`` when present, otherwise
+    (reports written before T097) chain match and byte equality."""
+    if "restore_ok" in report:
+        return bool(report["restore_ok"])
+    return bool(report.get("match", True)) and bool(report.get("bytes_equal_backup"))
 
 
 def reamp_hlx_dict(preset, input_value: int, sync_snapshots: bool = True) -> dict:
@@ -1029,22 +1097,33 @@ class StompEngine:
 
     def close(self, verify_bytes: bool = False) -> None:
         """Restore the original preset and end the session. With ``verify_bytes`` the edit buffer
-        is backed up again in the SAME session and byte-compared with the backup taken at open
-        (``restore_report["bytes_equal_backup"]``), so no second session is needed (T061 item 1)."""
+        is backed up again in the SAME session and compared with the backup taken at open, so no
+        second session is needed (T061 item 1).
+
+        The verdict is ``restore_report["restore_ok"]`` = chain match and ``decoded_equal_backup``
+        (both buffers decoded and deep-compared, T097); ``bytes_equal_backup`` is kept as a
+        secondary signal, and is the verdict when no decoder is available (``restore_compare``
+        says which). Without ``verify_bytes``, ``restore_ok`` is the chain match alone
+        (``restore_compare`` "chain-only")."""
         if self._closed:
             return
         self._closed = True
         try:
-            self.restore_report = self._restore()
+            self.restore_report = rr = self._restore()
+            match = bool(rr.get("match"))
+            rr.update(restore_ok=match, restore_compare="chain-only")
             if verify_bytes:
                 try:
                     after = Path(self.backup_path).with_name(Path(self.backup_path).stem + "_after_restore.bin")
                     self.bridge.call("backup", path=str(after))
-                    self.restore_report["bytes_equal_backup"] = after.read_bytes() == Path(self.backup_path).read_bytes()
-                    self.restore_report["after_backup"] = str(after)
+                    rr["after_backup"] = str(after)
+                    rr.update(compare_backups(Path(self.backup_path), after, self._decoder))
+                    same = (rr["decoded_equal_backup"] if rr["decoded_equal_backup"] is not None
+                            else rr["bytes_equal_backup"])
+                    rr["restore_ok"] = match and bool(same)
                 except (BridgeError, OSError) as e:
-                    self.restore_report["bytes_equal_backup"] = False
-                    self.restore_report["verify_error"] = str(e)
+                    rr.update(bytes_equal_backup=False, decoded_equal_backup=None, restore_compare="failed",
+                              restore_ok=False, verify_error=str(e))
         finally:
             self.bridge.close()
 
