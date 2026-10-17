@@ -8,29 +8,29 @@
  "assessments": {
   "health": {
    "value": "At Risk",
-   "rationale": "The first test of the tone comparison on real Helix sound has been run and no measure passed, so the first Gate 2 test cannot be passed yet. There is a practical way forward (score the test against the clean recording lined up with the target, and treat look-alikes that sound identical as ties), but it needs the owner's choice and a re-test. The first milestone is signed off and no hard blocker remains outside that decision, so the project is At Risk rather than Blocked."
+   "rationale": "Gate 2's central obstacle is gone: the tone comparison was admitted for the known-answer case on 2026-10-17 (0.990 against a 0.90 bar). But Gate 2 runs are paused until the human's top-priority check that settings land exactly and renders repeat has passed, and its first results are mixed (no wrong settings found, but one of 216 repeat renders missed the agreed line). The threshold freeze, the full 96-item run and the human sign-off have not happened, and the baselines and model-choice results are not yet recorded in the ledger. Real-song separation and the chain builder are untested. At Risk, not Blocked: the check is running and there is other work to do meanwhile."
   },
   "technical": {
    "value": "Advancing",
-   "rationale": "Engineering keeps moving quickly. The software engine now holds all but two of the pedal's 607 effect models, its delay times move in 10 ms steps, and measurements show it can stand in for the pedal on amps, cabinets, dynamics, equalisers, most drives, delays, most reverbs and the modulation effects. Two-chain passes on the pedal match single-chain passes. The known-answer test set and its runner exist, and a separation stress curve is recorded. Search changes and a further round of engine work are still being finished and are not yet committed.",
+   "rationale": "Engineering keeps moving. The tone comparison is tuned and admitted for single blocks with a known clean recording, the Gate 2 scoring rules are coded, model choice is built, the pedal's two-chain pass equals serial renders and is about 1.7 times faster, the chain-pattern prior and a blind-listening tool exist, and verification suites for both engines are being run. Several pieces (out-of-range values, a real-guitar smoke test, block-presence detection, the chain builder, analysis of the local preset and cabinet libraries) are in progress and not yet committed or recorded.",
    "breakdown": {
-    "implemented": "Control of both sound engines, preset reading and writing, guitar separation, a reference clean-guitar picker, four tone-comparison measures, an optimiser that now frees every verified setting over its range, the library of 605 single-block Native templates, the 96-item known-answer set and its runner, and a block measuring kit.",
-    "integrated": "A hand-run script takes one prepared song section through separation, clean-guitar choice, search and preset export on one machine. Nothing runs from a single command and the pedal check is manual.",
-    "tested": "Automated tests cover all of the above (last verified run: 581 passed, 27 skipped, lint clean, on the committed code). The trust check and the effect-agreement measurements used real Helix sound from Native and the pedal.",
-    "verified": "Engine control, preset checking, the Native block library (every template replayed in a fresh host), pedal layout agreement and two-chain passes were verified on real hardware (macOS, firmware 3.80). Matching quality is verified only by one informal listen, not by a blind test, and the tone comparison failed its first real-sound check.",
-    "unfinished": "A tone comparison that passes, the full known-answer run (96 items), block fingerprints, a one-command song-to-preset tool, blind listening, the pedal audio comparison of two-chain passes (the Mac's audio failed during the session), and anything beyond macOS."
+    "implemented": "Control of both sound engines, preset reading and writing, guitar separation, a reference clean-guitar picker, five tone-comparison measures (one admitted for the known-clean-recording case), an optimiser that frees every verified setting, the 605-template Native library with fingerprints for 602 models, the 96-item known-answer set and runner (scoring rules 2 and 3 coded), model choice per slot, a chain-pattern prior, a blind A/B listening tool, and an opt-in song-lookup probe.",
+    "integrated": "A hand-run script takes one prepared song section through separation, clean-guitar choice, search and preset export on one machine. Nothing runs from a single command; the pedal check is manual; the chain builder is not built.",
+    "tested": "Last verified suite run: commit 68f0310, lint clean, 750 passed, 28 skipped on the committed set (no tests were run for this report because several agents are editing code). Real Helix sound from Native was used for the tone-comparison tuning and test, and the first two Native verification checks.",
+    "verified": "Engine control, preset checking, the Native block library, pedal layout agreement, two-chain passes (now including audio) and decoded-equality restore were verified on real hardware (macOS, firmware 3.80). The tone comparison passed its registered bar on Helix sound for single blocks with a known recording. Matching quality on real songs is verified only by one informal listen, not a blind test.",
+    "unfinished": "The setting-and-consistency verification (Native and pedal), the threshold freeze, the full 96-item run, model-choice re-run with the admitted comparison, block-presence detection, the chain builder, a one-command song-to-preset tool, blind listening, song-context testing, and anything beyond macOS."
    }
   },
   "readiness": {
    "stage": "Prototype",
-   "rationale": "Important pieces have been demonstrated: a real song was matched by a script, the preset loaded on the pedal and the owner listened to it, and the software engine is now a measured stand-in for the pedal on most effect types. The pieces are not yet shown to work together reliably.",
-   "blocker_to_next": "Integrated needs one command from song to a pedal-checked preset, using a tone comparison that has been shown to pick correctly. The comparison failed its first check on real Helix sound and the one-command tool does not exist."
+   "rationale": "Important pieces have been demonstrated: a real song was matched by a script, the preset loaded on the pedal and the owner listened to it, and the tone comparison now passes on single-block known-answer Helix sound. The pieces are not yet shown to work together: the known-answer run is paused, and the song-to-preset path has not been repeated with the admitted comparison.",
+   "blocker_to_next": "Integrated needs one command from song to a pedal-checked preset using a comparison that works without a lined-up clean recording (only the known-recording case is admitted), plus a chain builder (not built). Gate 2 evidence is also still incomplete."
   }
  },
- "summary": "The goal is a tool that listens to a recorded guitar tone and builds a matching preset for the HX Stomp pedal. The building blocks are well developed: both sound engines run from code, the software engine has learned every pedal effect except two, and measurements show it can stand in for the pedal on most effect types. The decisive test has now been run on real Helix sound, and it failed. None of the tone-comparison measures picks the true preset reliably, mainly because they react more to which notes were played than to the tone itself. Until that is fixed, automatic matching cannot be relied on, and no blind listening has happened. The next step is the owner's choice on how that test is scored, followed by a re-run.",
+ "summary": "The goal is a tool that listens to a recorded guitar tone and builds a matching preset for the HX Stomp pedal. The main obstacle from last time is cleared: the way the tool scores how close two sounds are now picks the right answer almost every time on single effects when the clean guitar recording is known, passing the agreed test. The new direction is to get single effects right first and build whole chains from analysis of real presets. Nothing yet works from a song to a finished preset in one step, matching on real songs is unmeasured, and the full known-answer test is paused until a check that settings land exactly and sounds repeat has passed. Its first results are good but not clean. The next step is finishing that check, then the full test.",
  "biggest_problem": {
-  "issue": "tone-comparison-unvalidated",
-  "why": "Every automatic decision the tool makes (which preset is better, when to stop searching) depends on this comparison. On real Helix sound the best a measure managed, on new notes from the same recording, was about 7 correct picks in 40 (guessing gives 2); the working bar is 36."
+  "issue": "gate2-paused-verification",
+  "why": "Every result depends on the engines applying the settings the tool asks for and repeating their renders. The human made that check the top priority, so Gate 2 runs are paused until it passes. So far no wrong settings were found, but one of 216 repeat renders missed the agreed line (-97.4 dB against -100 dB), so the repeat check has not passed as registered. Until it does, the full 96-item run and the threshold freeze wait."
  },
  "ear_qualifier": "informal, not blind",
  "milestones": {
@@ -56,24 +56,29 @@
   },
   "Gate 2": {
    "tier": "Core method",
-   "state": "At Risk",
+   "state": "In Progress",
    "goal": "Show the tool can recover a known answer: given audio made from a preset we already know, its comparison measure picks the true preset and its search finds the right blocks and settings, at thresholds agreed in advance.",
    "criteria_plain": [
     "On the known-answer set, the tone-comparison measure ranks the true preset first at the agreed threshold.",
     "Block types, amp and effect models, and parameter values are identified within the agreed accuracy.",
     "A curve showing how accuracy falls as guitar separation gets worse has been recorded."
    ],
-   "demonstrated": "One of three evidence items is ticked: the separation stress curve (on a synthetic mix, guitar-only quality 21.2 dB falling to 7.3 dB with a second guitar added). The known-answer set (96 one-block presets) and its runner are built; a 3-item provisional run put the true preset first 0 of 3 times on new notes and is not gate evidence. The first trust check on real Helix sound (40 known chains, 2,400 renders) admitted no measure: on new notes at most 7 of 40 against the working bar of 36; with the same notes and a lined-up recording the best measure reached 0.725 (0.875 ignoring look-alikes that sound identical), still under 0.90.",
-   "remaining": "Fix and re-test the comparison, run the full 96-item recovery test (about 16 minutes on 6 hosts), measure baselines and freeze the thresholds, and the owner's sign-off.",
-   "blocking": "No comparison measure passes on real Helix sound, and the scoring rules for the test await the owner's choice.",
-   "next_action": "Owner chooses the scoring options; then re-run the trust check, then the full 96-item run.",
+   "demonstrated": "One of three evidence items is ticked: the separation stress curve (synthetic mix, 21.2 dB falling to 7.3 dB with a second guitar). The tone comparison is admitted for the known-clean-recording mode: tuned on a train split, then scored once on a held-out split of 96 single-block items, it ranked the true preset first 0.990 of the time against a 0.90 bar, counting look-alikes that sound identical as ties (older measure 0.781; ledger 2026-10-17). With separation stand-in audio it reached 0.948 (proposed for admission separately). Scoring rules 2 and 3 are coded. Chain structure is waived for Gate 2 (single blocks only; human decision). Reported by the lead but not yet in the ledger, so not counted as evidence: the middle and random baselines on a 16-item development set; the full-96 middle baseline is done and the random one is partial; model choice tied the old pool pass (7 of 16 models) under the old provisional score, and its re-run with the admitted score was interrupted.",
+   "remaining": "Record and finish the baselines, re-run model choice with the admitted score, freeze the thresholds (2b and 2c), run the full 96 items, and the human review and sign-off. The 'ranks the true preset first' tick needs the full run, not the held-out trust check alone.",
+   "blocking": "Gate 2 runs are paused until the setting-and-consistency verification passes (human top priority). It is running for Native and for the pedal; Native's repeat check missed its line on one render of 216.",
+   "next_action": "Agents finish the Native and pedal verification; then thresholds are frozen and the full 96-item run starts. The owner is not needed until the review.",
    "evidence": [
+    "ev-trust-v2-test",
+    "ev-trust-v2-train",
+    "ev-native-verify-baked",
+    "ev-native-verify-repeat",
     "ev-helix-trust",
     "ev-sep-stress",
     "ev-synth-n3",
     "ev-loss-proxy",
     "ev-synth-design",
-    "ev-gates"
+    "ev-gates",
+    "ev-decisions"
    ]
   },
   "Gate 3": {
@@ -84,39 +89,64 @@
     "The difference between the pedal and Native on firmware 3.80 has been recorded.",
     "Native-mode and pedal-mode matching have been compared on the same songs."
    ],
-   "demonstrated": "One song section was matched and listened to informally (not blind). Pedal-versus-Native agreement on firmware 3.80 is recorded (ticked): amps cancel at -37.5 to -47.5 dB and cabinets at -35.4 to -37.4 dB, dynamics and equalisers pass, and later measurements set out which effect types Native can stand in for. The comparison of the two modes on the same songs has not been run.",
-   "remaining": "Gate 2, the 20-song set, a blind listening tool and sessions, and the Native-versus-pedal comparison on songs.",
-   "blocking": "Depends on Gate 2, on song selection, and on a blind listening tool that does not exist yet.",
+   "demonstrated": "One song section was matched and listened to informally (not blind). Pedal-versus-Native agreement on firmware 3.80 is recorded (ticked): amps cancel at -37.5 to -47.5 dB and cabinets at -35.4 to -37.4 dB, dynamics and equalisers pass. Groundwork exists: a chain-pattern prior from 129 presets (drive before amp 55 of 55, amp before cab 90 of 90, delay before reverb 96 percent), and a blind A/B listening tool (built; no session rated). The Native-versus-pedal comparison on songs has not been run.",
+   "remaining": "Gate 2, the chain builder (block-presence detection is in progress, chain structure moved here from Gate 2), the 20-song set, blind sessions, and the Native-versus-pedal comparison on songs.",
+   "blocking": "Depends on Gate 2, on the chain builder, and on song selection.",
    "next_action": "Wait for Gate 2. The owner can start choosing songs now.",
    "evidence": [
     "ev-ab-informal",
     "ev-parity-380",
     "ev-parity-stimuli",
-    "ev-parity-flanger"
+    "ev-parity-flanger",
+    "ev-chain-prior",
+    "ev-song-context"
    ]
   }
  },
  "issues": [
   {
-   "id": "tone-comparison-unvalidated",
-   "title": "The tone comparison is not validated",
+   "id": "gate2-paused-verification",
+   "title": "Gate 2 runs are paused until engine settings and renders are verified",
    "priority": "Critical",
    "classification": "Active Blocker",
    "executive": true,
-   "problem": "The tool scores how close two guitar sounds are with several measures. On real Helix sound (40 known presets, each against 19 look-alikes) none ranks the true preset first often enough: on a different passage of the same recording the best managed about 7 times in 40 (guessing: 2), against a working bar of 36. With the exact same notes and a lined-up recording one measure reached 29 of 40 (0.725), still short.",
-   "impact": "The optimiser cannot be trusted to pick a genuinely matching preset, so the first Gate 2 test cannot pass and automatic matching cannot be offered. On the one real song, the top two candidates scored 6.935 and 6.950 (lower is better), too close to mean anything, while the listener clearly preferred one.",
-   "cause": "The measures move more with which notes were played than with the tone. About 1 in 10 of the look-alikes are in fact the same sound (they cancel at -30 dB or below), which no measure can rank. Reweighting the measures did not help (new-notes score stayed at 0.15).",
-   "resolution": "Choose the scoring options (see the action list): tune the same-notes measure for the lined-up case and count identical-sounding look-alikes as ties; later make the no-recording measures insensitive to the notes, or learn a guitar-specific comparison.",
-   "owner": "tone-metrics and benchmark; the owner chooses the options and the lead freezes the thresholds",
-   "next_step": "Owner picks the scoring options; tone-metrics then re-runs the trust check on fresh seeds.",
+   "problem": "The human made one check the top priority: that the settings the tool asks for actually land in each engine, and that renders repeat. It is running for Native (native-verify-v1) and for the pedal (stomp-verify-v1). Native results so far: no baked-value violations, but one of 216 repeat renders (a stacked chain on one of the extra hosts) landed at -97.4 dB against the -100 dB line; as registered, the repeat check has not passed.",
+   "impact": "The full 96-item known-answer run, the threshold freeze and the sign-off wait; if the check finds real faults, earlier Native results may need re-measuring.",
+   "cause": "Not yet known for the one miss. Earlier slowdowns and agent stalls were traced to the Mac going to sleep, so long jobs now run under caffeinate (lead's report; not yet in the decision log). The pedal check has no ledger row yet.",
+   "resolution": "Finish both suites, report any miss as a miss, explain or fix the one repeat failure, then freeze the thresholds and run the 96 items.",
+   "owner": "native-engine and stomp-engine; the lead releases the pause",
+   "next_step": "native-engine completes the remaining checks (including the canary and sentinel checks); stomp-engine runs the pedal check.",
+   "components": [
+    "engines",
+    "testing"
+   ],
+   "evidence": [
+    "ev-native-verify-baked",
+    "ev-native-verify-repeat",
+    "ev-decisions",
+    "ev-board"
+   ]
+  },
+  {
+   "id": "tone-comparison-known-di-only",
+   "title": "The tone comparison is only admitted when the clean recording is known",
+   "priority": "High",
+   "classification": "Risk",
+   "executive": true,
+   "problem": "The tool's comparison measure passed its registered test on single-block Helix sound (0.990 against a bar of 0.90), but only for the case where the clean guitar recording behind the target is known and lined up. The earlier tests of the song case, where no clean recording exists, failed (about 7 correct in 40 on different notes). The song case with a separation stand-in reached 0.948 on single blocks and is not yet admitted; drive effects are its weak category.",
+   "impact": "Gate 2 can be passed on this footing, but real songs have no lined-up clean recording, so Gate 3 matching has no validated score yet. On the one real song tried, the top two candidates were nearly tied.",
+   "cause": "Level-free spectral comparison works when the notes match; it reacts to which notes were played when they do not. Four of seven test misses were drive Output changes, which this measure cannot see by design (a level guard handles loudness).",
+   "resolution": "Admit the song case separately once an aligned recording exists, add note-proof measures for the no-recording case (deferred option C), and re-test on real separated songs.",
+   "owner": "tone-metrics; the lead decides admission",
+   "next_step": "Propose admission of the separated-song case with the drive weakness named; defer note-proof measures until Gate 3 planning.",
    "components": [
     "judging"
    ],
    "evidence": [
+    "ev-trust-v2-test",
     "ev-helix-trust",
     "ev-ab-informal",
-    "ev-synth-design",
-    "ev-loss-proxy"
+    "ev-decisions"
    ]
   },
   {
@@ -130,7 +160,7 @@
    "cause": "Not yet known. Candidates are an older algorithm in the pedal, a different parameter scale, or a delay-structure difference. Other parameters tested at their extremes agreed.",
    "resolution": "Find the cause, or measure every searchable parameter on both engines and let the search free only the parameters that agree.",
    "owner": "native-engine and stomp-engine; benchmark for the per-parameter audit",
-   "next_step": "Keep the setting at 0 for pedal presets and let the pedal check it (the accepted rule); the per-parameter audit is replaced by the spot checks.",
+   "next_step": "Keep the setting at 0 for pedal presets and let the pedal check it (the accepted rule); the verification suites cover settings generally.",
    "components": [
     "engines"
    ],
@@ -161,30 +191,11 @@
    ]
   },
   {
-   "id": "no-blind-listening",
-   "title": "No blind listening has happened, and the tool for it does not exist",
-   "priority": "Medium",
-   "classification": "Unknown/Unverified",
-   "executive": true,
-   "problem": "The only listening so far was informal and unblinded. The tool that prepares blind A/B sessions is not built.",
-   "impact": "Whether matches actually sound better than a ready-made preset is unknown, and Gate 3 cannot start.",
-   "cause": "Blind sessions need matched presets from the whole pipeline, which does not exist yet.",
-   "resolution": "Build the session tool once the pipeline produces candidates, then run sessions on the chosen songs.",
-   "owner": "benchmark builds the tool; the owner listens",
-   "next_step": "Nothing until Gate 2 produces trustworthy candidates; avoid asking the owner to listen earlier.",
-   "components": [
-    "testing"
-   ],
-   "evidence": [
-    "ev-ab-informal"
-   ]
-  },
-  {
    "id": "native-coverage-gaps",
    "title": "The software engine cannot stand in for every pedal effect",
    "priority": "Medium",
    "classification": "Risk",
-   "executive": true,
+   "executive": false,
    "problem": "Measurements show Native can stand in for the pedal on amps, cabinets, dynamics, equalisers, most drives, delays, Room, Plate, Spring and Chamber reverbs, Hall above 500 Hz, and the modulation effects. It cannot for Ganymede-type reverbs, Hall on bass-heavy material, Bitcrusher-type drives and the cabinet Early Reflections setting, and blocks that modulate on their own are left out of the search unless asked for.",
    "impact": "Presets that use those effects must be checked on the pedal, which is slower; the block library also has no measured fingerprints yet, so models are not yet chosen from measurements.",
    "cause": "The two engines run some effects differently, and Native's control steps limit fine settings (now 10 ms for delay time instead of 63 ms).",
@@ -247,7 +258,7 @@
    "priority": "Low",
    "classification": "Confirmed Problem",
    "executive": false,
-   "problem": "Several task lines say less or more than the ledger shows (see the technical details for the list).",
+   "problem": "Several task lines say less or more than the ledger shows (see the technical details). Duplicate task ids were renumbered on 2026-10-17: T106 IR library, T107 A/B tool, T108 Stomp verification.",
    "impact": "Anyone reading only the board will misjudge progress; no product impact.",
    "cause": "Work moved faster than board edits.",
    "resolution": "The lead updates the lines at the next planning step.",
@@ -259,67 +270,57 @@
    "evidence": [
     "ev-board"
    ]
+  },
+  {
+   "id": "chain-builder-unproven",
+   "title": "Building whole chains from single blocks is not yet shown to work",
+   "priority": "Medium",
+   "classification": "Unknown/Unverified",
+   "executive": true,
+   "problem": "Under the new direction, single blocks are matched first and chains are built from analysis: which kinds of block are present, ordered by common patterns. The pattern prior exists (129 presets), the block-presence detector is in progress and has not been scored on its test split, and the chain builder is not built.",
+   "impact": "Gate 3 (real songs) needs whole chains; single-block success does not show they can be assembled correctly, and stacked blocks are untested for presence detection.",
+   "cause": "The approach was chosen on 2026-10-17; the multi-block render set to test stacking is only proposed.",
+   "resolution": "Finish the detector and score it once; render the proposed multi-block set after the Native verification; build the chain builder.",
+   "owner": "tone-metrics (detector), preset-schema (prior), search (builder)",
+   "next_step": "tone-metrics scores the detector's test split once; the lead schedules the multi-block render set after the verification.",
+   "components": [
+    "searching",
+    "judging"
+   ],
+   "evidence": [
+    "ev-chain-prior",
+    "ev-decisions",
+    "ev-board"
+   ]
+  },
+  {
+   "id": "no-blind-listening",
+   "title": "No blind listening has happened (the tool is now built)",
+   "priority": "Medium",
+   "classification": "Unknown/Unverified",
+   "executive": false,
+   "problem": "The only listening so far was informal and unblinded. The blind A/B tool is built but has not been used in a session.",
+   "impact": "Whether matches sound better than a ready-made preset is still unknown; Gate 3 cannot start.",
+   "cause": "Sessions need matched presets from the whole pipeline, which does not exist yet.",
+   "resolution": "Run sessions once the pipeline produces candidates; an optional short listen can accompany the Gate 2 review.",
+   "owner": "benchmark prepares sessions; the owner listens",
+   "next_step": "Nothing until Gate 2 and the chain builder produce candidates.",
+   "components": [
+    "testing"
+   ],
+   "evidence": [
+    "ev-ab-informal",
+    "ev-board"
+   ]
   }
  ],
  "actions": [
-  {
-   "id": "gate2-scoring",
-   "group": "blocking",
-   "priority": "Critical",
-   "title": "Choose how the Gate 2 comparison test is scored",
-   "why": "On real Helix sound no measure passes under any reading, and about 1 in 10 of the look-alikes in the test sound identical to the true preset, which no measure can rank. The scoring rules decide what can pass. Recommended: (A) tune the same-notes measure for the case where the clean recording is lined up with the target, and (B) count look-alikes that cancel at -30 dB or below as ties.",
-   "unblocks": "Re-running the trust check with rules that can be met, freezing the Gate 2 thresholds, and the full 96-item recovery run.",
-   "recommended": "Options A and B.",
-   "defer": "Gate 2 stays unmeasurable; the comparison work can only stay at proposals.",
-   "covers": [
-    "Decide the Gate 2 scoring options"
-   ]
-  },
-  {
-   "id": "coreaudio",
-   "group": "soon",
-   "priority": "High",
-   "title": "Bring the Mac's audio back and check the pedal's blocks can be edited",
-   "why": "Every audio stream failed during the last pedal session (the pedal and the Mac's own output), so the audio comparison of two-chain passes was not run; control steps passed.",
-   "unblocks": "The two-chain versus single-chain audio check and any further pedal audio work.",
-   "recommended": "Replug the pedal's USB cable, restart the Mac's audio service or reboot; then confirm the blocks are editable (unplug the USB cable if not).",
-   "defer": "Pedal audio work waits; Native work continues.",
-   "covers": [
-    "Bring CoreAudio back"
-   ]
-  },
-  {
-   "id": "push-commit",
-   "group": "soon",
-   "priority": "Medium",
-   "title": "Push the next commit once the engine work lands",
-   "why": "The search changes and the engine updates are written but not committed; the last verified commit is 44591df.",
-   "unblocks": "A public record of the latest work and a clean base for the Gate 2 scoring work.",
-   "recommended": "Push after both engine updates finish and the tests pass.",
-   "defer": "The work stays local; no product impact.",
-   "covers": [
-    "Push the next commit"
-   ]
-  },
-  {
-   "id": "gate2-later-options",
-   "group": "later",
-   "priority": "Medium",
-   "title": "Decide whether to make the no-recording measures note-proof or train a guitar-specific comparison",
-   "why": "These are the two longer routes (C and D): measures that ignore which notes were played, which Gate 3 needs because it has no lined-up recording, and a learned guitar-specific comparison.",
-   "unblocks": "Scoring when no clean recording is available (Gate 3) and the learning stage.",
-   "recommended": "Wait for options A and B to be tested first; then do C for Gate 3. D is a larger piece of work.",
-   "defer": "Gate 3 scoring has no answer until chosen, but nothing before Gate 2 needs it.",
-   "covers": [
-    "Decide the note-proof measures"
-   ]
-  },
   {
    "id": "choose-songs",
    "group": "soon",
    "priority": "High",
    "title": "Choose the first real songs for local testing",
-   "why": "Separation quality is unmeasured and the final test needs 20 songs. Pick a few now, spanning clean to high-gain tones; the full 20 can follow.",
+   "why": "Separation quality on real songs is unmeasured and the final test needs 20 songs. Pick a few now spanning clean to high-gain tones; the full 20 can follow.",
    "unblocks": "The separation stress test and the song set for Gate 3.",
    "recommended": "Three to five songs now, local only; audio never leaves the machine.",
    "defer": "Separation risk stays unmeasured and Gate 3 cannot be scheduled.",
@@ -408,32 +409,47 @@
    ]
   },
   {
-   "id": "early-reflections-ruling",
-   "group": "later",
-   "priority": "Low",
-   "title": "Rule on how to treat the cab Early Reflections setting if it cannot be matched",
-   "why": "Only needed if the agents cannot find a cause for the mismatch.",
-   "unblocks": "Whether that setting is fixed at 0 permanently.",
-   "recommended": "Wait for the agents' per-parameter audit.",
-   "defer": "The rule 'keep it at 0 for the pedal' already applies.",
-   "covers": [
-    "Decide how Early Reflections should be handled"
-   ]
-  },
-  {
    "id": "blind-listening-and-signoff",
    "group": "later",
    "priority": "Medium",
-   "title": "Rate the blind sessions and sign off Gates 2 and 3 when evidence exists",
-   "why": "Only the owner can listen and sign. No session or evidence exists yet.",
+   "title": "Review Gate 2 once the full run is done, and sign off Gates 2 and 3 when evidence exists",
+   "why": "Only the owner can review and sign. The full 96-item run has not happened and no blind session has been rated.",
    "unblocks": "Gate 2 and Gate 3 sign-off.",
-   "recommended": "Wait to be asked.",
+   "recommended": "Wait to be asked; the review comes after the verification, the threshold freeze and the full run.",
    "defer": "Not applicable yet.",
    "covers": [
     "Listen blind to the DS-Sample candidates",
     "Rate blind sessions when they exist",
     "Sign off Gates 2 and 3"
    ]
+  },
+  {
+   "id": "song-list",
+   "group": "soon",
+   "priority": "Medium",
+   "title": "Provide about 130 songs with known artist and title for the song-context test",
+   "why": "Song lookups (MusicBrainz, opt-in, artist and title only) were approved. A live probe found 3 of 3 songs, but years and tags need a second lookup, so the larger test needs a list with reliable names.",
+   "unblocks": "Measuring whether artist and title give a useful prior for the chain builder and search.",
+   "recommended": "A plain list of artist and title pairs; no audio is needed.",
+   "defer": "The song-context idea stays unmeasured; nothing else depends on it.",
+   "covers": [
+    "Supply songs with known artist and title"
+   ],
+   "standalone": true
+  },
+  {
+   "id": "discogs-terms",
+   "group": "later",
+   "priority": "Low",
+   "title": "Read the Discogs terms if Discogs is wanted as a second source",
+   "why": "The approved source is MusicBrainz only. Discogs would add artist-gear detail, but its terms have not been read for this use.",
+   "unblocks": "A possible second metadata source.",
+   "recommended": "Only read them if MusicBrainz proves too thin.",
+   "defer": "None; MusicBrainz is enough to start.",
+   "covers": [
+    "Read the Discogs terms"
+   ],
+   "standalone": true
   }
  ],
  "agent_owned": [
@@ -504,12 +520,20 @@
     ]
    },
    {
-    "capability": "Render two chains in one pedal pass",
-    "reality": "A two-chain pass matches each chain rendered alone on firmware 3.80 (Path A -72.9 dB, Path B -52.6 dB); the code to use it (two renders per pass) is written and read back on the pedal, but its audio comparison was not run because the Mac's audio failed.",
+    "capability": "Render two variants in one pedal pass",
+    "reality": "A two-variant pass equals serial renders on firmware 3.80: path A -78.5 and -85.1 dB, path B -60.4 and -78.6 dB, each below the serial repeat floor, at about 1.7 s per variant (earlier: about 2.9 s). Measured on one pedal and two chain pairs.",
     "evidence": [
+     "ev-render-many-stomp",
      "ev-twopath-parity",
-     "ev-stomp-push",
-     "ev-stomp-audio"
+     "ev-stomp-push"
+    ]
+   },
+   {
+    "capability": "Restore the pedal after a session, judged by decoded equality",
+    "reality": "The restored preset decodes identical to the backup. Raw bytes differed by 3 because the pedal re-encodes after another preset is selected, so the byte check is secondary. The offline re-check used hardware buffers.",
+    "evidence": [
+     "ev-restore-decoded",
+     "ev-render-many-stomp"
     ]
    }
   ],
@@ -523,8 +547,9 @@
    },
    {
     "capability": "Judge tone similarity reliably",
-    "reality": "Tested on real Helix sound: no measure passes (at most 7 of 40 on new notes against a bar of 36); the best exact-notes case reached 0.725. No measure is admitted.",
+    "reality": "One measure is admitted for single blocks when the clean recording is known: 0.990 on a held-out Helix split against a 0.90 bar (older measure 0.781). With separation stand-in audio 0.948, not admitted. Without a known recording the earlier tests failed (about 7 of 40). Not tested on real songs; the ear has not judged it.",
     "evidence": [
+     "ev-trust-v2-test",
      "ev-helix-trust",
      "ev-loss-proxy"
     ]
@@ -546,11 +571,12 @@
    },
    {
     "capability": "Search for blocks and settings",
-    "reality": "Ran on one real song; now frees every verified setting over its range. Recovery of known answers: the first 3-item provisional run found the true preset first 0 of 3 times; the full run is not done.",
+    "reality": "Ran on one real song; frees every verified setting over its range. Model choice per slot is built; on a 16-item development set it tied the old pool pass (7 of 16 models) under the old provisional score, and its re-run with the admitted score was interrupted. The full recovery run is paused.",
     "evidence": [
      "ev-synth-design",
      "ev-synth-n3",
-     "ev-clip-study"
+     "ev-clip-study",
+     "ev-decisions"
     ]
    },
    {
@@ -562,8 +588,9 @@
    },
    {
     "capability": "Measure each block's behaviour with a test signal",
-    "reality": "Validated on 14 non-Helix test blocks; the Helix measurement (fingerprints) is in progress.",
+    "reality": "Fingerprints exist for 602 of 605 Native library models (24 settings silent by design, such as effect loops without a return); whether they improve model choice is not yet shown.",
     "evidence": [
+     "ev-fingerprints",
      "ev-probe-synth"
     ]
    },
@@ -572,6 +599,21 @@
     "reality": "Built and tested with fake devices; some takes exist; accuracy not measured.",
     "evidence": [
      "ev-ab-informal"
+    ]
+   },
+   {
+    "capability": "Predict typical chain order",
+    "reality": "A bigram prior from 129 presets (drive before amp 55 of 55, amp before cab 90 of 90, delay before reverb 96 percent). Aggregate statistics only; not used by a chain builder yet.",
+    "evidence": [
+     "ev-chain-prior"
+    ]
+   },
+   {
+    "capability": "Native applies the requested settings exactly and repeats renders",
+    "reality": "Under test (native-verify-v1): zero baked-value violations; 215 of 216 repeat renders within the line, the worst at -97.4 dB against -100 dB, so the repeat check has not passed as registered. Other checks are pending.",
+    "evidence": [
+     "ev-native-verify-baked",
+     "ev-native-verify-repeat"
     ]
    }
   ],
@@ -583,10 +625,6 @@
    {
     "capability": "Produce up to three tone snapshots from one song",
     "reality": "Not implemented end to end."
-   },
-   {
-    "capability": "Run blind listening sessions",
-    "reality": "The session tool is not built."
    },
    {
     "capability": "Learned predictor for good starting points",
@@ -602,15 +640,100 @@
    },
    {
     "capability": "Run the full known-answer test on Helix audio",
-    "reality": "The 96-item set and runner are built; only a 3-item provisional run has been made."
+    "reality": "The 96-item set and runner are built; the full run is paused until the verification passes. Only a 3-item provisional run exists in the ledger."
    },
    {
-    "capability": "Measured fingerprints for each block in the library",
-    "reality": "In progress; the 605 templates exist but are not yet measured."
+    "capability": "Run blind listening sessions",
+    "reality": "The session tool is built; no session has been prepared or rated."
+   },
+   {
+    "capability": "Build a whole chain from single-block analysis",
+    "reality": "Not built. The pattern prior exists; block-presence detection is in progress."
+   },
+   {
+    "capability": "Look up song context",
+    "reality": "An opt-in lookup is designed and a 3-song live probe was reported; years and tags need a second lookup. Nothing is wired into matching."
    }
   ]
  },
  "recent_changes": [
+  {
+   "date": "2026-10-17",
+   "kind": "activity",
+   "text": "Engine work held back while the verification runs: out-of-range values (E3) and a real-guitar smoke test (E6) are in progress and uncommitted. The on-demand capture opened one editor window per preset, the human noticed it, and it is to stay off by default. data/presets and data/ir are now ignored by version control (data/presets was not before).",
+   "evidence": [
+    "ev-decisions",
+    "ev-board"
+   ]
+  },
+  {
+   "date": "2026-10-16",
+   "kind": "problem",
+   "text": "Model choice tied the old pool pass at 7 of 16 development models under the old provisional score, and the re-run with the admitted score was interrupted. The development baselines (middle and random) are reported by the lead but have no ledger row yet.",
+   "evidence": [
+    "ev-decisions",
+    "ev-board"
+   ]
+  },
+  {
+   "date": "2026-10-17",
+   "kind": "problem",
+   "text": "The Native verification suite gave its first two results: no baked-value violations, but 215 of 216 repeat renders met the -100 dB line and one stacked-chain render on an extra host reached only -97.4 dB. As registered the repeat check has not passed. Gate 2 runs are paused until the whole verification passes.",
+   "evidence": [
+    "ev-native-verify-baked",
+    "ev-native-verify-repeat"
+   ]
+  },
+  {
+   "date": "2026-10-16",
+   "kind": "improvement",
+   "text": "Native block fingerprints were measured for 602 of 605 library models (24 of about 3,600 settings were silent, all expected), and rendering many candidates at once is 1.46 times faster than one at a time with identical results. Model choice per slot is built.",
+   "evidence": [
+    "ev-fingerprints"
+   ]
+  },
+  {
+   "date": "2026-10-16",
+   "kind": "improvement",
+   "text": "The pedal's two-variant pass equals serial renders on firmware 3.80 and is about 1.7 times faster per variant (1.70 s against about 2.9 s). This closes the audio check that was open last report. Pedal restores are now judged by decoded equality, since raw bytes can differ by 3 after the pedal re-encodes.",
+   "evidence": [
+    "ev-render-many-stomp",
+    "ev-restore-decoded"
+   ]
+  },
+  {
+   "date": "2026-10-17",
+   "kind": "improvement",
+   "text": "A chain-pattern prior was built from 129 presets: drive comes before amp in 55 of 55 presets with both, amp before cab 90 of 90, delay before reverb in 96 percent. It is aggregate statistics only; no preset content is committed. It is not yet used by a chain builder.",
+   "evidence": [
+    "ev-chain-prior"
+   ]
+  },
+  {
+   "date": "2026-10-17",
+   "kind": "decision",
+   "text": "New direction from the human: single blocks first, with chains built from analysis of real presets (which kinds of block are present, ordered by common patterns). The curated preset and cabinet-IR libraries stay local and are never committed; the song-metadata lookup (artist and title only) is approved as opt-in.",
+   "evidence": [
+    "ev-decisions"
+   ]
+  },
+  {
+   "date": "2026-10-16",
+   "kind": "decision",
+   "text": "The human chose the Gate 2 scoring rules (tune the measure for the known-recording case; count identical-sounding look-alikes as ties) and waived the 'right chain structure' target for Gate 2, which now covers single blocks only. Chain structure moves to Gate 3. Scoring rules 2 and 3 are coded.",
+   "evidence": [
+    "ev-decisions"
+   ]
+  },
+  {
+   "date": "2026-10-17",
+   "kind": "improvement",
+   "text": "The tone comparison was admitted for single blocks when the clean recording is known. Tuned on a train split and scored once on a held-out split of 96 items, it ranked the true preset first 0.990 of the time against a bar of 0.90 (older measure 0.781), counting identical-sounding look-alikes as ties. The tuning score matched the test score, so it was not overfit. This replaces the failed first check as the main evidence for that case only.",
+   "evidence": [
+    "ev-trust-v2-test",
+    "ev-trust-v2-train"
+   ]
+  },
   {
    "date": "2026-10-16",
    "kind": "problem",
@@ -649,7 +772,7 @@
   {
    "date": "2026-10-16",
    "kind": "improvement",
-   "text": "Two chains in one pedal pass give the same sound as one chain per pass on firmware 3.80, and code to render two chains per pass was written. Its audio comparison has not run because the Mac's audio failed during the session.",
+   "text": "Two chains in one pedal pass give the same sound as one chain per pass on firmware 3.80, and code to render two chains per pass was written. Its audio comparison has not run because the Mac's audio failed during the session. Update: the audio comparison was later run and passed (see the 2026-10-16 entry on the pedal's two-variant pass).",
    "evidence": [
     "ev-twopath-parity",
     "ev-stomp-push",
@@ -888,66 +1011,69 @@
  ],
  "in_progress": [
   {
-   "area": "Software engine updates",
-   "text": "Fingerprints of each block, rendering many candidates at once on the parallel hosts, a shared flag for blocks that modulate on their own, and small fixes. Written but not yet committed.",
+   "area": "Setting-and-consistency verification (top priority)",
+   "text": "Native (native-verify-v1) and the pedal (stomp-verify-v1) are being checked for exact settings and repeatable renders. Native's baked-value check is clean; its repeat check missed on one render of 216. Gate 2 runs are paused until it passes.",
    "evidence": [
-    "ev-native-push",
+    "ev-native-verify-baked",
+    "ev-native-verify-repeat",
     "ev-decisions"
    ]
   },
   {
-   "area": "Pedal engine updates",
-   "text": "A shared pedal lock with a device check, two renders per pedal pass, layout-changing loads, read-back gaps, and a proposal for writing the whole preset each time. Control steps passed on the pedal; the audio comparison is waiting for the Mac's audio.",
+   "area": "Chain building from analysis",
+   "text": "Block-presence detection (registered, test split not yet scored), the chain builder, and analysis of the local 1,932-preset corpus and the cabinet-IR library are in progress.",
    "evidence": [
-    "ev-stomp-push",
-    "ev-stomp-audio",
-    "ev-decisions"
+    "ev-decisions",
+    "ev-board"
    ]
   },
   {
-   "area": "Search updates",
-   "text": "Frees every verified setting over its range and makes self-modulating blocks opt-in. Done in code, not yet committed, and not yet run on a real engine.",
+   "area": "Engine updates held back",
+   "text": "Out-of-range values (E3) and a real-guitar smoke test (E6) are in progress and not committed. On-demand capture is to default off.",
    "evidence": [
+    "ev-decisions",
+    "ev-board"
+   ]
+  },
+  {
+   "area": "Song context",
+   "text": "Opt-in MusicBrainz lookups (artist and title only). A 3-song live probe found all 3, but years and tags need a second lookup.",
+   "evidence": [
+    "ev-song-context",
     "ev-decisions"
    ]
   }
  ],
  "up_next": [
   {
-   "area": "Commit the engine push",
-   "text": "Review and commit the finished search, software-engine and pedal-engine updates, then push (the owner's call).",
+   "area": "Finish the verification",
+   "text": "Complete both suites, explain or fix the one repeat miss, and release the Gate 2 pause.",
    "evidence": [
-    "ev-board"
-   ]
-  },
-  {
-   "area": "Gate 2 scoring work",
-   "text": "After the owner chooses the scoring options, tune the comparison and re-run the trust check on fresh test items.",
-   "evidence": [
-    "ev-helix-trust",
+    "ev-native-verify-repeat",
     "ev-decisions"
    ]
   },
   {
-   "area": "The full known-answer run",
-   "text": "The 96-item run (about 16 minutes on 6 hosts) once the comparison is chosen; the 3-item run is provisional only.",
+   "area": "Freeze thresholds, then the full run",
+   "text": "Record and finish the baselines, re-run model choice with the admitted score, freeze the thresholds, then run the 96 items.",
    "evidence": [
-    "ev-synth-n3"
+    "ev-trust-v2-test",
+    "ev-decisions"
    ]
   },
   {
-   "area": "Model choice from the block library",
-   "text": "Choose the model for each slot from the library once the fingerprints are done.",
+   "area": "Gate 2 review",
+   "text": "The human review and sign-off once the run is done.",
    "evidence": [
-    "ev-block-library",
-    "ev-board"
+    "ev-gates"
    ]
   },
   {
-   "area": "Re-run the benchmark suite",
-   "text": "Re-run the benchmark suite after the engine updates land.",
+   "area": "Chain builder",
+   "text": "Score the block-presence detector once, render the proposed multi-block set after the verification, and build the chain builder.",
    "evidence": [
-    "ev-board"
+    "ev-chain-prior",
+    "ev-decisions"
    ]
   }
  ],
@@ -962,10 +1088,10 @@
    ],
    "purpose": "Turn a candidate preset and a clean guitar clip into sound, so candidates can be compared. Native is fast and offline; the pedal is the real thing.",
    "status": "Working",
-   "works": "Both engines are driven from code on macOS. Native holds 605 of the pedal's 607 models, moves delay times in 10 ms steps and stands in for the pedal on most effect types. On the pedal, two-chain passes match single-chain passes and layout changes are written whole and read back.",
-   "missing": "Windows and Linux, stereo blocks, the cabinet Early Reflections setting, Ganymede-type reverbs, Hall on bass-heavy material, Bitcrusher-type drives, and the audio check of two-chain passes (the Mac's audio failed). Engine updates are unfinished.",
-   "problem": "One cabinet setting sounds different on the pedal and in Native.",
-   "next": "Finish and commit the engine updates, restore the Mac's audio, then run the pedal audio comparison.",
+   "works": "Both engines are driven from code on macOS. Native holds 605 of the pedal's 607 models with fingerprints for 602, and stands in for the pedal on most effect types. On the pedal, a two-variant pass equals serial renders (about 1.7 times faster), layout changes are written whole and read back, and restores are judged by decoded equality.",
+   "missing": "Windows and Linux, stereo blocks, the cabinet Early Reflections setting, some reverb and drive types, and a passing setting-and-consistency verification (running). Out-of-range values (E3) and a real-guitar smoke test (E6) are in progress.",
+   "problem": "Native's repeat check missed on one of 216 renders, so engine results wait for the verification.",
+   "next": "Finish both verification suites; keep on-demand capture off by default.",
    "confidence": "Hardware-measured for specific models and test tones on one computer and firmware 3.80; ear not involved."
   },
   {
@@ -976,7 +1102,7 @@
    ],
    "purpose": "Read, write and validate the preset files the pedal and Native load.",
    "status": "Partially Working",
-   "works": "Reference files round-trip exactly, models are read from the owner's own HX Edit install, and generated files load.",
+   "works": "Reference files round-trip exactly, models are read from the owner's own install, generated files load, and a chain-pattern prior (aggregate statistics from 129 presets) is built.",
    "missing": "Building up to three snapshots from a match, and forcing snapshot values to equal block values inside the writer.",
    "problem": "A stale snapshot value can silently change the sound; the rule 'block values win' is applied in scripts but not yet in the writer.",
    "next": "Move the snapshot synchronisation into the preset writer.",
@@ -1006,11 +1132,11 @@
    ],
    "purpose": "Say how close two guitar sounds are, and describe how each block behaves.",
    "status": "Partially Working",
-   "works": "Four comparison measures run and are tested; the first trust check on real Helix sound was completed (a negative result). A block measuring kit runs on stand-in blocks.",
-   "missing": "A measure that passes on Helix audio; block fingerprints measured on Helix (in progress).",
-   "problem": "The tone comparison is not validated.",
-   "next": "Owner picks the scoring options, then re-run the trust check.",
-   "confidence": "Real Helix renders from Native (40 chains, negative result); other evidence on stand-in signals."
+   "works": "Five comparison measures run and are tested. One (the multi-resolution spectral measure, version 2) is admitted for single blocks with a known clean recording (0.990 on a held-out Helix split). Block fingerprints exist for 602 models.",
+   "missing": "A measure for the no-recording song case; block-presence detection scored on its test split (in progress).",
+   "problem": "The comparison is admitted only for the known-recording case.",
+   "next": "Score the block-presence detector once; propose admission of the separated-song case.",
+   "confidence": "Real Helix renders from Native; held-out split scored once; synthetic known-answer data, not real songs or ears."
   },
   {
    "id": "searching",
@@ -1021,11 +1147,11 @@
    ],
    "purpose": "Try candidate presets, score them against the target and return the best preset.",
    "status": "Partially Working",
-   "works": "The optimiser ran end to end on one real song section and produced a preset the owner listened to. It now frees every verified setting over its range and keeps the full-clip default after a clip-length study.",
-   "missing": "A one-command tool, snapshots for several sections, automatic pedal verification, and any recovery test on Helix.",
-   "problem": "It optimises against a comparison measure that is not validated.",
-   "next": "Wait for the comparison to be validated; then model choice from the block library.",
-   "confidence": "One song, informal listening only; unit tests with fake engines. The latest changes have not been run on a real engine."
+   "works": "The optimiser ran end to end on one real song section and frees every verified setting. Model choice per slot is built; the level guard for the known-recording case is coded.",
+   "missing": "A one-command tool, a chain builder, snapshots for several sections, automatic pedal verification, and a recovery result on Helix with the admitted score.",
+   "problem": "Model choice tied the old pass on a 16-item set under the old score; the re-run was interrupted.",
+   "next": "Re-run model choice with the admitted score once the Gate 2 pause lifts.",
+   "confidence": "One song, informal listening only; unit tests with fake engines; model choice measured on a 16-item development set (not in the ledger)."
   },
   {
    "id": "testing",
@@ -1036,11 +1162,11 @@
    ],
    "purpose": "Provide the measurements and listening tests that decide whether the product works.",
    "status": "Partially Working",
-   "works": "The evidence ledger, smoke tests, engine agreement measurements and the 96-item known-answer set with its runner work.",
-   "missing": "The full Helix known-answer run, frozen thresholds and blind listening tools.",
-   "problem": "No benchmark can yet say whether matching works.",
-   "next": "Run the full set once the comparison is chosen; later build the blind session tool.",
-   "confidence": "Hardware measurements of engine agreement; the known-answer run is a 3-item provisional run; listening informal only."
+   "works": "The evidence ledger, smoke tests, engine agreement measurements, the 96-item known-answer set with its runner (scoring rules coded), and a blind A/B session tool.",
+   "missing": "The full Helix known-answer run, frozen thresholds, ledger rows for the baselines, and a rated blind session.",
+   "problem": "Gate 2 runs are paused for the verification.",
+   "next": "Freeze thresholds, then run the 96 items.",
+   "confidence": "Hardware measurements of engine agreement; known-answer run is a 3-item provisional one; listening informal only; the A/B tool has no session yet."
   },
   {
    "id": "learning",
@@ -1068,7 +1194,7 @@
    "status": "Working",
    "works": "Installs on this Mac, licence checks pass, and the board, evidence ledger and gates are in use.",
    "missing": "Windows and Linux checks, recorded licence-agreement findings, and tidier board lines.",
-   "problem": "Licence-agreement findings are unrecorded; some board lines are stale.",
+   "problem": "Licence-agreement findings are unrecorded; some board lines are stale; duplicate task ids were renumbered on 2026-10-17.",
    "next": "Update the board; owner records the licence findings.",
    "confidence": "Tests and a licence scan; one operating system."
   }
@@ -1553,6 +1679,60 @@
    "label": "Gate checklists",
    "kind": "file",
    "ref": "board/GATES.md"
+  },
+  {
+   "id": "ev-trust-v2-test",
+   "label": "Tone-comparison admission: second Helix trust set, test split scored once (96 items, 19 look-alikes each)",
+   "kind": "ledger",
+   "ref": "2026-10-17T00:29:36+00:00"
+  },
+  {
+   "id": "ev-trust-v2-train",
+   "label": "Tone-comparison tuning on the train split only (five stages)",
+   "kind": "ledger",
+   "ref": "2026-10-17T00:24:15+00:00"
+  },
+  {
+   "id": "ev-render-many-stomp",
+   "label": "Pedal two-variant pass equals serial renders, about 1.7 s per variant (firmware 3.80)",
+   "kind": "ledger",
+   "ref": "2026-10-16T20:28:58+00:00"
+  },
+  {
+   "id": "ev-restore-decoded",
+   "label": "Pedal restore judged by decoded equality (offline re-check of the hardware buffers)",
+   "kind": "ledger",
+   "ref": "2026-10-17T00:31:58+00:00"
+  },
+  {
+   "id": "ev-fingerprints",
+   "label": "Native block fingerprints: 602 models, 24 expected-silent settings",
+   "kind": "ledger",
+   "ref": "2026-10-16T19:13:32+00:00"
+  },
+  {
+   "id": "ev-native-verify-baked",
+   "label": "Native setting check, baked values: zero violations",
+   "kind": "ledger",
+   "ref": "2026-10-17T16:29:41+00:00"
+  },
+  {
+   "id": "ev-native-verify-repeat",
+   "label": "Native setting check, repeatability: 215 of 216 renders within the line",
+   "kind": "ledger",
+   "ref": "2026-10-17T16:34:08+00:00"
+  },
+  {
+   "id": "ev-chain-prior",
+   "label": "Chain-pattern prior built from 129 presets (aggregate statistics only)",
+   "kind": "file",
+   "ref": "docs/notes/chain-patterns.md"
+  },
+  {
+   "id": "ev-song-context",
+   "label": "Song-context research note (MusicBrainz, opt-in)",
+   "kind": "file",
+   "ref": "docs/notes/song-context.md"
   }
  ],
  "engines": {
@@ -1765,7 +1945,7 @@
    {
     "capability": "Two chains at once (throughput)",
     "stomp": {
-     "verdict": "Path A and Path B give twice the renders per pass (measured on firmware 3.50, ledger 2026-10-15T21:14:14+00:00; not re-measured on 3.80). The earlier gap of -18 to -22 dB between two-path and single-path renders was a layout bug, fixed by writing the layout the way the pedal's own editor stores it: on firmware 3.80 our two-path load now nulls against the editor-saved preset at -85.7 dB, equal to that preset's own repeat floor, against -9.3 dB before (ledger 2026-10-16T01:06:38+00:00). A two-path pass also matches each chain rendered alone: Path A -72.9 dB (repeat floor -68.7), Path B -52.6 dB (floor -42.7). The rule that two-path renders are compared only with two-path renders was lifted on 2026-10-16 (DECISIONS 2026-10-16 stomp-engine, T063 two-path layout). Not tested: crossover and A/B split types; a pass with its own Path B input is refused by the compiler. Two-chain passes equal single-chain passes on firmware 3.80 for the tested chains (ledger 2026-10-16T15:44:03+00:00). The code that renders two variants per pass is written and read back on the pedal; its audio comparison against serial renders was not run because the Mac's audio failed (ledger 2026-10-16T18:30:48+00:00)."
+     "verdict": "Path A and Path B give twice the renders per pass (measured on firmware 3.50, ledger 2026-10-15T21:14:14+00:00; not re-measured on 3.80). The earlier gap of -18 to -22 dB between two-path and single-path renders was a layout bug, fixed by writing the layout the way the pedal's own editor stores it: on firmware 3.80 our two-path load now nulls against the editor-saved preset at -85.7 dB, equal to that preset's own repeat floor, against -9.3 dB before (ledger 2026-10-16T01:06:38+00:00). A two-path pass also matches each chain rendered alone: Path A -72.9 dB (repeat floor -68.7), Path B -52.6 dB (floor -42.7). The rule that two-path renders are compared only with two-path renders was lifted on 2026-10-16 (DECISIONS 2026-10-16 stomp-engine, T063 two-path layout). Not tested: crossover and A/B split types; a pass with its own Path B input is refused by the compiler. Two-chain passes equal single-chain passes on firmware 3.80 for the tested chains (ledger 2026-10-16T15:44:03+00:00). The code that renders two variants per pass was then compared on the pedal's audio against serial renders: path A/B nulls of -78.5/-60.4 and -85.1/-78.6 dB, each below the serial repeat floor, about 1.7 s per variant (ledger 2026-10-16T20:28:58+00:00)."
     },
     "native": {
      "verdict": "Out of scope: two-path passes on Native will not be built (owner's decision, 2026-10-16); Native renders in parallel on 6 hosts instead. Block-serial chaining equals one instance at -67 to -79 dB above 20 Hz on the tested chains (ledger 2026-10-15T19:21:10+00:00)."

@@ -343,6 +343,7 @@ Keep every Line 6 asset on the user's machine, avoid decompiling, and pick a GPL
 - **Protocol interop.** fretwire recovered the USB protocol by observing traffic and ships under MIT/Apache; depending on it is lower risk, but read Line 6's EULA before extending it.
 - **pedalboard is GPLv3** (it bundles JUCE and the VST3 SDK under their GPL options, per a [downstream package's note](https://pypi.org/project/hyperframes-vst-host/)). Either license the project GPLv3 or isolate the host in a separate process.
 - **Songs and datasets.** Users process their own files locally; the project never hosts song audio. Check each dataset's licence (EGDB, separation checkpoints) before bundling or training on it.
+- **Song metadata.** Only artist and title strings may leave the machine, opt-in, never audio. MusicBrainz core data is CC0 but its tags and genres are CC BY-NC-SA 3.0: use and cache locally, never commit or embed in shared models ([licence](https://musicbrainz.org/doc/About/Data_License)). Spotify's terms forbid ML use of its content. Artist-gear sites: manual lookup only unless their terms say otherwise. See `docs/notes/song-context.md`.
 - **Trademarks.** Name Line 6 products only to say what the tool works with.
 - **Trained models.** A predictor or neural proxy trained on Native renders and shared with hardware-only users is derived from Native's output; confirm the Native licence permits that, or train from hardware renders instead.
 
@@ -376,6 +377,10 @@ These are the documents gathered so far, grouped by what each one is for. Line 6
 | [Native under Wine notes](https://gist.github.com/torgeir/e03a0759268ac07ec1295c5c175d5522) | Linux setup |
 | [EGDB](https://astro.paperswithcode.com/dataset/egdb), [EGDB-PG](https://arxiv.org/html/2504.07406v1) | DI guitar clips and amp-rendered versions |
 | [MVSep guitar benchmark](https://www.mvsep.com/algorithms/17) | Choosing a separator |
+| [MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API), [rate limits](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting), [data licence](https://musicbrainz.org/doc/About/Data_License) | Song metadata (year, tags) from artist + title; primary source in `docs/notes/song-context.md` |
+| [Wikidata licensing](https://www.wikidata.org/wiki/Wikidata:Licensing), [Wikimedia User-Agent policy](https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy) | CC0 fallback for artist genre and era |
+| [Last.fm API terms](https://www.last.fm/api/tos), [Spotify developer terms](https://developer.spotify.com/terms), [Discogs API terms](https://support.discogs.com/hc/en-us/articles/360009334593) | Song-metadata terms reviewed (Last.fm optional with the user's key; Spotify rejected for its ML clause; Discogs terms unread) |
+| [Equipboard robots.txt](https://equipboard.com/robots.txt) | Evidence that artist gear lists are manual-lookup only |
 
 **Research**
 

@@ -1,5 +1,5 @@
 {
- "cycle": "Cycle 4 (mode 2), refresh after the 2026-10-16 work (commit 44591df)",
+ "cycle": "Cycle 4 (mode 2), refresh after the 2026-10-16 and 2026-10-17 work (commit 68f0310)",
  "generated_for": "tone-matcher-lead",
  "discrepancies": [
   "T018 (the original 'spike awaiting go') is still an open line on the board but was superseded by T018n (Native, done) and T018s (Stomp, in progress): its scope is built, so the line is stale. Registry feature task lists use T018n and T018s.",
@@ -11,7 +11,14 @@
   "The stompd helper source is intentionally not in the repo (human decision, docs/notes/stompd.md): Stomp ledger rows cannot be reproduced by others until a wrapper is published or re-written to the documented protocol. Recorded as a reproducibility gap, not a board error.",
   "Ledger hygiene: native-engine deleted one accidental row with sed on 2026-10-15 instead of appending a correction (recorded in docs/DECISIONS.md); git shows only appended rows against the last commit, and the rule was restated.",
   "T091 (two renders per Stomp pass) and T095 (engine-push pedal session) are partial on the board: the audio comparison of two-chain versus serial passes did not run because CoreAudio failed (ledger 2026-10-16T18:30:48+00:00). T047 and T080-T082 are in progress. The synthetic-v1-n3 rows that scored the truth against itself were voided (ledger/void.csv) and superseded by 2026-10-16T16:09:03.",
-  "Verified suite result given for this report: commit 44591df, lint clean, 581 passed, 27 skipped on the committed set; no test run was made for this report because native-engine and stomp-engine are editing code (the report was generated without --run-checks)."
+  "Verified suite result given for this report: commit 68f0310, ruff clean, 750 passed, 28 skipped on the committed set; no test run was made for this report because several agents are editing code (generated without --run-checks).",
+  "T050 (model choice) is still unticked on the board with 'waiting on T047's fingerprints', but the lead reports it built, and the ledger shows the fingerprints (602 models, 2026-10-16T19:13:32). The board line is behind. Its dev16 result (tied the old pool pass at 7 of 16) is in DECISIONS only, with no ledger row.",
+  "The dev16 baselines (middle and random), the full-96 middle baseline and the partial full-96 random baseline are reported by the lead but have no ledger row or file in the repository; they are not counted as evidence.",
+  "T104 (song context): the live 3-song probe ran on 2026-10-17 after the human approved it (ledger song-meta-probe); the oldest-release rule finds 2 of 3 years exactly.",
+  "The cause of the earlier slowdowns and agent stalls (the Mac going to sleep, now handled by running long jobs under caffeinate) is reported by the lead but is not in DECISIONS.",
+  "The pedal-side verification (stomp-verify-v1) has no ledger row or board line yet; only native-verify-v1 has rows (2026-10-17T16:29:41, 16:34:08). The Native repeat check is 215 of 216: as registered, a check passes only when every render passes, so it has not passed.",
+  "Gate 2 criteria in board/GATES.md are unticked, as they should be: the trust-check admission (0.990) is evidence toward the first item, but the item names the full recovery on the threshold benchmark set, which has not been frozen or run.",
+  "data/presets was not gitignored until 2026-10-17 (data/presets and data/ir are now ignored)."
  ],
  "features": [
   {
@@ -20,7 +27,7 @@
    "purpose": "Render a DI clip through a candidate preset offline in Helix Native, fast enough to be the searching engine.",
    "done_when": "A NativeEngine behind the frozen interface renders any chain structure the search needs at a measured cost, loads candidates without a GUI step per candidate, agrees with the Stomp within a measured null residual, and has run a full synthetic recovery pass.",
    "status": "working",
-   "progress_note": "Hands-off loading (file drop plus MIDI-CC map), state-based reset renders (0.28 s, bit-identical to dedicated captures at -317 dB, flat 3.0 GB), stale-template protection and a memory watchdog are built, hardware-measured on one Mac, and exercised by a 449-render real-song search. Block-serial rendering is shown to equal one instance above 20 Hz (-67 to -79 dB). Still missing: Windows and Linux (the drop route is macOS VST3 only), stereo and dual-cab paths in the host, probe fingerprints, and any full synthetic recovery pass. Quality of what Native renders versus the pedal is only partly in parity (see evaluation), and nothing it renders has been blind-tested by ear. Phase 3 is finished (T055, T064): capture takes 1.2 s per chain in one session and 0.39 s with three, instead of 31 s (ledger 2026-10-15T23:57:11+00:00); a render pool of 6 hosts (the cap the human approved on 2026-10-16) runs 9.9 two-second tests per second and 4.6 ten-second tests per second, each test being a render plus its score (ledger 2026-10-16T00:38:02+00:00); block bypass by CC matches separate captures at -328.7 dB (ledger 2026-10-16T00:29:34+00:00); a rejected model load is detected and closed; about 1 host in 10 that rendered differently is replaced by a start-up check; templates B and B0 are re-captured at the frozen values (ledger 2026-10-16T00:50:49+00:00); and a scan of 607 Stomp block models found 2 that Native 3.82 refuses (ledger 2026-10-16T00:58:52+00:00). The block library is now captured: 605 of 605 Stomp models (ledger 2026-10-16T15:25:12+00:00); delay times move in 10 ms steps because Native honours a narrowed CC range (ledger 2026-10-16T16:04:28+00:00), and Block Level has a finer range (ledger 2026-10-16T17:54:03+00:00). Written but not yet committed: render_many on the pool, a shared time-variant flag and small fixes; block fingerprints (T047) are in progress. Measured on one Mac only; nothing here has been checked by ear. Results from before 2026-10-16 are kept as history (human decision).",
+   "progress_note": "Hands-off loading (file drop plus MIDI-CC map), state-based reset renders (0.28 s, bit-identical to dedicated captures at -317 dB, flat 3.0 GB), stale-template protection and a memory watchdog are built, hardware-measured on one Mac, and exercised by a 449-render real-song search. Block-serial rendering is shown to equal one instance above 20 Hz (-67 to -79 dB). Still missing: Windows and Linux (the drop route is macOS VST3 only), stereo and dual-cab paths in the host, probe fingerprints, and any full synthetic recovery pass. Quality of what Native renders versus the pedal is only partly in parity (see evaluation), and nothing it renders has been blind-tested by ear. Phase 3 is finished (T055, T064): capture takes 1.2 s per chain in one session and 0.39 s with three, instead of 31 s (ledger 2026-10-15T23:57:11+00:00); a render pool of 6 hosts (the cap the human approved on 2026-10-16) runs 9.9 two-second tests per second and 4.6 ten-second tests per second, each test being a render plus its score (ledger 2026-10-16T00:38:02+00:00); block bypass by CC matches separate captures at -328.7 dB (ledger 2026-10-16T00:29:34+00:00); a rejected model load is detected and closed; about 1 host in 10 that rendered differently is replaced by a start-up check; templates B and B0 are re-captured at the frozen values (ledger 2026-10-16T00:50:49+00:00); and a scan of 607 Stomp block models found 2 that Native 3.82 refuses (ledger 2026-10-16T00:58:52+00:00). The block library is now captured: 605 of 605 Stomp models (ledger 2026-10-16T15:25:12+00:00); delay times move in 10 ms steps because Native honours a narrowed CC range (ledger 2026-10-16T16:04:28+00:00), and Block Level has a finer range (ledger 2026-10-16T17:54:03+00:00). Written but not yet committed: render_many on the pool, a shared time-variant flag and small fixes; block fingerprints (T047) are in progress. Measured on one Mac only; nothing here has been checked by ear. Results from before 2026-10-16 are kept as history (human decision). 2026-10-17: native-verify-v1 (T103) first results: baked-value violations 0 (ledger 2026-10-17T16:29:41+00:00); repeatability 215 of 216 renders within the line, worst -97.4 dB against -100 dB, so that check has not passed as registered (ledger 2026-10-17T16:34:08+00:00). Fingerprints exist for 602 models (ledger 2026-10-16T19:13:32+00:00). E3 (out-of-range values) and E6 (real-guitar smoke DI) are in progress; on-demand capture defaults to off.",
    "functionality": "Loads an arbitrary generated .hlx into Native with no human (in-process file drop, about 66 s per new chain structure, once per machine; needs TONEMATCH_NATIVE_AUTOCAPTURE=1 and a logged-in GUI session), drives parameters through a MIDI-CC map, and renders a 2 s clip in about 0.28 s with memory flat near 3.0 GB. Renders are history-independent and match each file's own capture at -317 dB. Mono in and out only; chains with an enabled delay or reverb need a 3 s pre-roll; Captures of new single-block chains take 0.22 s each when batched across three sessions with the parameter checks off (ledger 2026-10-16T00:58:52+00:00), and a pool of 6 hosts renders and scores about 10 two-second tests per second. Windows and Linux are untested. Single-block templates for 605 pedal models load by model id with no capture (ledger 2026-10-16T15:25:12+00:00).",
    "health": "partial",
    "evidence": [
@@ -53,6 +60,12 @@
       "ledger 2026-10-16T16:04:28+00:00 cc-range-v1: Native honours a CC assignment's min and max; delay Time grid 10 ms",
       "ledger 2026-10-16T17:54:03+00:00 cc-range-v2: Block Level grid, worst template-vs-drop null -136.4 dB; 2026-10-16T17:54:04+00:00 re-captured 288 templates, 40/40 fresh-host smoke"
      ]
+    },
+    {
+     "level": "hardware",
+     "refs": [
+      "ledger 2026-10-17T16:29:41+00:00 baked_violations 0; ledger 2026-10-17T16:34:08+00:00 repeat_pass 215 of 216, worst -97.4 dB (Native 3.82, real DI clip, one Mac)"
+     ]
     }
    ],
    "owners": [
@@ -75,7 +88,10 @@
     "T072",
     "T080",
     "T081",
-    "T082"
+    "T082",
+    "T098",
+    "T099",
+    "T103"
    ],
    "blockers": [
     "T047 (probe fingerprints in Native) and a stereo-capable host are still open; the engine-push items T080-T082 are written but not committed; the drop route is macOS VST3 only."
@@ -206,7 +222,7 @@
    "purpose": "Drive the real pedal from code and capture its USB audio, so the final check is the actual hardware and hardware-only users have an engine.",
    "done_when": "A StompEngine renders any candidate within the pedal's capabilities on macOS, Windows and Linux, with edit-buffer-only control, a calibrated reamp path, parity to Native measured, and a user-DI accuracy mode used on real songs.",
    "status": "working",
-   "progress_note": "Control, reamp, latency, restore and whole-preset injection with a parameter-by-parameter readback on every load are verified on one pedal and one OS (macOS), now on firmware 3.80 (the pedal was upgraded on 2026-10-15). The session-release lock is fixed: the helper now ends a session the way HX Edit does, and blocks stay editable (ledger 2026-10-15T23:03:12+00:00, 2026-10-15T23:20:15+00:00). The engine smoke test passes on 3.80, 9 of 9 whole-preset writes landed and the pedal was restored byte for byte (ledger 2026-10-15T23:40:20+00:00). Speed work (T061): a search trial went from 10.9 s to 3.8 s and per-test session overhead from 3.81 s to 0.77 s (ledger 2026-10-16T00:17:11+00:00, 2026-10-15T23:47:32+00:00). The two-path layout difference is fixed (T063): our two-path load of a stored preset nulled at -9.3 dB against the editor-saved one and now nulls at -85.7 dB, equal to that preset's own repeat floor (ledger 2026-10-16T01:06:38+00:00); single-path loads are unchanged. Hum and Ripple are frozen at 0 on both engines (human decision, 2026-10-16). Still missing: Windows and Linux, the play-along path on hardware, the whole_preset default (still off), the Early Reflections mismatch with Native, and any speed timing of the search that now uses the options. Parity with Native on 3.80 has not been run. 2026-10-16: two-path passes equal single-path passes on firmware 3.80 (ledger 2026-10-16T15:44:03+00:00). Engine push T090-T095: a shared pedal lock with a device check (T090), two renders per pass (T091), layout-changing loads written whole (T092), the Simple Delay Scale report explained (T093) and a whole-preset default proposal (T094) are written; the control-only pedal session passed and restored 04C, but every CoreAudio stream failed so the audio comparison did not run (ledger 2026-10-16T18:30:48+00:00). Not all of it is committed.",
+   "progress_note": "Control, reamp, latency, restore and whole-preset injection with a parameter-by-parameter readback on every load are verified on one pedal and one OS (macOS), now on firmware 3.80 (the pedal was upgraded on 2026-10-15). The session-release lock is fixed: the helper now ends a session the way HX Edit does, and blocks stay editable (ledger 2026-10-15T23:03:12+00:00, 2026-10-15T23:20:15+00:00). The engine smoke test passes on 3.80, 9 of 9 whole-preset writes landed and the pedal was restored byte for byte (ledger 2026-10-15T23:40:20+00:00). Speed work (T061): a search trial went from 10.9 s to 3.8 s and per-test session overhead from 3.81 s to 0.77 s (ledger 2026-10-16T00:17:11+00:00, 2026-10-15T23:47:32+00:00). The two-path layout difference is fixed (T063): our two-path load of a stored preset nulled at -9.3 dB against the editor-saved one and now nulls at -85.7 dB, equal to that preset's own repeat floor (ledger 2026-10-16T01:06:38+00:00); single-path loads are unchanged. Hum and Ripple are frozen at 0 on both engines (human decision, 2026-10-16). Still missing: Windows and Linux, the play-along path on hardware, the whole_preset default (still off), the Early Reflections mismatch with Native, and any speed timing of the search that now uses the options. Parity with Native on 3.80 has not been run. 2026-10-16: two-path passes equal single-path passes on firmware 3.80 (ledger 2026-10-16T15:44:03+00:00). Engine push T090-T095: a shared pedal lock with a device check (T090), two renders per pass (T091), layout-changing loads written whole (T092), the Simple Delay Scale report explained (T093) and a whole-preset default proposal (T094) are written; the control-only pedal session passed and restored 04C, but every CoreAudio stream failed so the audio comparison did not run (ledger 2026-10-16T18:30:48+00:00). Not all of it is committed. 2026-10-16/17: the two-variant pass equals serial renders on the pedal (ledger 2026-10-16T20:28:58+00:00, about 1.7 s per variant) and restores are judged by decoded equality (T097, ledger 2026-10-17T00:31:58+00:00). Pedal-side verification (stomp-verify-v1) is running; it has no ledger row yet.",
    "functionality": "Writes a whole generated preset into the pedal's edit buffer (about 0.3 s), reads back every parameter and refuses to render a mismatch, reamps a DI over USB 5/6 to 1/2 (2.7 s for a 2 s clip, 3.7 s for 3 s), ends each session with HX Edit's session close so the pedal's blocks stay editable, and restores the original preset byte for byte. Verified on firmware 3.80 and macOS only; whole_preset is off by default; layout changes in place are unsupported; two-path (Path A plus B) loads use the editor's own layout and match single-chain renders (Path A -72.9 dB against a repeat floor of -68.7, Path B -52.6 against -42.7; ledger 2026-10-16T01:06:38+00:00), with the 2.0x two-chains-per-pass gain measured on firmware 3.50 only.",
    "health": "partial",
    "evidence": [
@@ -238,6 +254,12 @@
       "ledger 2026-10-16T18:30:44+00:00 control-only session: 11C reads back 84 of 84, delay Mix and Time read back exactly, two merged pairs written (84 of 84), layout-changing load 1.52 s with readback; restore byte-equal on the second session",
       "ledger 2026-10-16T18:30:48+00:00 audio_stream_ok 0: CoreAudio failed on every stream, so the S1 audio comparison did not run"
      ]
+    },
+    {
+     "level": "hardware",
+     "refs": [
+      "ledger 2026-10-16T20:28:58+00:00 render-many-stomp-fw380: null vs serial -78.48/-60.41 (K+A) and -85.11/-78.59 dB (C+K), seconds per variant 1.7; ledger 2026-10-17T00:31:58+00:00 restore_decoded_equal 1.0 (offline re-check of hardware buffers)"
+     ]
     }
    ],
    "owners": [
@@ -261,7 +283,8 @@
     "T092",
     "T093",
     "T094",
-    "T095"
+    "T095",
+    "T097"
    ],
    "blockers": [
     "Verified on macOS only; the whole-preset default is a proposal for the lead (T094); the audio comparison of two-chain passes waits for CoreAudio; the play-along capture needs the human with a guitar."
@@ -501,7 +524,7 @@
    "purpose": "Represent, write and validate a Line 6 .hlx preset that HX Edit accepts and the pedal loads, using a model catalog read at runtime from the user's own install.",
    "done_when": "Search results become a valid .hlx (full-rig and effects-only, up to three snapshots, DSP budget and amp/cab pairing respected) that imports into HX Edit and loads on the pedal, for every block the search can choose.",
    "status": "working",
-   "progress_note": "Parse, byte-equal round trip, catalog import, validation and both export modes exist and one generated file was accepted by HX Edit and the pedal. Snapshot generation from a search result, the schema extensions, and the DSP unit and budget semantics are unverified or not built.",
+   "progress_note": "Parse, byte-equal round trip, catalog import, validation and both export modes exist and one generated file was accepted by HX Edit and the pedal. Snapshot generation from a search result, the schema extensions, and the DSP unit and budget semantics are unverified or not built. T101 (2026-10-17): chain-pattern prior built from 129 presets (aggregate statistics only, data/chain_prior/category_prior.json).",
    "functionality": "Reads and writes .hlx byte-equal for both golden templates, imports the 677-model catalog from HX Edit 3.82, validates blocks, DSP cost, pairing and device version, and exports full-rig or effects-only; does not yet build snapshots from a match. Generated files are not yet forced to carry snapshot values equal to their blocks (the check lives in the parity script and the engines).",
    "health": "partial",
    "evidence": [
@@ -527,7 +550,8 @@
    "tasks": [
     "T005",
     "T006",
-    "T010"
+    "T010",
+    "T101"
    ],
    "blockers": [
     "Snapshot generation and the proposed schema extensions are not in the contract yet; DSP budget units are unverified."
@@ -817,9 +841,9 @@
    "name": "Loss kit (tone metrics)",
    "purpose": "Score how close a candidate render is to the target tone, with terms that are trustworthy despite separation artifacts and DI mismatch.",
    "done_when": "At least one loss term, or a combination, passes the loss-trust-check threshold on the Helix synthetic set (true preset ranked first against distractors), so it has non-zero default weights, and the ear agrees with the metric on real songs.",
-   "status": "prototype",
-   "progress_note": "Four no-DI terms and a LossKit exist, but none is admitted (all default weights 0) and the only trust measurement is on non-Helix proxy signals. Envelope v1 (T025) improved the weakest term but held-out rank-1 on fresh seeds is only 0.117 against chance 0.0625 and 15 distractors; learned embeddings were researched, not run. AFx-Rep (ST-ITO) was wired in as an unadmitted embedding term and was worse than the DSP terms on proxy signals. On the first real song the loss ranked chain K first by 0.015 over H, while the human informally preferred H; the three level-invariant terms also accepted an output 52 dB too quiet until a guard was added in match_song.py. 2026-10-16: the first trust check on real Helix Native renders (helix-trust-v1: 40 known chains, 19 look-alikes each, 2,400 renders) admitted no term. On new notes of the same recording the best term managed rank-1 0.175 (7 of 40; chance 0.05), against a proposed bar of 0.90. With the same notes and the separation stand-in, mrstft reached 0.725 (0.875 against audible look-alikes only). The terms move more with the notes played than with the tone; reweighting did not help (0.15). No weights admitted (ledger 2026-10-16T15:50:17+00:00).",
-   "functionality": "LossKit.score() returns per-term scores (LTAS tilt, crest/flatness/HNR, envelope, multi-resolution STFT) but with default weights 0 its objective is flat; the search must pass provisional weights explicitly and label results unadmitted.",
+   "status": "working",
+   "progress_note": "Four no-DI terms and a LossKit exist, but none is admitted (all default weights 0) and the only trust measurement is on non-Helix proxy signals. Envelope v1 (T025) improved the weakest term but held-out rank-1 on fresh seeds is only 0.117 against chance 0.0625 and 15 distractors; learned embeddings were researched, not run. AFx-Rep (ST-ITO) was wired in as an unadmitted embedding term and was worse than the DSP terms on proxy signals. On the first real song the loss ranked chain K first by 0.015 over H, while the human informally preferred H; the three level-invariant terms also accepted an output 52 dB too quiet until a guard was added in match_song.py. 2026-10-16: the first trust check on real Helix Native renders (helix-trust-v1: 40 known chains, 19 look-alikes each, 2,400 renders) admitted no term. On new notes of the same recording the best term managed rank-1 0.175 (7 of 40; chance 0.05), against a proposed bar of 0.90. With the same notes and the separation stand-in, mrstft reached 0.725 (0.875 against audible look-alikes only). The terms move more with the notes played than with the tone; reweighting did not help (0.15). No weights admitted (ledger 2026-10-16T15:50:17+00:00). T096 (2026-10-17): mrstft_v2 2.0 was tuned on the train split, frozen, and scored once on the test split (0.990 against 0.90), admitted for the known-DI mode by the lead. It has not been judged by ear and has not been used on real songs.",
+   "functionality": "LossKit.score() returns per-term scores (LTAS tilt, crest/flatness/HNR, envelope, multi-resolution STFT) but with default weights 0 its objective is flat; the search must pass provisional weights explicitly and label results unadmitted. Update 2026-10-17: a second multi-resolution spectral term (mrstft_v2, version 2.0) is admitted alone, for the known-DI mode only, at weight 1.0; the default and provisional weights are unchanged.",
    "health": "partial",
    "evidence": [
     {
@@ -840,6 +864,12 @@
      "refs": [
       "ledger 2026-10-16T15:50:17+00:00 loss-trust helix-trust-v1 (Native 3.82, Guitar-TECHS DI): rank-1 on held-out notes ltas_tilt 0.025, crest_flatness_hnr 0.125, envelope 0.05, mrstft 0.175 (not a valid use), embed_afxrep 0.15, provisional sum 0.05; same notes with separation stand-in mrstft 0.725 (0.875 vs audible distractors only); NOT admitted"
      ]
+    },
+    {
+     "level": "synthetic",
+     "refs": [
+      "ledger 2026-10-17T00:29:36+00:00 helix-trust-v2 TEST split, scored once: mrstft_v2 rule-B rank-1 0.990 (plain 0.875) on aligned/same_notes against a 0.90 bar; sep 0.948; clean 1.000; older mrstft 0.781; train matched (ledger 2026-10-17T00:24:15+00:00 tuning rows). Native 3.82 single blocks, known-DI case"
+     ]
     }
    ],
    "owners": [
@@ -850,10 +880,11 @@
     "T025",
     "T032",
     "T066",
-    "T067"
+    "T067",
+    "T096"
    ],
    "blockers": [
-    "No term passes on real Helix renders (helix-trust-v1); the Gate 2 scoring options (A-D, tone-metrics proposals) await the owner; thresholds are unfrozen."
+    "The admitted term is valid only when an aligned DI of the same performance is known; the song case (separation stand-in 0.948) is not yet admitted, and no term works without a recording. Thresholds are unfrozen."
    ],
    "implemented": [
     {
@@ -910,17 +941,12 @@
     }
    ],
    "todo": [
-    "Run loss-trust-check on the Helix synthetic-v1 set (the real admission)",
-    "Write the mask and Stems types into contracts/loss-kit.md",
-    "Review score statistics on 10 s or longer sections against the search's 2.0 s clip",
-    "Decide whether envelope v1 is worth further work: it is still near chance on held-out notes, so it carries little weight",
-    "Add a loudness or level term (or constraint) to the objective; the kit is level-blind",
-    "Check whether the loss can be made to agree with the human's DS-Sample preference before trusting any term",
-    "Tune mrstft for the known-DI case (A), count inaudible distractors as ties (B); later note-invariant no-DI terms (C) and a learned guitar embedding (D); re-check each on fresh seeds"
+    "Propose admission for the separated-song case with drive as the named weak category",
+    "Option C: note-proof terms for the no-DI case (Gate 3)",
+    "Option D: learned guitar embedding (deferred)",
+    "Freeze Gate 2 thresholds with benchmark"
    ],
-   "needs_human": [
-    "Decide the Gate 2 scoring options (tone-metrics proposals A: tune the same-notes measure, B: count identical-sounding look-alikes as ties; C and D later)"
-   ],
+   "needs_human": [],
    "decisions": [
     "No loss term is admitted; search must pass PROVISIONAL_WEIGHTS and label results (DECISIONS 2026-10-14 cycle 3 loss kit)",
     "Dataset name proxy-dsp-v0 kept out of synthetic-v<N> comparisons (same entry)",
@@ -1052,7 +1078,7 @@
    "purpose": "Find the preset whose render best matches the target section within a render budget set by the engine's cost.",
    "done_when": "On the Helix synthetic-v1 set the search recovers known presets at the thresholds benchmark set (block-type F1, model accuracy, parameter MAE), then beats the nearest community preset on real songs, with the final candidate verified on the pedal.",
    "status": "prototype",
-   "progress_note": "CMA-ES over a captured template, beam over chains, budget planning, a level guard and a report writer are built, and one real-song run completed end to end on Native (449 renders, 1506 s; provisional loss 13.79 to 7.71, unadmitted). But the loss it optimises is not trusted (the human preferred the runner-up), recovery of known answers is shown only on a fake engine, there is no Helix known-answer run, no predictor or retrieval seeds, no model choice per slot, and no successive halving on hardware. The search now uses the Stomp speed options by default (T062: 3 s search clips, readback every 10 loads, measured tails, one engine per batch; a legacy flag falls back), tested with a fake engine only. The trial time on the pedal was measured as a batch (10.9 s to 3.8 s, ledger 2026-10-16T00:17:11+00:00), but the search itself has not been timed on the pedal, so there is no ledger row for its speed. 2026-10-16: the clip-length study (T065) kept the full-clip default (medians 8.36 full against 9.16-11.95 for shorter policies; ledger 2026-10-16T15:24:06+00:00). T074 (written, not committed, no render run): frees every CC-verified numeric parameter over its template range, with a range-scaled prior, and makes time-variant blocks opt-in.",
+   "progress_note": "CMA-ES over a captured template, beam over chains, budget planning, a level guard and a report writer are built, and one real-song run completed end to end on Native (449 renders, 1506 s; provisional loss 13.79 to 7.71, unadmitted). But the loss it optimises is not trusted (the human preferred the runner-up), recovery of known answers is shown only on a fake engine, there is no Helix known-answer run, no predictor or retrieval seeds, no model choice per slot, and no successive halving on hardware. The search now uses the Stomp speed options by default (T062: 3 s search clips, readback every 10 loads, measured tails, one engine per batch; a legacy flag falls back), tested with a fake engine only. The trial time on the pedal was measured as a batch (10.9 s to 3.8 s, ledger 2026-10-16T00:17:11+00:00), but the search itself has not been timed on the pedal, so there is no ledger row for its speed. 2026-10-16: the clip-length study (T065) kept the full-clip default (medians 8.36 full against 9.16-11.95 for shorter policies; ledger 2026-10-16T15:24:06+00:00). T074 (written, not committed, no render run): frees every CC-verified numeric parameter over its template range, with a range-scaled prior, and makes time-variant blocks opt-in. 2026-10-16/17: the known-DI level guard (T096b) is coded; model choice per slot (T050) is built and, on a 16-item development set with the old provisional score, tied the old pool pass at 7 of 16 models (DECISIONS 2026-10-16; no ledger row). The re-run with the admitted score was interrupted.",
    "functionality": "match() plans a render budget, searches a chain and its parameters with CMA-ES against an unadmitted loss, applies a level guard and a weak prior, and writes a report and listening pack. match_song.py ran it on one real song: best provisional loss 7.71 (raw DI 24.93). Renders now cost about 0.28 s, so earlier budgets were over-planned. Recovery of known answers is unproven on real engine renders.",
    "health": "partial",
    "evidence": [
@@ -1092,10 +1118,11 @@
     "T050",
     "T062",
     "T065",
-    "T074"
+    "T074",
+    "T096b"
    ],
    "blockers": [
-    "Needs an admitted loss, the full Helix known-answer run and the block fingerprints (T047) to show recovery on real engine renders; T074 has not been run on a real engine."
+    "Gate 2 runs are paused until the setting-and-consistency verification passes; model choice re-run with the admitted score was interrupted; T074 has not been run on a real engine."
    ],
    "implemented": [
     {
@@ -1205,7 +1232,7 @@
    "purpose": "Measure progress with known answers, record every run in an append-only ledger, and decide when a gate is passed.",
    "done_when": "The synthetic-v1 recovery set is captured and rendered, thresholds are agreed, CI runs the smoke recovery on every change, the separation stress curve and parity null are recorded, and Gates 2 and 3 are evidenced and signed.",
    "status": "prototype",
-   "progress_note": "The ledger, Gate 1, the synthetic-benchmark design and labels generator, and now a parity-null tool with a measured Stomp-versus-Native table exist. No Helix known-answer set has been rendered, no recovery has run, thresholds are approved as working targets but not frozen, no separation stress curve exists, there is no blind-ab script, and CI still skips the benchmark. 2026-10-16: parity spot checks on firmware 3.80 (T060) and time-effect parity by measurement (T066, T066b, T066c) set where Native stands in for the pedal; the 96-item synthetic-v1 set and its runner are built (T073), but only a 3-item provisional run exists (true preset first 0 of 3 on new notes, not gate evidence).",
+   "progress_note": "The ledger, Gate 1, the synthetic-benchmark design and labels generator, and now a parity-null tool with a measured Stomp-versus-Native table exist. No Helix known-answer set has been rendered, no recovery has run, thresholds are approved as working targets but not frozen, no separation stress curve exists, there is no blind-ab script, and CI still skips the benchmark. 2026-10-16: parity spot checks on firmware 3.80 (T060) and time-effect parity by measurement (T066, T066b, T066c) set where Native stands in for the pedal; the 96-item synthetic-v1 set and its runner are built (T073), but only a 3-item provisional run exists (true preset first 0 of 3 on new notes, not gate evidence). T100 (Ruling 2, same-notes rank-1 in the known-DI mode) and the blind A/B tool (T104, benchmark) are done; Native verification (T103) is running.",
    "functionality": "Appends and reads the ledger, runs engine-smoke, generates 180 labelled synthetic items (labels, no audio), and measures Stomp-versus-Native parity on six presets with a restore check. Cannot yet render the known-answer set, run a recovery, or run a blind listen.",
    "health": "partial",
    "evidence": [
@@ -1234,6 +1261,12 @@
      "refs": [
       "ledger 2026-10-16T16:09:03+00:00 synthetic-v1-n3: provisional 3-item run, category 2 of 3, model 0 of 3, true preset first 0 of 3 on new notes; not gate evidence (earlier run voided)"
      ]
+    },
+    {
+     "level": "synthetic",
+     "refs": [
+      "ledger 2026-10-17T16:29:41+00:00 and 2026-10-17T16:34:08+00:00 native-verify-v1: baked violations 0; repeat 215 of 216 (worst -97.4 dB against -100): repeat check not passed as registered"
+     ]
     }
    ],
    "owners": [
@@ -1249,10 +1282,14 @@
     "T040",
     "T060",
     "T066",
-    "T073"
+    "T073",
+    "T096",
+    "T100",
+    "T104",
+    "T103"
    ],
    "blockers": [
-    "The full 96-item known-answer run is not done, the Gate 2 thresholds are unfrozen, and no trust-check term passes; cab Early Reflections stays a pedal-checked setting."
+    "Gate 2 runs are paused for the setting-and-consistency verification; the full 96-item run, threshold freeze (2b/2c) and sign-off are pending; baselines are not in the ledger."
    ],
    "implemented": [
     {
@@ -1321,14 +1358,13 @@
     "Render the known-answer set (hands-off Native loading now makes this possible without GUI captures) and run the recovery",
     "Freeze Gate 2 thresholds after prior-mean and random-search baselines",
     "Per-block parity audit with the probe set (T049)",
-    "Build the blind A/B session script",
-    "Separation stress curve",
     "Add the benchmark step to CI",
-    "Engine comparison on the same songs"
+    "Engine comparison on the same songs",
+    "Record the dev16 and full-96 baselines in the ledger",
+    "Freeze Gate 2 thresholds (2b/2c), then the full 96-item run"
    ],
    "needs_human": [
-    "Sign off Gates 2 and 3 when evidence exists",
-    "Decide how Early Reflections should be handled if the cause is a different law in the two engines"
+    "Sign off Gates 2 and 3 when evidence exists"
    ],
    "decisions": [
     "Benchmark regression freezes merges (CLAUDE.md standing rule)",
@@ -1422,9 +1458,9 @@
    "name": "Blind listening sessions and export",
    "purpose": "Prepare level-matched, randomised blind A/B or MUSHRA sessions so the human, who is the final judge, can rate matches against references and baselines.",
    "done_when": "A blind-ab-session script builds a session folder with the answer key kept out, the human has rated the 20-song set, results are ingested as ledger rows, and Gate 3 has the human's sign-off.",
-   "status": "designing",
+   "status": "prototype",
    "progress_note": "Two informal human listening sessions exist as ledger rows (not blind, one song, not scored by any agent) and the ear has already disagreed with the loss once. The blind-ab-session script, a 20-song set, baselines and the Gate 3 session do not exist.",
-   "functionality": "No blind session can be prepared yet. Informal listening happened outside the tool: the human compared the target stem, two matches, the start chain and the raw DI for one section of one song, and played one preset live on the Stomp.",
+   "functionality": "No blind session can be prepared yet. Informal listening happened outside the tool: the human compared the target stem, two matches, the start chain and the raw DI for one section of one song, and played one preset live on the Stomp. Update: scripts/ab_session.py (build, score, gate2-demo) now exists with 7 tests; no session has been prepared or rated.",
    "health": "partial",
    "evidence": [
     {
@@ -1461,7 +1497,6 @@
     }
    ],
    "todo": [
-    "Build scripts/ab_session.py to the skill",
     "Assemble the 20-song set and the nearest-community-preset baselines",
     "Prepare Gate 3 session, ingest ratings as ledger rows"
    ],
@@ -1521,7 +1556,7 @@
     "T041"
    ],
    "blockers": [
-    "Depends on a trusted loss, a measured separator and an automatic hardware-verification step; only one song has ever been run."
+    "Depends on the Gate 2 verification and sign-off, the chain builder (not built), a score that works without a clean recording, and automatic hardware verification."
    ],
    "implemented": [
     {

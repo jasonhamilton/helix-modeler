@@ -41,3 +41,5 @@ timestamp,metric,reason
 2026-10-16T15:20:26+00:00,supersede_note,"supersede note, replaced by this void (lead 2026-10-16)"
 2026-10-16T16:04:46+00:00,rank1_rate,harness scored the true preset on the same render as the target (loss exactly 0); superseded by 2026-10-16T16:09:03 (T073)
 2026-10-16T16:04:46+00:00,rank1_rate_audible,same defect as rank1_rate; superseded by 2026-10-16T16:09:03 (T073)
+2026-10-17T16:42:08+00:00,model_acc_baseline_random,base_random mixes the 16 dev items with a partial full-96 run (26 items): not a clean baseline; re-run cleanly after verification (lead)
+2026-10-17T16:42:08+00:00,block_f1_baseline_random,base_random mixes the 16 dev items with a partial full-96 run (26 items): not a clean baseline; re-run cleanly after verification (lead)
