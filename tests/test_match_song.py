@@ -653,3 +653,11 @@ def test_build_candidates_excludes_time_variant_unless_allowed(tmp_path, monkeyp
     assert cands == [] and "time-variant" in notes[0] and "fake_rev" in notes[0]
     cands, notes = MS.build_candidates(tmp_path, None, None, None, allow_time_variant=True, time_variant={"fake_rev"})
     assert len(cands) == 1 and "unreliable" in cands[0].note
+
+
+def test_derive_free_empty_verified_list_frees_nothing():
+    """An empty `verified` list means no CC was verified: nothing is freed (T103 hole, lead 2026-10-17)."""
+    from types import SimpleNamespace as NS
+    preset = NS(slots=[NS(model_id="HD2_X", category="mod", enabled=True, params={"Mix": 0.5, "Decay": 0.3})])
+    tpl = NS(map={"0:Mix": "cc_1", "0:Decay": "cc_2"}, verified=[], ranges={"0:Mix": [0, 1], "0:Decay": [0, 1]})
+    assert MS.derive_free(preset, tpl, None) == []

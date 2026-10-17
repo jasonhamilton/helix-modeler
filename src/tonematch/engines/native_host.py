@@ -120,6 +120,13 @@ NATIVE_FRAME = 16
 # 48,000 and 96,000 do) makes them bit-exact again (-332.5 dB). Measured 2026-10-15 (phase 2).
 BEAT_BPM = 120.0
 FRAME_ENV = os.environ.get("TONEMATCH_NATIVE_FRAME")
+# Optional warm-up (T103, 2026-10-17): after a state load or knob move, extend the reset render's
+# alignment pad by whole frames to at least this many samples, so the new state runs before it is
+# re-applied. Default 0 (off). An early experiment suggested renders depended on it; that turned out
+# to be the amp latch (``native.PRIME_MODEL``). With the latch controlled, warm-ups of 0 to 96,000
+# samples render identically (-305 to -330 dB), and 24,000 costs 5-14 % per 2 s render.
+# ``TONEMATCH_NATIVE_WARMUP`` sets it for experiments.
+WARMUP = int(os.environ.get("TONEMATCH_NATIVE_WARMUP", "0"))
 
 
 def reset_frame(sr: int) -> int:
@@ -149,6 +156,9 @@ class Host:
         self._touched: dict[str, float] = {}  # params set since _base, re-sent after it
         self.instances = 0                 # plugin instances this process created (each leaks)
         self.processed = 0                 # samples the current instance has processed
+        self._fresh = True                 # a state was loaded and has not been warmed up yet
+        self._flush: bytes | None = None   # empty-chain state loaded before a new base (T103)
+        self.flushes = 0
 
     def _process(self, x: np.ndarray, reset: bool = False, sr: int | None = None) -> np.ndarray:
         """``plugin.process`` that counts the samples the current instance has seen."""
@@ -255,12 +265,25 @@ class Host:
         data = self.plugin.preset_data if which == "preset" else self.plugin.raw_state
         return {}, bytes(data)
 
+    def set_flush_state(self, payload: bytes = b"", **_) -> dict:
+        """The empty-chain state loaded before every change of base state (T103), b"" for none."""
+        self._flush = bytes(payload) or None
+        return {"flush": self._flush is not None}
+
     def set_state(self, payload: bytes, which: str = "raw", **_) -> dict:
         t0 = time.perf_counter()
         if which == "preset":
             self.plugin.preset_data = payload
             self._rebase()
         else:
+            if self._flush is not None and bytes(payload) != self._base:
+                # T103: Native keeps a block instance when the new chain has the same model in the
+                # same place, and the carried-over block renders differently (-97 dB on a
+                # high-gain chain after the start state's DL4, -65 to -77 dB on amp chains). Load
+                # an empty chain first, so every chain is built from nothing.
+                self.plugin.raw_state = self._flush
+                self._process(np.zeros((self.channels, self.block), dtype=np.float32))
+                self.flushes += 1
             self.plugin.raw_state = payload
             self._rebase(payload)
         return {"set_s": time.perf_counter() - t0}
@@ -280,6 +303,7 @@ class Host:
             prm[n].raw_value = _away(v)
             prm[n].raw_value = v
             self._touched[n] = v
+        self._fresh = True  # warm the moved knobs up before the next reset render (WARMUP)
         return {"read_back": {n: float(prm[n].raw_value) for n in values}}
 
     def set_attrs(self, values: dict, **_) -> dict:
@@ -309,6 +333,7 @@ class Host:
         """The state a reset render returns to: ``state``, or the plugin's current one."""
         p = self.plugin
         self._touched = {}
+        self._fresh = True  # the next reset render warms this state up first (WARMUP)
         self._base = bytes(state) if state is not None else (
             bytes(p.raw_state) if hasattr(p, "raw_state") else None)
 
@@ -326,7 +351,12 @@ class Host:
             if hasattr(p, "raw_state"):
                 self.instances += 1  # pedalboard re-creates external plugins on reset
             return True, "pedalboard"
-        pad = (-self.processed) % reset_frame(self.sr)
+        frame = reset_frame(self.sr)
+        pad = (-self.processed) % frame
+        if self._fresh:  # T103: let a newly loaded state run before it is re-applied
+            while pad < WARMUP:
+                pad += frame
+            self._fresh = False
         if pad:
             self._process(np.zeros((self.channels, pad), dtype=np.float32))
         p.raw_state = self._base
@@ -335,6 +365,20 @@ class Host:
             prm[n].raw_value = _away(v)  # see set_params: force JUCE to send it again
             prm[n].raw_value = v
         return False, "state"
+
+    def reprepare(self, **_) -> dict:
+        """Make pedalboard call Native's ``prepareToPlay`` again on this instance, keeping its state.
+
+        T103 (2026-10-17): each ``prepareToPlay`` puts Native 3.82 in one of two numeric modes
+        (A or B, about 1 in 8 on a fresh instance's first prepare and 1 in 2 on later ones); B
+        differs from A at the 1-ulp level, which chains amplify (-84 dB fuzz, -69 dB EQ, -26 dB
+        DoubleTank). One silent block at another sample rate and one at ours trigger a new prepare;
+        the parent re-checks the canary until the host is back in the reference mode. Both blocks
+        count as processed samples, so the reset render's beat alignment is kept."""
+        other = 44_100 if self.sr != 44_100 else 48_000
+        for sr in (other, self.sr):
+            self._process(np.zeros((self.channels, self.block), dtype=np.float32), sr=sr)
+        return {"processed": self.processed}
 
     def editor(self, **_) -> dict:
         self.plugin.show_editor()  # blocks until the human closes the window
@@ -418,7 +462,8 @@ class Host:
         return {"pid": os.getpid()}
 
     def mem(self, **_) -> dict:
-        return {"mem_mb": mem_mb(), "instances": self.instances, "reset_strategy": self.reset_strategy}
+        return {"mem_mb": mem_mb(), "instances": self.instances, "reset_strategy": self.reset_strategy,
+                "flushes": self.flushes}
 
 
 def main() -> int:

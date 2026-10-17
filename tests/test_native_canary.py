@@ -1,5 +1,6 @@
-"""Host canary: a Native host that renders differently from the machine's reference is replaced
-(about 1 host in 10 does, 2026-10-15). Fake hosts only: no Native, no pedalboard."""
+"""Host canary: a Native host that renders differently from the machine's reference is re-prepared
+in place until it agrees (T103: each prepareToPlay picks Native's numeric mode A or B), else
+replaced (about 1 host in 10 comes up in B, 2026-10-15). Fake hosts only: no Native, no pedalboard."""
 from __future__ import annotations
 
 import numpy as np
@@ -17,13 +18,19 @@ def _cache(tmp_path, monkeypatch):
     monkeypatch.setenv("TONEMATCH_CACHE", str(tmp_path / "cache"))
 
 
-def _host(modes):
+def _host(modes, reprepared=""):
     it = iter(modes)
+    rep = iter(reprepared)  # the mode after each in-place re-prepare (unchanged when exhausted)
 
     class Fake(nat.HostProcess):
         def _spawn_process(self):
             self.mode = next(it)
             self.info = {"has_state": True}
+
+        def call(self, cmd, payload=b"", **kw):
+            assert cmd == "reprepare", cmd
+            self.mode = next(rep, self.mode)
+            return {}, b""
 
         def _canary_render(self):
             if self.mode == "A":
@@ -79,3 +86,28 @@ def test_no_canary_without_a_start_state_or_for_builtins(monkeypatch):
     monkeypatch.setenv("TONEMATCH_NATIVE_CANARY", "0")
     nat.HostProcess("fake.vst3", initial_state=b"S")
     assert "canary" not in called
+
+
+def test_an_odd_host_is_reprepared_in_place():
+    _host("AA")
+    h = _host("B", reprepared="BBA")  # third re-prepare lands in A: no respawn
+    assert h.mode == "A" and h.canary_respawns == 0
+    assert h.canary_reprepares == 3 and h.canary_fixed == 1 and h.canary_null_db < -200
+
+
+def test_reprepare_attempts_do_not_vote():
+    _host("AA")
+    _host("B", reprepared="BBA")
+    f = nat._canary_file("fake.vst3", b"START")
+    assert [v["n"] for v in nat._canary_votes(f)] == [2, 1]  # one vote per fresh process, none per re-prepare
+
+
+def test_no_reprepare_before_a_reference_exists():
+    h = _host("BAA", reprepared="AAAA")  # no agreed reference yet: votes decide, no re-prepare
+    assert h.canary_reprepares == 0 and h.canary_respawns == 2
+
+
+def test_a_host_that_never_agrees_in_place_is_replaced():
+    _host("AA")
+    h = _host("BA")  # re-prepares leave it in B
+    assert h.mode == "A" and h.canary_respawns == 1 and h.canary_reprepares == nat.CANARY_REPREPARES

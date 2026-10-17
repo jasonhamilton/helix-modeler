@@ -1,0 +1,2843 @@
+{
+ "corpus": {},
+ "metadata": {
+  "conditional_prior_cv": {
+   "effect": {
+    "best_kappa": "300",
+    "bits_per_block_global": 2.7975,
+    "by_kappa": {
+     "10": -0.045,
+     "100": -0.0071,
+     "20": -0.0283,
+     "300": -0.0021,
+     "50": -0.0136
+    },
+    "gain_bits_per_block": -0.0021,
+    "n": 228,
+    "share_with_context_prior": 1.0
+   },
+   "group": {
+    "best_kappa": "300",
+    "bits_per_block_global": 2.5655,
+    "by_kappa": {
+     "10": -0.0296,
+     "100": 0.0044,
+     "20": -0.0145,
+     "300": 0.007,
+     "50": -0.0011
+    },
+    "gain_bits_per_block": 0.007,
+    "n": 1824,
+    "share_with_context_prior": 1.0
+   },
+   "style": {
+    "best_kappa": "50",
+    "bits_per_block_global": 2.5369,
+    "by_kappa": {
+     "10": 0.0011,
+     "100": 0.0107,
+     "20": 0.0094,
+     "300": 0.0054,
+     "50": 0.0128
+    },
+    "gain_bits_per_block": 0.0128,
+    "n": 850,
+    "share_with_context_prior": 1.0
+   }
+  },
+  "counts": {
+   "artist": {
+    "contexts": 208,
+    "n": 564
+   },
+   "author": {
+    "contexts": 526,
+    "n": 1767
+   },
+   "effect": {
+    "contexts": 33,
+    "n": 228
+   },
+   "group": {
+    "contexts": 4,
+    "n": 1824
+   },
+   "style": {
+    "contexts": 29,
+    "n": 850
+   }
+  },
+  "reverse_classifier": {
+   "decade": null,
+   "effect": null,
+   "group": {
+    "acc": 0.4929,
+    "acc_majority": 0.4803,
+    "classes": 4,
+    "n": 1824
+   },
+   "style": {
+    "acc": 0.273,
+    "acc_majority": 0.1973,
+    "classes": 15,
+    "n": 674
+   }
+  },
+  "strength": {
+   "artist": {
+    "amp_family": {
+     "acc_by_author": 0.4787,
+     "acc_majority": 0.344,
+     "cv_by_author_gain_bits": 0.2651,
+     "cv_random_gain_bits": 0.3879,
+     "mi_frac_of_H": 0.1875,
+     "n": 564,
+     "z": 15.7
+    },
+    "delay_count": {
+     "acc_by_author": 0.5922,
+     "acc_majority": 0.578,
+     "cv_by_author_gain_bits": 0.0281,
+     "cv_random_gain_bits": 0.0855,
+     "mi_frac_of_H": 0.1223,
+     "n": 564,
+     "z": 6.4
+    },
+    "drive_count": {
+     "acc_by_author": 0.5762,
+     "acc_majority": 0.5798,
+     "cv_by_author_gain_bits": -0.0022,
+     "cv_random_gain_bits": 0.079,
+     "mi_frac_of_H": 0.1016,
+     "n": 564,
+     "z": 5.5
+    },
+    "gain": {
+     "acc_by_author": 0.445,
+     "acc_majority": 0.4344,
+     "cv_by_author_gain_bits": 0.0222,
+     "cv_random_gain_bits": 0.0311,
+     "mi_frac_of_H": 0.0772,
+     "n": 564,
+     "z": 5.9
+    },
+    "group_sequence": {
+     "acc_by_author": null,
+     "acc_majority": null,
+     "cv_by_author_gain_bits": null,
+     "cv_random_gain_bits": null,
+     "mi_frac_of_H": 0.0144,
+     "n": 564,
+     "z": 16.1
+    },
+    "has_comp": {
+     "acc_by_author": 0.5922,
+     "acc_majority": 0.6188,
+     "cv_by_author_gain_bits": -0.0502,
+     "cv_random_gain_bits": 0.0184,
+     "mi_frac_of_H": 0.0603,
+     "n": 564,
+     "z": 2.7
+    },
+    "has_delay": {
+     "acc_by_author": 0.6348,
+     "acc_majority": 0.6223,
+     "cv_by_author_gain_bits": 0.0232,
+     "cv_random_gain_bits": 0.0473,
+     "mi_frac_of_H": 0.1233,
+     "n": 564,
+     "z": 5.6
+    },
+    "has_drive": {
+     "acc_by_author": 0.6933,
+     "acc_majority": 0.6879,
+     "cv_by_author_gain_bits": 0.0066,
+     "cv_random_gain_bits": 0.0609,
+     "mi_frac_of_H": 0.1358,
+     "n": 564,
+     "z": 6.4
+    },
+    "has_eq": {
+     "acc_by_author": 0.6649,
+     "acc_majority": 0.6791,
+     "cv_by_author_gain_bits": 0.0105,
+     "cv_random_gain_bits": 0.0193,
+     "mi_frac_of_H": 0.086,
+     "n": 564,
+     "z": 4.0
+    },
+    "has_filter": {
+     "acc_by_author": 0.9681,
+     "acc_majority": 0.9681,
+     "cv_by_author_gain_bits": 0.0248,
+     "cv_random_gain_bits": 0.0278,
+     "mi_frac_of_H": 0.1931,
+     "n": 564,
+     "z": 3.3
+    },
+    "has_mod": {
+     "acc_by_author": 0.6613,
+     "acc_majority": 0.5532,
+     "cv_by_author_gain_bits": 0.102,
+     "cv_random_gain_bits": 0.124,
+     "mi_frac_of_H": 0.2094,
+     "n": 564,
+     "z": 9.6
+    },
+    "has_pitch": {
+     "acc_by_author": 0.8848,
+     "acc_majority": 0.8848,
+     "cv_by_author_gain_bits": 0.034,
+     "cv_random_gain_bits": 0.0902,
+     "mi_frac_of_H": 0.1549,
+     "n": 564,
+     "z": 4.7
+    },
+    "has_reverb": {
+     "acc_by_author": 0.6986,
+     "acc_majority": 0.7039,
+     "cv_by_author_gain_bits": -0.0105,
+     "cv_random_gain_bits": 0.0481,
+     "mi_frac_of_H": 0.1119,
+     "n": 564,
+     "z": 4.8
+    },
+    "has_volpan": {
+     "acc_by_author": 0.9397,
+     "acc_majority": 0.9397,
+     "cv_by_author_gain_bits": -0.0123,
+     "cv_random_gain_bits": -0.0044,
+     "mi_frac_of_H": 0.0833,
+     "n": 564,
+     "z": 1.7
+    },
+    "has_wah": {
+     "acc_by_author": 0.9326,
+     "acc_majority": 0.9326,
+     "cv_by_author_gain_bits": -0.0578,
+     "cv_random_gain_bits": -0.0165,
+     "mi_frac_of_H": 0.0236,
+     "n": 564,
+     "z": 0.5
+    },
+    "n_blocks": {
+     "acc_by_author": 0.4911,
+     "acc_majority": 0.4805,
+     "cv_by_author_gain_bits": -0.0666,
+     "cv_random_gain_bits": -0.0442,
+     "mi_frac_of_H": 0.062,
+     "n": 564,
+     "z": 3.7
+    },
+    "reverb_count": {
+     "acc_by_author": 0.6809,
+     "acc_majority": 0.6862,
+     "cv_by_author_gain_bits": -0.0241,
+     "cv_random_gain_bits": 0.0432,
+     "mi_frac_of_H": 0.0964,
+     "n": 564,
+     "z": 4.6
+    },
+    "two_path": {
+     "acc_by_author": 0.75,
+     "acc_majority": 0.766,
+     "cv_by_author_gain_bits": -0.0031,
+     "cv_random_gain_bits": 0.0304,
+     "mi_frac_of_H": 0.11,
+     "n": 564,
+     "z": 4.2
+    }
+   },
+   "effect": {
+    "amp_family": {
+     "acc_by_author": 0.4342,
+     "acc_majority": 0.4474,
+     "cv_by_author_gain_bits": 0.0636,
+     "cv_random_gain_bits": 0.1705,
+     "mi_frac_of_H": 0.1473,
+     "n": 228,
+     "z": 9.2
+    },
+    "delay_count": {
+     "acc_by_author": 0.5132,
+     "acc_majority": 0.6009,
+     "cv_by_author_gain_bits": 0.0574,
+     "cv_random_gain_bits": 0.1812,
+     "mi_frac_of_H": 0.1749,
+     "n": 228,
+     "z": 6.9
+    },
+    "drive_count": {
+     "acc_by_author": 0.557,
+     "acc_majority": 0.4737,
+     "cv_by_author_gain_bits": 0.0088,
+     "cv_random_gain_bits": 0.0656,
+     "mi_frac_of_H": 0.1102,
+     "n": 228,
+     "z": 4.4
+    },
+    "gain": {
+     "acc_by_author": 0.364,
+     "acc_majority": 0.3947,
+     "cv_by_author_gain_bits": -0.2054,
+     "cv_random_gain_bits": 0.047,
+     "mi_frac_of_H": 0.0909,
+     "n": 228,
+     "z": 5.3
+    },
+    "group_sequence": {
+     "acc_by_author": null,
+     "acc_majority": null,
+     "cv_by_author_gain_bits": null,
+     "cv_random_gain_bits": null,
+     "mi_frac_of_H": 0.0118,
+     "n": 228,
+     "z": 5.9
+    },
+    "has_comp": {
+     "acc_by_author": 0.5526,
+     "acc_majority": 0.5526,
+     "cv_by_author_gain_bits": -0.0191,
+     "cv_random_gain_bits": 0.009,
+     "mi_frac_of_H": 0.0767,
+     "n": 228,
+     "z": 3.4
+    },
+    "has_delay": {
+     "acc_by_author": 0.6316,
+     "acc_majority": 0.693,
+     "cv_by_author_gain_bits": -0.0025,
+     "cv_random_gain_bits": 0.0391,
+     "mi_frac_of_H": 0.1327,
+     "n": 228,
+     "z": 4.5
+    },
+    "has_drive": {
+     "acc_by_author": 0.5746,
+     "acc_majority": 0.5263,
+     "cv_by_author_gain_bits": 0.0437,
+     "cv_random_gain_bits": 0.0859,
+     "mi_frac_of_H": 0.1438,
+     "n": 228,
+     "z": 5.2
+    },
+    "has_eq": {
+     "acc_by_author": 0.6842,
+     "acc_majority": 0.7105,
+     "cv_by_author_gain_bits": -0.0839,
+     "cv_random_gain_bits": -0.0652,
+     "mi_frac_of_H": -0.0118,
+     "n": 228,
+     "z": -0.4
+    },
+    "has_filter": {
+     "acc_by_author": 0.9386,
+     "acc_majority": 0.9386,
+     "cv_by_author_gain_bits": 0.0263,
+     "cv_random_gain_bits": 0.0122,
+     "mi_frac_of_H": 0.1508,
+     "n": 228,
+     "z": 3.7
+    },
+    "has_mod": {
+     "acc_by_author": 0.6754,
+     "acc_majority": 0.6272,
+     "cv_by_author_gain_bits": 0.0551,
+     "cv_random_gain_bits": 0.0711,
+     "mi_frac_of_H": 0.1237,
+     "n": 228,
+     "z": 4.4
+    },
+    "has_pitch": {
+     "acc_by_author": 0.8202,
+     "acc_majority": 0.7982,
+     "cv_by_author_gain_bits": 0.0693,
+     "cv_random_gain_bits": 0.1358,
+     "mi_frac_of_H": 0.2704,
+     "n": 228,
+     "z": 9.1
+    },
+    "has_reverb": {
+     "acc_by_author": 0.6623,
+     "acc_majority": 0.6842,
+     "cv_by_author_gain_bits": -0.0087,
+     "cv_random_gain_bits": 0.0132,
+     "mi_frac_of_H": 0.0689,
+     "n": 228,
+     "z": 2.4
+    },
+    "has_volpan": {
+     "acc_by_author": 0.9254,
+     "acc_majority": 0.9254,
+     "cv_by_author_gain_bits": -0.0235,
+     "cv_random_gain_bits": -0.0016,
+     "mi_frac_of_H": 0.0713,
+     "n": 228,
+     "z": 1.7
+    },
+    "has_wah": {
+     "acc_by_author": 0.9605,
+     "acc_majority": 0.9605,
+     "cv_by_author_gain_bits": 0.0054,
+     "cv_random_gain_bits": 0.0308,
+     "mi_frac_of_H": 0.1389,
+     "n": 228,
+     "z": 2.3
+    },
+    "n_blocks": {
+     "acc_by_author": 0.4298,
+     "acc_majority": 0.4693,
+     "cv_by_author_gain_bits": -0.1003,
+     "cv_random_gain_bits": -0.0948,
+     "mi_frac_of_H": 0.0492,
+     "n": 228,
+     "z": 2.4
+    },
+    "reverb_count": {
+     "acc_by_author": 0.6096,
+     "acc_majority": 0.6053,
+     "cv_by_author_gain_bits": -0.0107,
+     "cv_random_gain_bits": 0.0555,
+     "mi_frac_of_H": 0.0855,
+     "n": 228,
+     "z": 3.3
+    },
+    "two_path": {
+     "acc_by_author": 0.7632,
+     "acc_majority": 0.7675,
+     "cv_by_author_gain_bits": -0.0471,
+     "cv_random_gain_bits": -0.0592,
+     "mi_frac_of_H": 0.006,
+     "n": 228,
+     "z": 0.2
+    }
+   },
+   "group": {
+    "amp_family": {
+     "acc_by_author": 0.4062,
+     "acc_majority": 0.4062,
+     "cv_by_author_gain_bits": 0.0296,
+     "cv_random_gain_bits": 0.0452,
+     "mi_frac_of_H": 0.0221,
+     "n": 1824,
+     "z": 19.1
+    },
+    "delay_count": {
+     "acc_by_author": 0.5965,
+     "acc_majority": 0.5965,
+     "cv_by_author_gain_bits": -0.0012,
+     "cv_random_gain_bits": 0.0007,
+     "mi_frac_of_H": 0.0027,
+     "n": 1824,
+     "z": 2.1
+    },
+    "drive_count": {
+     "acc_by_author": 0.5515,
+     "acc_majority": 0.5466,
+     "cv_by_author_gain_bits": -0.0022,
+     "cv_random_gain_bits": 0.0053,
+     "mi_frac_of_H": 0.005,
+     "n": 1824,
+     "z": 4.4
+    },
+    "gain": {
+     "acc_by_author": 0.4183,
+     "acc_majority": 0.4183,
+     "cv_by_author_gain_bits": 0.0162,
+     "cv_random_gain_bits": 0.0168,
+     "mi_frac_of_H": 0.0113,
+     "n": 1824,
+     "z": 12.8
+    },
+    "group_sequence": {
+     "acc_by_author": null,
+     "acc_majority": null,
+     "cv_by_author_gain_bits": null,
+     "cv_random_gain_bits": null,
+     "mi_frac_of_H": 0.0121,
+     "n": 1824,
+     "z": 10.4
+    },
+    "has_comp": {
+     "acc_by_author": 0.5943,
+     "acc_majority": 0.5943,
+     "cv_by_author_gain_bits": -0.0024,
+     "cv_random_gain_bits": -0.0011,
+     "mi_frac_of_H": 0.0002,
+     "n": 1824,
+     "z": 0.2
+    },
+    "has_delay": {
+     "acc_by_author": 0.642,
+     "acc_majority": 0.642,
+     "cv_by_author_gain_bits": -0.0029,
+     "cv_random_gain_bits": -0.002,
+     "mi_frac_of_H": 0.0002,
+     "n": 1824,
+     "z": 0.1
+    },
+    "has_drive": {
+     "acc_by_author": 0.6436,
+     "acc_majority": 0.6436,
+     "cv_by_author_gain_bits": 0.0033,
+     "cv_random_gain_bits": 0.0053,
+     "mi_frac_of_H": 0.0066,
+     "n": 1824,
+     "z": 5.1
+    },
+    "has_eq": {
+     "acc_by_author": 0.6502,
+     "acc_majority": 0.6502,
+     "cv_by_author_gain_bits": -0.0005,
+     "cv_random_gain_bits": 0.0044,
+     "mi_frac_of_H": 0.0055,
+     "n": 1824,
+     "z": 5.3
+    },
+    "has_filter": {
+     "acc_by_author": 0.9726,
+     "acc_majority": 0.9726,
+     "cv_by_author_gain_bits": 0.0101,
+     "cv_random_gain_bits": 0.009,
+     "mi_frac_of_H": 0.0548,
+     "n": 1824,
+     "z": 9.2
+    },
+    "has_mod": {
+     "acc_by_author": 0.6546,
+     "acc_majority": 0.6546,
+     "cv_by_author_gain_bits": 0.0117,
+     "cv_random_gain_bits": 0.0161,
+     "mi_frac_of_H": 0.0172,
+     "n": 1824,
+     "z": 20.3
+    },
+    "has_pitch": {
+     "acc_by_author": 0.8794,
+     "acc_majority": 0.8794,
+     "cv_by_author_gain_bits": 0.0015,
+     "cv_random_gain_bits": 0.0037,
+     "mi_frac_of_H": 0.0083,
+     "n": 1824,
+     "z": 3.8
+    },
+    "has_reverb": {
+     "acc_by_author": 0.7215,
+     "acc_majority": 0.7215,
+     "cv_by_author_gain_bits": -0.0031,
+     "cv_random_gain_bits": 0.0001,
+     "mi_frac_of_H": 0.0011,
+     "n": 1824,
+     "z": 1.1
+    },
+    "has_volpan": {
+     "acc_by_author": 0.9402,
+     "acc_majority": 0.9402,
+     "cv_by_author_gain_bits": -0.0034,
+     "cv_random_gain_bits": -0.0012,
+     "mi_frac_of_H": -0.0014,
+     "n": 1824,
+     "z": -0.6
+    },
+    "has_wah": {
+     "acc_by_author": 0.955,
+     "acc_majority": 0.955,
+     "cv_by_author_gain_bits": -0.0287,
+     "cv_random_gain_bits": 0.0022,
+     "mi_frac_of_H": 0.0089,
+     "n": 1824,
+     "z": 2.4
+    },
+    "n_blocks": {
+     "acc_by_author": 0.483,
+     "acc_majority": 0.483,
+     "cv_by_author_gain_bits": -0.0076,
+     "cv_random_gain_bits": 0.0024,
+     "mi_frac_of_H": 0.0031,
+     "n": 1824,
+     "z": 3.1
+    },
+    "reverb_count": {
+     "acc_by_author": 0.682,
+     "acc_majority": 0.682,
+     "cv_by_author_gain_bits": -0.0003,
+     "cv_random_gain_bits": 0.0053,
+     "mi_frac_of_H": 0.0061,
+     "n": 1824,
+     "z": 4.8
+    },
+    "two_path": {
+     "acc_by_author": 0.7659,
+     "acc_majority": 0.7659,
+     "cv_by_author_gain_bits": -0.0039,
+     "cv_random_gain_bits": -0.0001,
+     "mi_frac_of_H": 0.0012,
+     "n": 1824,
+     "z": 0.9
+    }
+   },
+   "style": {
+    "amp_family": {
+     "acc_by_author": 0.5,
+     "acc_majority": 0.4447,
+     "cv_by_author_gain_bits": 0.2196,
+     "cv_random_gain_bits": 0.2194,
+     "mi_frac_of_H": 0.1493,
+     "n": 850,
+     "z": 19.7
+    },
+    "delay_count": {
+     "acc_by_author": 0.6294,
+     "acc_majority": 0.6071,
+     "cv_by_author_gain_bits": 0.0467,
+     "cv_random_gain_bits": 0.0485,
+     "mi_frac_of_H": 0.0853,
+     "n": 850,
+     "z": 12.7
+    },
+    "drive_count": {
+     "acc_by_author": 0.6059,
+     "acc_majority": 0.5588,
+     "cv_by_author_gain_bits": 0.0307,
+     "cv_random_gain_bits": 0.061,
+     "mi_frac_of_H": 0.0911,
+     "n": 850,
+     "z": 13.1
+    },
+    "gain": {
+     "acc_by_author": 0.4329,
+     "acc_majority": 0.4341,
+     "cv_by_author_gain_bits": -0.0033,
+     "cv_random_gain_bits": 0.0563,
+     "mi_frac_of_H": 0.07,
+     "n": 850,
+     "z": 10.6
+    },
+    "group_sequence": {
+     "acc_by_author": null,
+     "acc_majority": null,
+     "cv_by_author_gain_bits": null,
+     "cv_random_gain_bits": null,
+     "mi_frac_of_H": 0.0294,
+     "n": 850,
+     "z": 15.3
+    },
+    "has_comp": {
+     "acc_by_author": 0.5482,
+     "acc_majority": 0.5871,
+     "cv_by_author_gain_bits": 0.0098,
+     "cv_random_gain_bits": 0.0321,
+     "mi_frac_of_H": 0.054,
+     "n": 850,
+     "z": 8.3
+    },
+    "has_delay": {
+     "acc_by_author": 0.6624,
+     "acc_majority": 0.6412,
+     "cv_by_author_gain_bits": 0.027,
+     "cv_random_gain_bits": 0.0396,
+     "mi_frac_of_H": 0.0749,
+     "n": 850,
+     "z": 12.0
+    },
+    "has_drive": {
+     "acc_by_author": 0.6824,
+     "acc_majority": 0.6447,
+     "cv_by_author_gain_bits": 0.0535,
+     "cv_random_gain_bits": 0.0808,
+     "mi_frac_of_H": 0.1084,
+     "n": 850,
+     "z": 14.5
+    },
+    "has_eq": {
+     "acc_by_author": 0.6071,
+     "acc_majority": 0.6047,
+     "cv_by_author_gain_bits": -0.0088,
+     "cv_random_gain_bits": 0.0401,
+     "mi_frac_of_H": 0.057,
+     "n": 850,
+     "z": 8.0
+    },
+    "has_filter": {
+     "acc_by_author": 0.9906,
+     "acc_majority": 0.9906,
+     "cv_by_author_gain_bits": 0.0033,
+     "cv_random_gain_bits": -0.0014,
+     "mi_frac_of_H": 0.0609,
+     "n": 850,
+     "z": 1.2
+    },
+    "has_mod": {
+     "acc_by_author": 0.7035,
+     "acc_majority": 0.7247,
+     "cv_by_author_gain_bits": -0.0035,
+     "cv_random_gain_bits": 0.0257,
+     "mi_frac_of_H": 0.0682,
+     "n": 850,
+     "z": 9.4
+    },
+    "has_pitch": {
+     "acc_by_author": 0.8976,
+     "acc_majority": 0.8976,
+     "cv_by_author_gain_bits": -0.0282,
+     "cv_random_gain_bits": 0.0117,
+     "mi_frac_of_H": 0.043,
+     "n": 850,
+     "z": 3.4
+    },
+    "has_reverb": {
+     "acc_by_author": 0.7647,
+     "acc_majority": 0.7306,
+     "cv_by_author_gain_bits": 0.0475,
+     "cv_random_gain_bits": 0.082,
+     "mi_frac_of_H": 0.1258,
+     "n": 850,
+     "z": 16.8
+    },
+    "has_volpan": {
+     "acc_by_author": 0.9471,
+     "acc_majority": 0.9471,
+     "cv_by_author_gain_bits": 0.0127,
+     "cv_random_gain_bits": 0.0143,
+     "mi_frac_of_H": 0.0994,
+     "n": 850,
+     "z": 5.3
+    },
+    "has_wah": {
+     "acc_by_author": 0.9647,
+     "acc_majority": 0.9647,
+     "cv_by_author_gain_bits": -0.0326,
+     "cv_random_gain_bits": 0.0113,
+     "mi_frac_of_H": 0.1271,
+     "n": 850,
+     "z": 5.4
+    },
+    "n_blocks": {
+     "acc_by_author": 0.4424,
+     "acc_majority": 0.4835,
+     "cv_by_author_gain_bits": -0.1312,
+     "cv_random_gain_bits": -0.0136,
+     "mi_frac_of_H": 0.02,
+     "n": 850,
+     "z": 2.9
+    },
+    "reverb_count": {
+     "acc_by_author": 0.7282,
+     "acc_majority": 0.6918,
+     "cv_by_author_gain_bits": 0.0412,
+     "cv_random_gain_bits": 0.0935,
+     "mi_frac_of_H": 0.1308,
+     "n": 850,
+     "z": 16.1
+    },
+    "two_path": {
+     "acc_by_author": 0.76,
+     "acc_majority": 0.7518,
+     "cv_by_author_gain_bits": 0.0027,
+     "cv_random_gain_bits": 0.0058,
+     "mi_frac_of_H": 0.0485,
+     "n": 850,
+     "z": 5.8
+    }
+   }
+  }
+ },
+ "order": {
+  "clusters": {
+   "categories": [
+    "drive",
+    "amp",
+    "cab",
+    "comp",
+    "eq",
+    "mod",
+    "delay",
+    "reverb",
+    "pitch",
+    "volpan",
+    "sendreturn"
+   ],
+   "merges": [
+    {
+     "distance": 0.373,
+     "left": [
+      "eq"
+     ],
+     "right": [
+      "mod"
+     ]
+    },
+    {
+     "distance": 0.446,
+     "left": [
+      "comp"
+     ],
+     "right": [
+      "pitch"
+     ]
+    },
+    {
+     "distance": 0.477,
+     "left": [
+      "comp",
+      "pitch"
+     ],
+     "right": [
+      "volpan"
+     ]
+    },
+    {
+     "distance": 0.486,
+     "left": [
+      "eq",
+      "mod"
+     ],
+     "right": [
+      "sendreturn"
+     ]
+    },
+    {
+     "distance": 0.595,
+     "left": [
+      "drive"
+     ],
+     "right": [
+      "comp",
+      "pitch",
+      "volpan"
+     ]
+    },
+    {
+     "distance": 0.631,
+     "left": [
+      "eq",
+      "mod",
+      "sendreturn"
+     ],
+     "right": [
+      "delay"
+     ]
+    },
+    {
+     "distance": 0.788,
+     "left": [
+      "cab"
+     ],
+     "right": [
+      "eq",
+      "mod",
+      "sendreturn",
+      "delay"
+     ]
+    },
+    {
+     "distance": 0.862,
+     "left": [
+      "cab",
+      "eq",
+      "mod",
+      "sendreturn",
+      "delay"
+     ],
+     "right": [
+      "reverb"
+     ]
+    },
+    {
+     "distance": 0.923,
+     "left": [
+      "drive",
+      "comp",
+      "pitch",
+      "volpan"
+     ],
+     "right": [
+      "cab",
+      "eq",
+      "mod",
+      "sendreturn",
+      "delay",
+      "reverb"
+     ]
+    },
+    {
+     "distance": 1.024,
+     "left": [
+      "drive",
+      "comp",
+      "pitch",
+      "volpan",
+      "cab",
+      "eq",
+      "mod",
+      "sendreturn",
+      "delay",
+      "reverb"
+     ],
+     "right": [
+      "amp"
+     ]
+    }
+   ]
+  },
+  "n_sequences": 1576,
+  "pairs": {
+   "amp|cab": {
+    "adjacency_lift": 2.406,
+    "adjacent": 0.9303,
+    "adjacent_if_shuffled": 0.3866,
+    "n": 1320,
+    "swap_index": 0.0106,
+    "x_first": 0.9947
+   },
+   "amp|comp": {
+    "adjacency_lift": 0.692,
+    "adjacent": 0.2438,
+    "adjacent_if_shuffled": 0.3521,
+    "n": 808,
+    "swap_index": 0.6213,
+    "x_first": 0.3106
+   },
+   "amp|delay": {
+    "adjacency_lift": 0.246,
+    "adjacent": 0.0841,
+    "adjacent_if_shuffled": 0.3421,
+    "n": 844,
+    "swap_index": 0.1588,
+    "x_first": 0.9206
+   },
+   "amp|eq": {
+    "adjacency_lift": 0.478,
+    "adjacent": 0.1678,
+    "adjacent_if_shuffled": 0.3511,
+    "n": 441,
+    "swap_index": 0.3764,
+    "x_first": 0.8118
+   },
+   "amp|mod": {
+    "adjacency_lift": 0.844,
+    "adjacent": 0.2906,
+    "adjacent_if_shuffled": 0.3443,
+    "n": 468,
+    "swap_index": 0.7521,
+    "x_first": 0.6239
+   },
+   "amp|pitch": {
+    "adjacency_lift": 0.645,
+    "adjacent": 0.2177,
+    "adjacent_if_shuffled": 0.3378,
+    "n": 147,
+    "swap_index": 0.6939,
+    "x_first": 0.3469
+   },
+   "amp|reverb": {
+    "adjacency_lift": 0.156,
+    "adjacent": 0.0545,
+    "adjacent_if_shuffled": 0.3489,
+    "n": 1010,
+    "swap_index": 0.0634,
+    "x_first": 0.9683
+   },
+   "amp|sendreturn": {
+    "adjacency_lift": 1.431,
+    "adjacent": 0.5072,
+    "adjacent_if_shuffled": 0.3543,
+    "n": 69,
+    "swap_index": 0.8406,
+    "x_first": 0.4203
+   },
+   "amp|volpan": {
+    "adjacency_lift": 0.876,
+    "adjacent": 0.3175,
+    "adjacent_if_shuffled": 0.3623,
+    "n": 126,
+    "swap_index": 0.381,
+    "x_first": 0.1905
+   },
+   "cab|comp": {
+    "adjacency_lift": 0.377,
+    "adjacent": 0.1452,
+    "adjacent_if_shuffled": 0.3851,
+    "n": 785,
+    "swap_index": 0.6446,
+    "x_first": 0.3223
+   },
+   "cab|delay": {
+    "adjacency_lift": 1.334,
+    "adjacent": 0.4725,
+    "adjacent_if_shuffled": 0.3542,
+    "n": 836,
+    "swap_index": 0.2321,
+    "x_first": 0.884
+   },
+   "cab|eq": {
+    "adjacency_lift": 1.562,
+    "adjacent": 0.629,
+    "adjacent_if_shuffled": 0.4028,
+    "n": 434,
+    "swap_index": 0.5161,
+    "x_first": 0.7419
+   },
+   "cab|mod": {
+    "adjacency_lift": 1.051,
+    "adjacent": 0.382,
+    "adjacent_if_shuffled": 0.3634,
+    "n": 466,
+    "swap_index": 0.8155,
+    "x_first": 0.5923
+   },
+   "cab|pitch": {
+    "adjacency_lift": 0.498,
+    "adjacent": 0.1831,
+    "adjacent_if_shuffled": 0.3676,
+    "n": 142,
+    "swap_index": 0.6479,
+    "x_first": 0.3239
+   },
+   "cab|reverb": {
+    "adjacency_lift": 0.758,
+    "adjacent": 0.2842,
+    "adjacent_if_shuffled": 0.3749,
+    "n": 1010,
+    "swap_index": 0.1228,
+    "x_first": 0.9386
+   },
+   "cab|sendreturn": {
+    "adjacency_lift": 0.565,
+    "adjacent": 0.2206,
+    "adjacent_if_shuffled": 0.3904,
+    "n": 68,
+    "swap_index": 0.6471,
+    "x_first": 0.3235
+   },
+   "cab|volpan": {
+    "adjacency_lift": 0.374,
+    "adjacent": 0.1473,
+    "adjacent_if_shuffled": 0.3942,
+    "n": 129,
+    "swap_index": 0.3721,
+    "x_first": 0.186
+   },
+   "comp|delay": {
+    "adjacency_lift": 0.468,
+    "adjacent": 0.1621,
+    "adjacent_if_shuffled": 0.3467,
+    "n": 549,
+    "swap_index": 0.4117,
+    "x_first": 0.7942
+   },
+   "comp|eq": {
+    "adjacency_lift": 0.969,
+    "adjacent": 0.3526,
+    "adjacent_if_shuffled": 0.3638,
+    "n": 312,
+    "swap_index": 0.5833,
+    "x_first": 0.7083
+   },
+   "comp|mod": {
+    "adjacency_lift": 0.614,
+    "adjacent": 0.2019,
+    "adjacent_if_shuffled": 0.3286,
+    "n": 322,
+    "swap_index": 0.4658,
+    "x_first": 0.7671
+   },
+   "comp|pitch": {
+    "adjacency_lift": 1.116,
+    "adjacent": 0.4038,
+    "adjacent_if_shuffled": 0.362,
+    "n": 104,
+    "swap_index": 0.8462,
+    "x_first": 0.4231
+   },
+   "comp|reverb": {
+    "adjacency_lift": 0.692,
+    "adjacent": 0.2343,
+    "adjacent_if_shuffled": 0.3387,
+    "n": 653,
+    "swap_index": 0.4257,
+    "x_first": 0.7871
+   },
+   "comp|sendreturn": {
+    "adjacency_lift": 0.932,
+    "adjacent": 0.3438,
+    "adjacent_if_shuffled": 0.3688,
+    "n": 64,
+    "swap_index": 0.5938,
+    "x_first": 0.7031
+   },
+   "comp|volpan": {
+    "adjacency_lift": 1.41,
+    "adjacent": 0.527,
+    "adjacent_if_shuffled": 0.3736,
+    "n": 74,
+    "swap_index": 0.4865,
+    "x_first": 0.2432
+   },
+   "delay|pitch": {
+    "adjacency_lift": 0.866,
+    "adjacent": 0.2883,
+    "adjacent_if_shuffled": 0.3329,
+    "n": 111,
+    "swap_index": 0.0721,
+    "x_first": 0.036
+   },
+   "delay|reverb": {
+    "adjacency_lift": 2.542,
+    "adjacent": 0.8768,
+    "adjacent_if_shuffled": 0.345,
+    "n": 755,
+    "swap_index": 0.1722,
+    "x_first": 0.9139
+   },
+   "delay|sendreturn": {
+    "adjacency_lift": 1.018,
+    "adjacent": 0.3617,
+    "adjacent_if_shuffled": 0.3553,
+    "n": 47,
+    "swap_index": 0.5532,
+    "x_first": 0.2766
+   },
+   "delay|volpan": {
+    "adjacency_lift": 0.517,
+    "adjacent": 0.1724,
+    "adjacent_if_shuffled": 0.3336,
+    "n": 58,
+    "swap_index": 0.1034,
+    "x_first": 0.0517
+   },
+   "drive|amp": {
+    "adjacency_lift": 2.073,
+    "adjacent": 0.7495,
+    "adjacent_if_shuffled": 0.3616,
+    "n": 914,
+    "swap_index": 0.046,
+    "x_first": 0.977
+   },
+   "drive|cab": {
+    "adjacency_lift": 0.086,
+    "adjacent": 0.0336,
+    "adjacent_if_shuffled": 0.39,
+    "n": 893,
+    "swap_index": 0.0381,
+    "x_first": 0.981
+   },
+   "drive|comp": {
+    "adjacency_lift": 1.778,
+    "adjacent": 0.6561,
+    "adjacent_if_shuffled": 0.3691,
+    "n": 570,
+    "swap_index": 0.8632,
+    "x_first": 0.4316
+   },
+   "drive|delay": {
+    "adjacency_lift": 0.188,
+    "adjacent": 0.0692,
+    "adjacent_if_shuffled": 0.368,
+    "n": 650,
+    "swap_index": 0.0246,
+    "x_first": 0.9877
+   },
+   "drive|eq": {
+    "adjacency_lift": 0.44,
+    "adjacent": 0.1637,
+    "adjacent_if_shuffled": 0.3718,
+    "n": 342,
+    "swap_index": 0.1754,
+    "x_first": 0.9123
+   },
+   "drive|mod": {
+    "adjacency_lift": 1.142,
+    "adjacent": 0.4006,
+    "adjacent_if_shuffled": 0.3508,
+    "n": 332,
+    "swap_index": 0.2651,
+    "x_first": 0.8675
+   },
+   "drive|pitch": {
+    "adjacency_lift": 2.157,
+    "adjacent": 0.6931,
+    "adjacent_if_shuffled": 0.3213,
+    "n": 101,
+    "swap_index": 0.5941,
+    "x_first": 0.297
+   },
+   "drive|reverb": {
+    "adjacency_lift": 0.071,
+    "adjacent": 0.0267,
+    "adjacent_if_shuffled": 0.3747,
+    "n": 750,
+    "swap_index": 0.0133,
+    "x_first": 0.9933
+   },
+   "drive|sendreturn": {
+    "adjacency_lift": 1.208,
+    "adjacent": 0.5102,
+    "adjacent_if_shuffled": 0.4224,
+    "n": 49,
+    "swap_index": 0.1224,
+    "x_first": 0.9388
+   },
+   "drive|volpan": {
+    "adjacency_lift": 1.494,
+    "adjacent": 0.5714,
+    "adjacent_if_shuffled": 0.3825,
+    "n": 63,
+    "swap_index": 0.381,
+    "x_first": 0.1905
+   },
+   "eq|delay": {
+    "adjacency_lift": 1.4,
+    "adjacent": 0.488,
+    "adjacent_if_shuffled": 0.3485,
+    "n": 291,
+    "swap_index": 0.4467,
+    "x_first": 0.7766
+   },
+   "eq|mod": {
+    "adjacency_lift": 1.677,
+    "adjacent": 0.5484,
+    "adjacent_if_shuffled": 0.3271,
+    "n": 155,
+    "swap_index": 0.6581,
+    "x_first": 0.671
+   },
+   "eq|pitch": {
+    "adjacency_lift": 0.635,
+    "adjacent": 0.2029,
+    "adjacent_if_shuffled": 0.3196,
+    "n": 69,
+    "swap_index": 0.3188,
+    "x_first": 0.1594
+   },
+   "eq|reverb": {
+    "adjacency_lift": 1.039,
+    "adjacent": 0.3739,
+    "adjacent_if_shuffled": 0.3597,
+    "n": 345,
+    "swap_index": 0.4348,
+    "x_first": 0.7826
+   },
+   "eq|sendreturn": {
+    "adjacency_lift": 1.867,
+    "adjacent": 0.6364,
+    "adjacent_if_shuffled": 0.3409,
+    "n": 22,
+    "swap_index": 0.7273,
+    "x_first": 0.3636
+   },
+   "eq|volpan": {
+    "adjacency_lift": 0.617,
+    "adjacent": 0.2,
+    "adjacent_if_shuffled": 0.324,
+    "n": 25,
+    "swap_index": 0.48,
+    "x_first": 0.24
+   },
+   "mod|delay": {
+    "adjacency_lift": 1.79,
+    "adjacent": 0.6284,
+    "adjacent_if_shuffled": 0.3511,
+    "n": 366,
+    "swap_index": 0.2623,
+    "x_first": 0.8689
+   },
+   "mod|pitch": {
+    "adjacency_lift": 0.986,
+    "adjacent": 0.3636,
+    "adjacent_if_shuffled": 0.3688,
+    "n": 77,
+    "swap_index": 0.3636,
+    "x_first": 0.1818
+   },
+   "mod|reverb": {
+    "adjacency_lift": 0.814,
+    "adjacent": 0.2935,
+    "adjacent_if_shuffled": 0.3606,
+    "n": 402,
+    "swap_index": 0.1493,
+    "x_first": 0.9254
+   },
+   "mod|sendreturn": {
+    "adjacency_lift": 0.978,
+    "adjacent": 0.3214,
+    "adjacent_if_shuffled": 0.3286,
+    "n": 28,
+    "swap_index": 0.7857,
+    "x_first": 0.6071
+   },
+   "mod|volpan": {
+    "adjacency_lift": 0.753,
+    "adjacent": 0.25,
+    "adjacent_if_shuffled": 0.3319,
+    "n": 36,
+    "swap_index": 0.2222,
+    "x_first": 0.1111
+   },
+   "pitch|sendreturn": {
+    "adjacency_lift": 1.463,
+    "adjacent": 0.6,
+    "adjacent_if_shuffled": 0.41,
+    "n": 15,
+    "swap_index": 0.8,
+    "x_first": 0.4
+   },
+   "pitch|volpan": {
+    "adjacency_lift": 0.0,
+    "adjacent": 0.0,
+    "adjacent_if_shuffled": 0.275,
+    "n": 6,
+    "swap_index": 1.0,
+    "x_first": 0.5
+   },
+   "reverb|pitch": {
+    "adjacency_lift": 0.3,
+    "adjacent": 0.1053,
+    "adjacent_if_shuffled": 0.3507,
+    "n": 76,
+    "swap_index": 0.0263,
+    "x_first": 0.0132
+   },
+   "reverb|sendreturn": {
+    "adjacency_lift": 1.023,
+    "adjacent": 0.3846,
+    "adjacent_if_shuffled": 0.376,
+    "n": 52,
+    "swap_index": 0.5385,
+    "x_first": 0.2692
+   },
+   "reverb|volpan": {
+    "adjacency_lift": 0.234,
+    "adjacent": 0.0874,
+    "adjacent_if_shuffled": 0.3728,
+    "n": 103,
+    "swap_index": 0.1165,
+    "x_first": 0.0583
+   },
+   "volpan|sendreturn": {
+    "adjacency_lift": 0.412,
+    "adjacent": 0.1667,
+    "adjacent_if_shuffled": 0.4042,
+    "n": 12,
+    "swap_index": 0.3333,
+    "x_first": 0.8333
+   }
+  },
+  "position": {
+   "amp_unit_groups": {
+    "from_end": {
+     "0": {
+      "n": 1576,
+      "share": {
+       "amp_unit": 0.106,
+       "comp": 0.1142,
+       "delay": 0.1339,
+       "drive": 0.0044,
+       "eq": 0.0615,
+       "filter": 0.0006,
+       "looper": 0.0209,
+       "mod": 0.0305,
+       "pitch": 0.0032,
+       "reverb": 0.5057,
+       "sendreturn": 0.0108,
+       "volpan": 0.007,
+       "wah": 0.0013
+      }
+     },
+     "1": {
+      "n": 1542,
+      "share": {
+       "amp_unit": 0.1958,
+       "comp": 0.059,
+       "delay": 0.3204,
+       "drive": 0.0253,
+       "eq": 0.0973,
+       "filter": 0.0019,
+       "looper": 0.0026,
+       "mod": 0.0914,
+       "pitch": 0.0143,
+       "reverb": 0.1628,
+       "sendreturn": 0.022,
+       "volpan": 0.0065,
+       "wah": 0.0006
+      }
+     },
+     "2": {
+      "n": 1496,
+      "share": {
+       "amp_unit": 0.3336,
+       "comp": 0.0889,
+       "delay": 0.133,
+       "drive": 0.0963,
+       "eq": 0.0976,
+       "filter": 0.006,
+       "looper": 0.0007,
+       "mod": 0.1176,
+       "pitch": 0.0281,
+       "reverb": 0.0588,
+       "sendreturn": 0.01,
+       "volpan": 0.0241,
+       "wah": 0.0053
+      }
+     },
+     "3": {
+      "n": 1303,
+      "share": {
+       "amp_unit": 0.34,
+       "comp": 0.1159,
+       "delay": 0.0445,
+       "drive": 0.2471,
+       "eq": 0.0744,
+       "filter": 0.0084,
+       "looper": 0.0015,
+       "mod": 0.0867,
+       "pitch": 0.0192,
+       "reverb": 0.0115,
+       "sendreturn": 0.0146,
+       "volpan": 0.023,
+       "wah": 0.013
+      }
+     }
+    },
+    "from_start": {
+     "0": {
+      "n": 1576,
+      "share": {
+       "amp_unit": 0.1288,
+       "comp": 0.3096,
+       "delay": 0.0152,
+       "drive": 0.2989,
+       "eq": 0.0305,
+       "filter": 0.007,
+       "looper": 0.0038,
+       "mod": 0.0362,
+       "pitch": 0.052,
+       "reverb": 0.0057,
+       "sendreturn": 0.0063,
+       "volpan": 0.0698,
+       "wah": 0.0362
+      }
+     },
+     "1": {
+      "n": 1542,
+      "share": {
+       "amp_unit": 0.3521,
+       "comp": 0.0752,
+       "delay": 0.0467,
+       "drive": 0.2983,
+       "eq": 0.0473,
+       "filter": 0.0097,
+       "looper": 0.0006,
+       "mod": 0.0746,
+       "pitch": 0.0311,
+       "reverb": 0.0331,
+       "sendreturn": 0.0188,
+       "volpan": 0.0071,
+       "wah": 0.0052
+      }
+     },
+     "2": {
+      "n": 1496,
+      "share": {
+       "amp_unit": 0.359,
+       "comp": 0.0729,
+       "delay": 0.1578,
+       "drive": 0.0488,
+       "eq": 0.0929,
+       "filter": 0.0067,
+       "looper": 0.0027,
+       "mod": 0.1123,
+       "pitch": 0.0114,
+       "reverb": 0.1023,
+       "sendreturn": 0.0214,
+       "volpan": 0.0094,
+       "wah": 0.0027
+      }
+     },
+     "3": {
+      "n": 1303,
+      "share": {
+       "amp_unit": 0.1604,
+       "comp": 0.066,
+       "delay": 0.2417,
+       "drive": 0.0138,
+       "eq": 0.1182,
+       "filter": 0.0031,
+       "looper": 0.0023,
+       "mod": 0.1013,
+       "pitch": 0.0153,
+       "reverb": 0.2563,
+       "sendreturn": 0.0153,
+       "volpan": 0.0031,
+       "wah": 0.0031
+      }
+     },
+     "4": {
+      "n": 938,
+      "share": {
+       "amp_unit": 0.08,
+       "comp": 0.0864,
+       "delay": 0.2441,
+       "drive": 0.0064,
+       "eq": 0.1023,
+       "filter": 0.0021,
+       "looper": 0.0149,
+       "mod": 0.0512,
+       "pitch": 0.0117,
+       "reverb": 0.3859,
+       "sendreturn": 0.0075,
+       "volpan": 0.0075
+      }
+     },
+     "5": {
+      "n": 465,
+      "share": {
+       "amp_unit": 0.071,
+       "comp": 0.1333,
+       "delay": 0.1849,
+       "drive": 0.0043,
+       "eq": 0.0817,
+       "looper": 0.028,
+       "mod": 0.0925,
+       "pitch": 0.0043,
+       "reverb": 0.3871,
+       "sendreturn": 0.0108,
+       "volpan": 0.0022
+      }
+     },
+     "6": {
+      "n": 115,
+      "share": {
+       "amp_unit": 0.0609,
+       "comp": 0.1043,
+       "delay": 0.1565,
+       "eq": 0.0609,
+       "looper": 0.0261,
+       "mod": 0.0435,
+       "reverb": 0.5217,
+       "volpan": 0.0261
+      }
+     },
+     "7": {
+      "n": 21,
+      "share": {
+       "amp_unit": 0.1429,
+       "comp": 0.3333,
+       "eq": 0.0476,
+       "reverb": 0.4286,
+       "sendreturn": 0.0476
+      }
+     }
+    },
+    "mean_length": 4.731,
+    "n": 1576
+   },
+   "blocks": {
+    "from_end": {
+     "0": {
+      "n": 1576,
+      "share": {
+       "amp": 0.014,
+       "cab": 0.092,
+       "comp": 0.1142,
+       "delay": 0.1339,
+       "drive": 0.0044,
+       "eq": 0.0615,
+       "filter": 0.0006,
+       "looper": 0.0209,
+       "mod": 0.0305,
+       "pitch": 0.0032,
+       "reverb": 0.5057,
+       "sendreturn": 0.0108,
+       "volpan": 0.007,
+       "wah": 0.0013
+      }
+     },
+     "1": {
+      "n": 1557,
+      "share": {
+       "amp": 0.0764,
+       "cab": 0.1728,
+       "comp": 0.0469,
+       "delay": 0.307,
+       "drive": 0.0109,
+       "eq": 0.1008,
+       "filter": 0.0013,
+       "looper": 0.0019,
+       "mod": 0.0784,
+       "pitch": 0.0141,
+       "preamp": 0.0032,
+       "reverb": 0.1721,
+       "sendreturn": 0.0103,
+       "volpan": 0.0032,
+       "wah": 0.0006
+      }
+     },
+     "2": {
+      "n": 1540,
+      "share": {
+       "amp": 0.1513,
+       "cab": 0.2948,
+       "comp": 0.0545,
+       "delay": 0.1383,
+       "drive": 0.0279,
+       "eq": 0.0948,
+       "filter": 0.0032,
+       "looper": 0.0006,
+       "mod": 0.1149,
+       "pitch": 0.0195,
+       "preamp": 0.0123,
+       "reverb": 0.0591,
+       "sendreturn": 0.0188,
+       "volpan": 0.0084,
+       "wah": 0.0013
+      }
+     },
+     "3": {
+      "n": 1471,
+      "share": {
+       "amp": 0.2767,
+       "cab": 0.2869,
+       "comp": 0.0639,
+       "delay": 0.0557,
+       "drive": 0.1169,
+       "eq": 0.0687,
+       "filter": 0.0088,
+       "looper": 0.0007,
+       "mod": 0.0523,
+       "pitch": 0.0184,
+       "preamp": 0.0122,
+       "reverb": 0.0102,
+       "sendreturn": 0.0082,
+       "volpan": 0.017,
+       "wah": 0.0034
+      }
+     }
+    },
+    "from_start": {
+     "0": {
+      "n": 1576,
+      "share": {
+       "amp": 0.1123,
+       "cab": 0.0032,
+       "comp": 0.3096,
+       "delay": 0.0152,
+       "drive": 0.2989,
+       "eq": 0.0305,
+       "filter": 0.007,
+       "looper": 0.0038,
+       "mod": 0.0362,
+       "pitch": 0.052,
+       "preamp": 0.0133,
+       "reverb": 0.0057,
+       "sendreturn": 0.0063,
+       "volpan": 0.0698,
+       "wah": 0.0362
+      }
+     },
+     "1": {
+      "n": 1557,
+      "share": {
+       "amp": 0.2993,
+       "cab": 0.1002,
+       "comp": 0.0694,
+       "delay": 0.0257,
+       "drive": 0.3237,
+       "eq": 0.036,
+       "filter": 0.0071,
+       "looper": 0.0006,
+       "mod": 0.0597,
+       "pitch": 0.0238,
+       "preamp": 0.0167,
+       "reverb": 0.0141,
+       "sendreturn": 0.0148,
+       "volpan": 0.0039,
+       "wah": 0.0051
+      }
+     },
+     "2": {
+      "n": 1540,
+      "share": {
+       "amp": 0.3208,
+       "cab": 0.2844,
+       "comp": 0.0506,
+       "delay": 0.0565,
+       "drive": 0.0864,
+       "eq": 0.0416,
+       "filter": 0.0091,
+       "looper": 0.0026,
+       "mod": 0.0649,
+       "pitch": 0.0169,
+       "preamp": 0.0071,
+       "reverb": 0.0325,
+       "sendreturn": 0.0182,
+       "volpan": 0.0071,
+       "wah": 0.0013
+      }
+     },
+     "3": {
+      "n": 1471,
+      "share": {
+       "amp": 0.138,
+       "cab": 0.3623,
+       "comp": 0.0544,
+       "delay": 0.1394,
+       "drive": 0.032,
+       "eq": 0.0673,
+       "filter": 0.002,
+       "mod": 0.0809,
+       "pitch": 0.0088,
+       "preamp": 0.0027,
+       "reverb": 0.0911,
+       "sendreturn": 0.0122,
+       "volpan": 0.0061,
+       "wah": 0.0027
+      }
+     },
+     "4": {
+      "n": 1317,
+      "share": {
+       "amp": 0.0463,
+       "cab": 0.2012,
+       "comp": 0.0471,
+       "delay": 0.2156,
+       "drive": 0.0091,
+       "eq": 0.1192,
+       "filter": 0.0015,
+       "looper": 0.0038,
+       "mod": 0.0957,
+       "pitch": 0.0121,
+       "preamp": 0.0023,
+       "reverb": 0.2339,
+       "sendreturn": 0.0091,
+       "volpan": 0.0015,
+       "wah": 0.0015
+      }
+     },
+     "5": {
+      "n": 999,
+      "share": {
+       "amp": 0.011,
+       "cab": 0.1131,
+       "comp": 0.0731,
+       "delay": 0.2603,
+       "drive": 0.003,
+       "eq": 0.1021,
+       "filter": 0.001,
+       "looper": 0.013,
+       "mod": 0.0551,
+       "pitch": 0.013,
+       "preamp": 0.002,
+       "reverb": 0.3423,
+       "sendreturn": 0.008,
+       "volpan": 0.003
+      }
+     },
+     "6": {
+      "n": 561,
+      "share": {
+       "amp": 0.0071,
+       "cab": 0.0392,
+       "comp": 0.1444,
+       "delay": 0.1676,
+       "drive": 0.0018,
+       "eq": 0.1159,
+       "filter": 0.0018,
+       "looper": 0.0178,
+       "mod": 0.0463,
+       "pitch": 0.0107,
+       "preamp": 0.0018,
+       "reverb": 0.4242,
+       "sendreturn": 0.0107,
+       "volpan": 0.0107
+      }
+     },
+     "7": {
+      "n": 168,
+      "share": {
+       "amp": 0.006,
+       "cab": 0.0595,
+       "comp": 0.0893,
+       "delay": 0.1667,
+       "eq": 0.0655,
+       "looper": 0.0298,
+       "mod": 0.1726,
+       "pitch": 0.006,
+       "reverb": 0.3869,
+       "sendreturn": 0.006,
+       "volpan": 0.0119
+      }
+     }
+    },
+    "mean_length": 5.862,
+    "n": 1576
+   },
+   "groups": {
+    "from_end": {
+     "0": {
+      "n": 1576,
+      "share": {
+       "amp": 0.014,
+       "cab": 0.092,
+       "comp": 0.1142,
+       "delay": 0.1339,
+       "drive": 0.0044,
+       "eq": 0.0615,
+       "filter": 0.0006,
+       "looper": 0.0209,
+       "mod": 0.0305,
+       "pitch": 0.0032,
+       "reverb": 0.5057,
+       "sendreturn": 0.0108,
+       "volpan": 0.007,
+       "wah": 0.0013
+      }
+     },
+     "1": {
+      "n": 1557,
+      "share": {
+       "amp": 0.0829,
+       "cab": 0.1734,
+       "comp": 0.0482,
+       "delay": 0.3141,
+       "drive": 0.0116,
+       "eq": 0.0957,
+       "filter": 0.0013,
+       "looper": 0.0019,
+       "mod": 0.0816,
+       "pitch": 0.0141,
+       "preamp": 0.0032,
+       "reverb": 0.1586,
+       "sendreturn": 0.009,
+       "volpan": 0.0039,
+       "wah": 0.0006
+      }
+     },
+     "2": {
+      "n": 1535,
+      "share": {
+       "amp": 0.1694,
+       "cab": 0.2984,
+       "comp": 0.0632,
+       "delay": 0.1147,
+       "drive": 0.028,
+       "eq": 0.0879,
+       "filter": 0.0046,
+       "looper": 0.0007,
+       "mod": 0.1121,
+       "pitch": 0.0202,
+       "preamp": 0.013,
+       "reverb": 0.0547,
+       "sendreturn": 0.0215,
+       "volpan": 0.0104,
+       "wah": 0.0013
+      }
+     },
+     "3": {
+      "n": 1447,
+      "share": {
+       "amp": 0.3179,
+       "cab": 0.2681,
+       "comp": 0.0601,
+       "delay": 0.0463,
+       "drive": 0.1292,
+       "eq": 0.0581,
+       "filter": 0.0076,
+       "looper": 0.0007,
+       "mod": 0.0422,
+       "pitch": 0.0152,
+       "preamp": 0.0131,
+       "reverb": 0.0083,
+       "sendreturn": 0.0097,
+       "volpan": 0.0194,
+       "wah": 0.0041
+      }
+     }
+    },
+    "from_start": {
+     "0": {
+      "n": 1576,
+      "share": {
+       "amp": 0.1123,
+       "cab": 0.0032,
+       "comp": 0.3096,
+       "delay": 0.0152,
+       "drive": 0.2989,
+       "eq": 0.0305,
+       "filter": 0.007,
+       "looper": 0.0038,
+       "mod": 0.0362,
+       "pitch": 0.052,
+       "preamp": 0.0133,
+       "reverb": 0.0057,
+       "sendreturn": 0.0063,
+       "volpan": 0.0698,
+       "wah": 0.0362
+      }
+     },
+     "1": {
+      "n": 1557,
+      "share": {
+       "amp": 0.3288,
+       "cab": 0.1015,
+       "comp": 0.0597,
+       "delay": 0.0283,
+       "drive": 0.2909,
+       "eq": 0.0373,
+       "filter": 0.0083,
+       "looper": 0.0006,
+       "mod": 0.0642,
+       "pitch": 0.0225,
+       "preamp": 0.0161,
+       "reverb": 0.0154,
+       "sendreturn": 0.0173,
+       "volpan": 0.0039,
+       "wah": 0.0051
+      }
+     },
+     "2": {
+      "n": 1535,
+      "share": {
+       "amp": 0.3336,
+       "cab": 0.3049,
+       "comp": 0.0508,
+       "delay": 0.0612,
+       "drive": 0.0456,
+       "eq": 0.041,
+       "filter": 0.0078,
+       "looper": 0.0026,
+       "mod": 0.0599,
+       "pitch": 0.0156,
+       "preamp": 0.0078,
+       "reverb": 0.0397,
+       "sendreturn": 0.0202,
+       "volpan": 0.0078,
+       "wah": 0.0013
+      }
+     },
+     "3": {
+      "n": 1447,
+      "share": {
+       "amp": 0.1071,
+       "cab": 0.3497,
+       "comp": 0.0553,
+       "delay": 0.1596,
+       "drive": 0.018,
+       "eq": 0.0774,
+       "filter": 0.0014,
+       "mod": 0.0885,
+       "pitch": 0.0055,
+       "preamp": 0.0021,
+       "reverb": 0.1154,
+       "sendreturn": 0.0117,
+       "volpan": 0.0055,
+       "wah": 0.0028
+      }
+     },
+     "4": {
+      "n": 1249,
+      "share": {
+       "amp": 0.0328,
+       "cab": 0.1425,
+       "comp": 0.052,
+       "delay": 0.245,
+       "drive": 0.0064,
+       "eq": 0.1257,
+       "filter": 0.0016,
+       "looper": 0.0056,
+       "mod": 0.0865,
+       "pitch": 0.0168,
+       "preamp": 0.0016,
+       "reverb": 0.2738,
+       "sendreturn": 0.0056,
+       "volpan": 0.0024,
+       "wah": 0.0016
+      }
+     },
+     "5": {
+      "n": 864,
+      "share": {
+       "amp": 0.0069,
+       "cab": 0.0799,
+       "comp": 0.0984,
+       "delay": 0.2245,
+       "drive": 0.0023,
+       "eq": 0.0938,
+       "filter": 0.0023,
+       "looper": 0.0139,
+       "mod": 0.0463,
+       "pitch": 0.0093,
+       "preamp": 0.0035,
+       "reverb": 0.4016,
+       "sendreturn": 0.0081,
+       "volpan": 0.0093
+      }
+     },
+     "6": {
+      "n": 388,
+      "share": {
+       "amp": 0.0026,
+       "cab": 0.0309,
+       "comp": 0.1418,
+       "delay": 0.201,
+       "eq": 0.0799,
+       "looper": 0.0309,
+       "mod": 0.1031,
+       "pitch": 0.0052,
+       "reverb": 0.3943,
+       "sendreturn": 0.0103
+      }
+     },
+     "7": {
+      "n": 95,
+      "share": {
+       "cab": 0.0421,
+       "comp": 0.1368,
+       "delay": 0.0947,
+       "eq": 0.0632,
+       "looper": 0.0211,
+       "mod": 0.0316,
+       "reverb": 0.5684,
+       "sendreturn": 0.0105,
+       "volpan": 0.0316
+      }
+     }
+    },
+    "mean_length": 5.53,
+    "n": 1576
+   }
+  },
+  "presence": {
+   "amp": 0.8871,
+   "cab": 0.8623,
+   "comp": 0.5742,
+   "delay": 0.6142,
+   "drive": 0.6358,
+   "eq": 0.3236,
+   "filter": 0.0266,
+   "looper": 0.0279,
+   "mod": 0.3464,
+   "pitch": 0.1123,
+   "preamp": 0.0419,
+   "reverb": 0.7208,
+   "sendreturn": 0.0641,
+   "volpan": 0.0926,
+   "wah": 0.0463
+  },
+  "run_lengths": {
+   "amp": {
+    "groups": 1404,
+    "size1": 1391,
+    "size2": 13,
+    "size3plus": 0
+   },
+   "cab": {
+    "groups": 1400,
+    "size1": 1256,
+    "size2": 144,
+    "size3plus": 0
+   },
+   "comp": {
+    "groups": 961,
+    "size1": 928,
+    "size2": 33,
+    "size3plus": 0
+   },
+   "delay": {
+    "groups": 980,
+    "size1": 932,
+    "size2": 44,
+    "size3plus": 4
+   },
+   "drive": {
+    "groups": 1030,
+    "size1": 905,
+    "size2": 112,
+    "size3plus": 13
+   },
+   "eq": {
+    "groups": 556,
+    "size1": 510,
+    "size2": 43,
+    "size3plus": 3
+   },
+   "filter": {
+    "groups": 42,
+    "size1": 41,
+    "size2": 1,
+    "size3plus": 0
+   },
+   "looper": {
+    "groups": 44,
+    "size1": 44,
+    "size2": 0,
+    "size3plus": 0
+   },
+   "mod": {
+    "groups": 568,
+    "size1": 531,
+    "size2": 35,
+    "size3plus": 2
+   },
+   "pitch": {
+    "groups": 180,
+    "size1": 168,
+    "size2": 11,
+    "size3plus": 1
+   },
+   "preamp": {
+    "groups": 66,
+    "size1": 64,
+    "size2": 2,
+    "size3plus": 0
+   },
+   "reverb": {
+    "groups": 1158,
+    "size1": 1125,
+    "size2": 33,
+    "size3plus": 0
+   },
+   "sendreturn": {
+    "groups": 104,
+    "size1": 102,
+    "size2": 2,
+    "size3plus": 0
+   },
+   "volpan": {
+    "groups": 150,
+    "size1": 150,
+    "size2": 0,
+    "size3plus": 0
+   },
+   "wah": {
+    "groups": 73,
+    "size1": 73,
+    "size2": 0,
+    "size3plus": 0
+   }
+  },
+  "supergroup_hypotheses": {
+   "ambience (delay+reverb)": {
+    "contiguous": 0.857,
+    "contiguous_if_shuffled": 0.3065,
+    "lift": 2.796,
+    "n": 755
+   },
+   "amp unit (amp+cab)": {
+    "contiguous": 0.9023,
+    "contiguous_if_shuffled": 0.3323,
+    "lift": 2.715,
+    "n": 1320
+   },
+   "front-end dynamics (comp+drive)": {
+    "contiguous": 0.5947,
+    "contiguous_if_shuffled": 0.2828,
+    "lift": 2.103,
+    "n": 570
+   },
+   "gain staging (drive+amp+cab)": {
+    "contiguous": 0.748,
+    "contiguous_if_shuffled": 0.2644,
+    "lift": 2.829,
+    "n": 1365
+   },
+   "gain staging, no cab (drive+amp)": {
+    "contiguous": 0.7309,
+    "contiguous_if_shuffled": 0.3056,
+    "lift": 2.391,
+    "n": 914
+   },
+   "pedalboard (comp+drive+wah+volpan+pitch+filter)": {
+    "contiguous": 0.5862,
+    "contiguous_if_shuffled": 0.2735,
+    "lift": 2.143,
+    "n": 783
+   },
+   "post-amp shaping (eq+mod+delay+reverb)": {
+    "contiguous": 0.6555,
+    "contiguous_if_shuffled": 0.2557,
+    "lift": 2.563,
+    "n": 1132
+   },
+   "pre-amp effects (wah+volpan+pitch+filter+comp)": {
+    "contiguous": 0.3176,
+    "contiguous_if_shuffled": 0.2825,
+    "lift": 1.124,
+    "n": 233
+   },
+   "space+mod (mod+delay+reverb)": {
+    "contiguous": 0.7214,
+    "contiguous_if_shuffled": 0.277,
+    "lift": 2.604,
+    "n": 969
+   },
+   "time-modulation (mod+delay)": {
+    "contiguous": 0.5792,
+    "contiguous_if_shuffled": 0.2862,
+    "lift": 2.024,
+    "n": 366
+   }
+  },
+  "supergroup_proposals": [
+   {
+    "contiguous": 0.7493,
+    "contiguous_if_shuffled": 0.2623,
+    "lift": 2.857,
+    "members": [
+     "drive",
+     "amp",
+     "cab"
+    ],
+    "n": 1392
+   },
+   {
+    "contiguous": 0.7236,
+    "contiguous_if_shuffled": 0.2541,
+    "lift": 2.847,
+    "members": [
+     "drive",
+     "amp",
+     "cab",
+     "mod"
+    ],
+    "n": 1440
+   },
+   {
+    "contiguous": 0.7461,
+    "contiguous_if_shuffled": 0.2624,
+    "lift": 2.844,
+    "members": [
+     "drive",
+     "amp",
+     "cab",
+     "sendreturn"
+    ],
+    "n": 1414
+   },
+   {
+    "contiguous": 0.7321,
+    "contiguous_if_shuffled": 0.2606,
+    "lift": 2.81,
+    "members": [
+     "drive",
+     "amp",
+     "cab",
+     "pitch"
+    ],
+    "n": 1411
+   },
+   {
+    "contiguous": 0.7246,
+    "contiguous_if_shuffled": 0.266,
+    "lift": 2.724,
+    "members": [
+     "drive",
+     "amp",
+     "cab",
+     "volpan"
+    ],
+    "n": 1405
+   },
+   {
+    "contiguous": 0.7519,
+    "contiguous_if_shuffled": 0.2777,
+    "lift": 2.708,
+    "members": [
+     "amp",
+     "cab",
+     "eq",
+     "mod"
+    ],
+    "n": 1435
+   },
+   {
+    "contiguous": 0.8073,
+    "contiguous_if_shuffled": 0.2986,
+    "lift": 2.703,
+    "members": [
+     "amp",
+     "cab",
+     "eq",
+     "sendreturn"
+    ],
+    "n": 1417
+   },
+   {
+    "contiguous": 0.8174,
+    "contiguous_if_shuffled": 0.3039,
+    "lift": 2.689,
+    "members": [
+     "amp",
+     "cab",
+     "eq"
+    ],
+    "n": 1402
+   },
+   {
+    "contiguous": 0.8944,
+    "contiguous_if_shuffled": 0.332,
+    "lift": 2.694,
+    "members": [
+     "amp",
+     "cab"
+    ],
+    "n": 1345
+   },
+   {
+    "contiguous": 0.8793,
+    "contiguous_if_shuffled": 0.3272,
+    "lift": 2.688,
+    "members": [
+     "amp",
+     "cab",
+     "sendreturn"
+    ],
+    "n": 1359
+   },
+   {
+    "contiguous": 0.7131,
+    "contiguous_if_shuffled": 0.267,
+    "lift": 2.671,
+    "members": [
+     "drive",
+     "amp",
+     "cab",
+     "eq"
+    ],
+    "n": 1443
+   },
+   {
+    "contiguous": 0.771,
+    "contiguous_if_shuffled": 0.2932,
+    "lift": 2.629,
+    "members": [
+     "amp",
+     "cab",
+     "mod"
+    ],
+    "n": 1384
+   }
+  ]
+ },
+ "profiles": {
+  "decade": {
+   "80s": {
+    "gain_high": 0.214,
+    "gain_low": 0.286,
+    "has_comp": 0.786,
+    "has_delay": 0.643,
+    "has_drive": 0.571,
+    "has_mod": 0.714,
+    "has_reverb": 0.857,
+    "mean_blocks": 6.36,
+    "n": 14
+   }
+  },
+  "effect": {
+   "drone": {
+    "gain_high": 0.0,
+    "gain_low": 0.0,
+    "has_comp": 0.0,
+    "has_delay": 1.0,
+    "has_drive": 0.0,
+    "has_mod": 0.75,
+    "has_reverb": 1.0,
+    "mean_blocks": 5.0,
+    "n": 8
+   },
+   "funk": {
+    "gain_high": 0.111,
+    "gain_low": 0.111,
+    "has_comp": 0.889,
+    "has_delay": 0.333,
+    "has_drive": 0.444,
+    "has_mod": 0.444,
+    "has_reverb": 0.667,
+    "mean_blocks": 6.44,
+    "n": 9
+   },
+   "fuzz": {
+    "gain_high": 0.125,
+    "gain_low": 0.125,
+    "has_comp": 0.625,
+    "has_delay": 0.625,
+    "has_drive": 0.875,
+    "has_mod": 0.25,
+    "has_reverb": 0.5,
+    "mean_blocks": 7.0,
+    "n": 8
+   },
+   "fx": {
+    "gain_high": 0.25,
+    "gain_low": 0.062,
+    "has_comp": 0.562,
+    "has_delay": 0.625,
+    "has_drive": 0.375,
+    "has_mod": 0.375,
+    "has_reverb": 0.375,
+    "mean_blocks": 5.81,
+    "n": 16
+   },
+   "lead": {
+    "gain_high": 0.256,
+    "gain_low": 0.163,
+    "has_comp": 0.581,
+    "has_delay": 0.86,
+    "has_drive": 0.767,
+    "has_mod": 0.372,
+    "has_reverb": 0.814,
+    "mean_blocks": 6.16,
+    "n": 43
+   },
+   "reverb": {
+    "gain_high": 0.0,
+    "gain_low": 0.091,
+    "has_comp": 0.364,
+    "has_delay": 0.636,
+    "has_drive": 0.545,
+    "has_mod": 0.273,
+    "has_reverb": 1.0,
+    "mean_blocks": 6.0,
+    "n": 11
+   },
+   "rhythm": {
+    "gain_high": 0.0,
+    "gain_low": 0.059,
+    "has_comp": 0.765,
+    "has_delay": 0.471,
+    "has_drive": 0.882,
+    "has_mod": 0.353,
+    "has_reverb": 0.647,
+    "mean_blocks": 7.0,
+    "n": 17
+   },
+   "solo": {
+    "gain_high": 0.412,
+    "gain_low": 0.059,
+    "has_comp": 0.294,
+    "has_delay": 1.0,
+    "has_drive": 0.588,
+    "has_mod": 0.529,
+    "has_reverb": 0.765,
+    "mean_blocks": 6.06,
+    "n": 17
+   },
+   "stereo": {
+    "gain_high": 0.125,
+    "gain_low": 0.25,
+    "has_comp": 0.625,
+    "has_delay": 0.75,
+    "has_drive": 0.375,
+    "has_mod": 0.125,
+    "has_reverb": 0.5,
+    "mean_blocks": 5.5,
+    "n": 8
+   },
+   "synth": {
+    "gain_high": 0.111,
+    "gain_low": 0.444,
+    "has_comp": 0.778,
+    "has_delay": 0.667,
+    "has_drive": 0.222,
+    "has_mod": 0.444,
+    "has_reverb": 0.444,
+    "mean_blocks": 5.78,
+    "n": 9
+   }
+  },
+  "group": {
+   "artist": {
+    "gain_high": 0.209,
+    "gain_low": 0.222,
+    "has_comp": 0.619,
+    "has_delay": 0.622,
+    "has_drive": 0.688,
+    "has_mod": 0.447,
+    "has_reverb": 0.704,
+    "mean_blocks": 6.26,
+    "n": 564
+   },
+   "effect_folder": {
+    "gain_high": 0.158,
+    "gain_low": 0.158,
+    "has_comp": 0.553,
+    "has_delay": 0.693,
+    "has_drive": 0.526,
+    "has_mod": 0.373,
+    "has_reverb": 0.684,
+    "mean_blocks": 6.06,
+    "n": 228
+   },
+   "misc": {
+    "gain_high": 0.16,
+    "gain_low": 0.16,
+    "has_comp": 0.571,
+    "has_delay": 0.628,
+    "has_drive": 0.673,
+    "has_mod": 0.282,
+    "has_reverb": 0.776,
+    "mean_blocks": 5.85,
+    "n": 156
+   },
+   "style_folder": {
+    "gain_high": 0.151,
+    "gain_low": 0.233,
+    "has_comp": 0.594,
+    "has_delay": 0.644,
+    "has_drive": 0.64,
+    "has_mod": 0.284,
+    "has_reverb": 0.733,
+    "mean_blocks": 6.1,
+    "n": 876
+   }
+  },
+  "style": {
+   "acoustic": {
+    "gain_high": 0.0,
+    "gain_low": 0.107,
+    "has_comp": 0.679,
+    "has_delay": 0.607,
+    "has_drive": 0.0,
+    "has_mod": 0.429,
+    "has_reverb": 0.929,
+    "mean_blocks": 5.68,
+    "n": 28
+   },
+   "ambient": {
+    "gain_high": 0.12,
+    "gain_low": 0.36,
+    "has_comp": 0.48,
+    "has_delay": 0.84,
+    "has_drive": 0.28,
+    "has_mod": 0.28,
+    "has_reverb": 0.96,
+    "mean_blocks": 6.6,
+    "n": 25
+   },
+   "amps": {
+    "gain_high": 0.158,
+    "gain_low": 0.241,
+    "has_comp": 0.571,
+    "has_delay": 0.556,
+    "has_drive": 0.692,
+    "has_mod": 0.218,
+    "has_reverb": 0.759,
+    "mean_blocks": 5.79,
+    "n": 133
+   },
+   "bass": {
+    "gain_high": 0.125,
+    "gain_low": 0.25,
+    "has_comp": 0.946,
+    "has_delay": 0.161,
+    "has_drive": 0.607,
+    "has_mod": 0.268,
+    "has_reverb": 0.25,
+    "mean_blocks": 5.82,
+    "n": 56
+   },
+   "blues": {
+    "gain_high": 0.162,
+    "gain_low": 0.189,
+    "has_comp": 0.459,
+    "has_delay": 0.676,
+    "has_drive": 0.73,
+    "has_mod": 0.27,
+    "has_reverb": 0.946,
+    "mean_blocks": 5.92,
+    "n": 37
+   },
+   "classic": {
+    "gain_high": 0.071,
+    "gain_low": 0.143,
+    "has_comp": 0.5,
+    "has_delay": 0.714,
+    "has_drive": 0.786,
+    "has_mod": 0.429,
+    "has_reverb": 1.0,
+    "mean_blocks": 6.57,
+    "n": 14
+   },
+   "clean": {
+    "gain_high": 0.052,
+    "gain_low": 0.299,
+    "has_comp": 0.623,
+    "has_delay": 0.727,
+    "has_drive": 0.403,
+    "has_mod": 0.494,
+    "has_reverb": 0.844,
+    "mean_blocks": 6.17,
+    "n": 77
+   },
+   "country": {
+    "gain_high": 0.333,
+    "gain_low": 0.25,
+    "has_comp": 0.583,
+    "has_delay": 0.833,
+    "has_drive": 0.917,
+    "has_mod": 0.167,
+    "has_reverb": 1.0,
+    "mean_blocks": 6.42,
+    "n": 12
+   },
+   "crunch": {
+    "gain_high": 0.143,
+    "gain_low": 0.25,
+    "has_comp": 0.571,
+    "has_delay": 0.643,
+    "has_drive": 0.75,
+    "has_mod": 0.286,
+    "has_reverb": 0.821,
+    "mean_blocks": 6.14,
+    "n": 28
+   },
+   "dirty": {
+    "gain_high": 0.308,
+    "gain_low": 0.115,
+    "has_comp": 0.692,
+    "has_delay": 0.615,
+    "has_drive": 0.462,
+    "has_mod": 0.385,
+    "has_reverb": 0.692,
+    "mean_blocks": 6.42,
+    "n": 26
+   },
+   "distortion": {
+    "gain_high": 0.333,
+    "gain_low": 0.152,
+    "has_comp": 0.485,
+    "has_delay": 0.788,
+    "has_drive": 0.758,
+    "has_mod": 0.182,
+    "has_reverb": 0.636,
+    "mean_blocks": 6.09,
+    "n": 33
+   },
+   "djent": {
+    "gain_high": 0.2,
+    "gain_low": 0.15,
+    "has_comp": 0.5,
+    "has_delay": 0.55,
+    "has_drive": 0.8,
+    "has_mod": 0.1,
+    "has_reverb": 0.6,
+    "mean_blocks": 6.0,
+    "n": 20
+   },
+   "drive": {
+    "gain_high": 0.074,
+    "gain_low": 0.222,
+    "has_comp": 0.37,
+    "has_delay": 0.741,
+    "has_drive": 0.778,
+    "has_mod": 0.444,
+    "has_reverb": 0.667,
+    "mean_blocks": 6.0,
+    "n": 27
+   },
+   "hardrock": {
+    "gain_high": 0.393,
+    "gain_low": 0.071,
+    "has_comp": 0.429,
+    "has_delay": 0.679,
+    "has_drive": 0.679,
+    "has_mod": 0.25,
+    "has_reverb": 0.643,
+    "mean_blocks": 5.75,
+    "n": 28
+   },
+   "heavy": {
+    "gain_high": 0.25,
+    "gain_low": 0.083,
+    "has_comp": 0.833,
+    "has_delay": 0.75,
+    "has_drive": 0.917,
+    "has_mod": 0.25,
+    "has_reverb": 0.75,
+    "mean_blocks": 7.08,
+    "n": 12
+   },
+   "hi-gain": {
+    "gain_high": 0.417,
+    "gain_low": 0.167,
+    "has_comp": 0.5,
+    "has_delay": 0.75,
+    "has_drive": 0.667,
+    "has_mod": 0.167,
+    "has_reverb": 0.583,
+    "mean_blocks": 5.67,
+    "n": 12
+   },
+   "jazz": {
+    "gain_high": 0.034,
+    "gain_low": 0.586,
+    "has_comp": 0.828,
+    "has_delay": 0.517,
+    "has_drive": 0.483,
+    "has_mod": 0.345,
+    "has_reverb": 0.897,
+    "mean_blocks": 6.07,
+    "n": 29
+   },
+   "metal": {
+    "gain_high": 0.197,
+    "gain_low": 0.106,
+    "has_comp": 0.394,
+    "has_delay": 0.712,
+    "has_drive": 0.803,
+    "has_mod": 0.061,
+    "has_reverb": 0.727,
+    "mean_blocks": 6.47,
+    "n": 66
+   },
+   "overdrive": {
+    "gain_high": 0.08,
+    "gain_low": 0.2,
+    "has_comp": 0.68,
+    "has_delay": 0.64,
+    "has_drive": 0.84,
+    "has_mod": 0.2,
+    "has_reverb": 0.76,
+    "mean_blocks": 6.4,
+    "n": 25
+   },
+   "pop": {
+    "gain_high": 0.0,
+    "gain_low": 0.444,
+    "has_comp": 0.667,
+    "has_delay": 0.833,
+    "has_drive": 0.556,
+    "has_mod": 0.556,
+    "has_reverb": 0.833,
+    "mean_blocks": 6.72,
+    "n": 18
+   },
+   "prog": {
+    "gain_high": 0.105,
+    "gain_low": 0.211,
+    "has_comp": 0.421,
+    "has_delay": 0.474,
+    "has_drive": 0.737,
+    "has_mod": 0.105,
+    "has_reverb": 0.474,
+    "mean_blocks": 5.37,
+    "n": 19
+   },
+   "rock": {
+    "gain_high": 0.214,
+    "gain_low": 0.161,
+    "has_comp": 0.518,
+    "has_delay": 0.804,
+    "has_drive": 0.696,
+    "has_mod": 0.286,
+    "has_reverb": 0.607,
+    "mean_blocks": 5.95,
+    "n": 56
+   },
+   "shred": {
+    "gain_high": 0.083,
+    "gain_low": 0.417,
+    "has_comp": 0.833,
+    "has_delay": 0.833,
+    "has_drive": 0.917,
+    "has_mod": 0.833,
+    "has_reverb": 0.917,
+    "mean_blocks": 7.08,
+    "n": 12
+   },
+   "thrash": {
+    "gain_high": 0.143,
+    "gain_low": 0.357,
+    "has_comp": 0.571,
+    "has_delay": 0.214,
+    "has_drive": 0.929,
+    "has_mod": 0.0,
+    "has_reverb": 0.286,
+    "mean_blocks": 6.57,
+    "n": 14
+   },
+   "worship": {
+    "gain_high": 0.042,
+    "gain_low": 0.333,
+    "has_comp": 0.75,
+    "has_delay": 0.833,
+    "has_drive": 0.542,
+    "has_mod": 0.167,
+    "has_reverb": 0.875,
+    "mean_blocks": 6.33,
+    "n": 24
+   }
+  }
+ },
+ "quality": {
+  "also_in_other_sources": 0,
+  "devices": {
+   "HX Stomp": 2002,
+   "HX Stomp XL": 70,
+   "device id 2162692": 2
+  },
+  "embedded_cab_key": 1032,
+  "empty_slots": 24,
+  "exact_duplicates_removed": 207,
+  "files": 1931,
+  "firmware": {
+   "2.65": 65,
+   "2.70": 92,
+   "2.71": 267,
+   "2.80": 50,
+   "2.81": 92,
+   "2.82": 444,
+   "2.89": 1,
+   "2.90": 29,
+   "2.91": 58,
+   "2.92": 208,
+   "2.99": 1,
+   "3.00": 47,
+   "3.01": 182,
+   "3.02": 9,
+   "3.07": 19,
+   "3.10": 26,
+   "3.11": 307,
+   "3.15": 177
+  },
+  "fit_8_blocks": 2072,
+  "kept_after_dedupe": 2074,
+  "metadata_set": 1824,
+  "models_not_on_stomp": 0,
+  "no_active_blocks": 4,
+  "over_8": 0,
+  "parse_failures": 2,
+  "parsed": 2281,
+  "records": 2307,
+  "same_models_and_enabled_among_kept": 163,
+  "same_name_and_author_among_kept": 123,
+  "setlist_containers": 3,
+  "setlist_members": 354,
+  "single_path_usable": 1576,
+  "snapshots_valid": {
+   "0": 39,
+   "1": 817,
+   "2": 103,
+   "3": 1056,
+   "4": 58,
+   "8": 1
+  },
+  "stomp_blocks_hist": {
+   "0": 3,
+   "1": 18,
+   "2": 21,
+   "3": 67,
+   "4": 157,
+   "5": 345,
+   "6": 1054,
+   "7": 183,
+   "8": 224
+  },
+  "stomp_family": 2072,
+  "two_path": 492,
+  "unknown_models": 0,
+  "usable_stomp_family": 2068,
+  "uses_dsp1": 0
+ },
+ "schema": 1
+}

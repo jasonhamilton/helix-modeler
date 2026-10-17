@@ -3,6 +3,11 @@
 
 Spec: .claude/skills/engine-smoke, contracts/engine-interface.md. Implements, does not change, the interface.
 Exit 0 on pass, 1 on a failed check, 2 when no engine is found (no ledger row written).
+
+DI clip (T099, 2026-10-16): the real Guitar-TECHS DI ``fixtures/smoke/di_2s_real.wav`` (CC BY 4.0, attribution
+in fixtures/smoke/PROVENANCE.md) by default, the synthetic ``di_2s.wav`` when the real clip is missing or with
+``--di synthetic``. Rows carry dataset ``smoke-real-di`` for the real clip and ``smoke`` for the synthetic one,
+so a level change from the clip is never compared against the other clip's history.
 """
 from __future__ import annotations
 
@@ -18,7 +23,9 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-DI = ROOT / "fixtures" / "smoke" / "di_2s.wav"
+DI = ROOT / "fixtures" / "smoke" / "di_2s.wav"            # synthetic (other scripts import this name)
+DI_REAL = ROOT / "fixtures" / "smoke" / "di_2s_real.wav"  # Guitar-TECHS, CC BY 4.0 (PROVENANCE.md)
+DATASETS = {"real": "smoke-real-di", "synthetic": "smoke"}
 PRESET = ROOT / "fixtures" / "smoke" / "known.hlx"
 SR = 48_000
 NO_ENGINE = "No engine found. Install Helix Native or connect an HX Stomp; at least one is required."
@@ -60,10 +67,25 @@ def rms(x: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(x, dtype=np.float64)))) if len(x) else 0.0
 
 
-def check(engine) -> tuple[list[str], dict]:
+def pick_di(choice: str = "auto") -> tuple[Path, str]:
+    """(clip, kind) for ``choice`` in auto|real|synthetic or a path: auto is the real clip when present, else
+    the synthetic one (with a warning)."""
+    if choice == "real":
+        return DI_REAL, "real"
+    if choice == "synthetic":
+        return DI, "synthetic"
+    if choice != "auto":
+        return Path(choice), "custom"
+    if DI_REAL.is_file():
+        return DI_REAL, "real"
+    print(f"warning: {DI_REAL.name} missing; falling back to the synthetic {DI.name}", file=sys.stderr)
+    return DI, "synthetic"
+
+
+def check(engine, di: Path = DI) -> tuple[list[str], dict]:
     """Return (failures, measurements). `engine` is an instantiated Engine with the known preset loaded."""
     fails: list[str] = []
-    dry = read_wav_f32(DI)
+    dry = read_wav_f32(di)
     t0 = time.perf_counter()
     out = engine.render(dry)
     wall = time.perf_counter() - t0
@@ -93,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--engine", choices=["native", "stomp", "auto"], default=None,
                     help="engine to smoke (default: TONEMATCH_ENGINE, else auto)")
     ap.add_argument("--no-ledger", action="store_true", help="dry run: print the rows instead of appending them")
+    ap.add_argument("--di", default="auto",
+                    help="auto (real clip, synthetic fallback), real, synthetic, or a 48 kHz f32 mono WAV path")
     a = ap.parse_args(argv)
     NO_LEDGER = a.no_ledger
     from tonematch.engines import registry
@@ -104,9 +128,11 @@ def main(argv: list[str] | None = None) -> int:
     if not names:
         print(NO_ENGINE)
         return 2
-    if not DI.exists():
-        print(f"FAIL: missing {DI}")
+    di, di_kind = pick_di(a.di)
+    if not di.exists():
+        print(f"FAIL: missing {di}")
         return 1
+    dataset = DATASETS.get(di_kind, f"smoke-{di.stem}")
     rc = 0
     for name in names:
         engine = None
@@ -117,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise FileNotFoundError(f"{PRESET} missing (needs golden templates, T010)")
             engine = found[name]()
             engine.load(read_hlx(PRESET))
-            fails, m = check(engine)
+            fails, m = check(engine, di)
         except UnsupportedModelChange as e:
             print(f"{name}: UNSUPPORTED load of {PRESET.name} ({e}); no ledger row written")
             rc = 1
@@ -135,10 +161,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{name}: FAIL " + "; ".join(fails))
             rc = 1
             continue
-        print(f"{name}: OK peak {m['peak']:.1f} dBFS, {m['cost']:.3f} s/render")
-        ledger("--kind", "smoke", "--engine", name, "--dataset", "smoke", "--metric", "peak_dbfs", "--value", f"{m['peak']:.2f}")
-        ledger("--kind", "render-cost", "--engine", name, "--dataset", "smoke", "--metric", "seconds_per_render",
-               "--value", f"{m['cost']:.4f}", "--renders", "1", "--wall-clock-s", f"{m['wall']:.3f}")
+        print(f"{name}: OK peak {m['peak']:.1f} dBFS, {m['cost']:.3f} s/render ({di.name}, dataset {dataset})")
+        note = ["--notes", f"di={di.relative_to(ROOT) if di.is_relative_to(ROOT) else di}"]
+        ledger("--kind", "smoke", "--engine", name, "--dataset", dataset, "--metric", "peak_dbfs",
+               "--value", f"{m['peak']:.2f}", *note)
+        ledger("--kind", "render-cost", "--engine", name, "--dataset", dataset, "--metric", "seconds_per_render",
+               "--value", f"{m['cost']:.4f}", "--renders", "1", "--wall-clock-s", f"{m['wall']:.3f}", *note)
     return rc
 
 

@@ -187,3 +187,36 @@ def test_push_session_fixture_is_decoded_equal():
     r = stomp.compare_backups(a, b, decoder=lambda p: stomp.decode_document(p, compiler=exe))
     assert r["bytes_equal_backup"] is False
     assert r["decoded_equal_backup"] is True and r["restore_compare"] == "decoded"
+
+
+# --------------------------------------------------------------------------- T108: assignment order
+
+
+def test_reordered_assignments_are_equal_when_decoded(tmp_path):
+    """The 16:52Z verify session: the device read the same three CC 110 assignments back in
+    reverse order. Assignments are a set; any other list keeps its order."""
+    pa, pb = _write(tmp_path, b"doc-a", b"doc-b")
+    rev = {**DOC, "assignments": list(reversed(DOC["assignments"]))}
+    r = stomp.compare_backups(pa, pb, decoder=lambda p: {pa: DOC, pb: rev}[p])
+    assert r["decoded_equal_backup"] is True and "decoded_difference" not in r
+    other = {**DOC, "assignments": ["a", "c"]}
+    r = stomp.compare_backups(pa, pb, decoder=lambda p: {pa: DOC, pb: other}[p])
+    assert r["decoded_equal_backup"] is False and "assignments" in r["decoded_difference"]
+    slots = {**DOC, "slots": list(reversed(DOC["slots"] + [{"pos": 2, "model": "X", "params": []}]))}
+    base = {**DOC, "slots": DOC["slots"] + [{"pos": 2, "model": "X", "params": []}]}
+    r = stomp.compare_backups(pa, pb, decoder=lambda p: {pa: base, pb: slots}[p])
+    assert r["decoded_equal_backup"] is False          # slot order still matters
+
+
+VERIFY = ROOT / "cache" / "stomp" / "hw" / "20261017T165159Z-verify"
+
+
+@pytest.mark.skipif(not (VERIFY / "20261017T165200Z_editbuffer_after_restore.bin").exists()
+                    or not (ROOT / "cache" / "stomp" / "bin" / "stompd-compile").exists(),
+                    reason="the 16:52Z verify buffers and an offline decoder are local (cache/)")
+def test_verify_session_buffers_are_decoded_equal():
+    exe = ROOT / "cache" / "stomp" / "bin" / "stompd-compile"
+    r = stomp.compare_backups(VERIFY / "20261017T165200Z_editbuffer.bin",
+                              VERIFY / "20261017T165200Z_editbuffer_after_restore.bin",
+                              decoder=lambda p: stomp.decode_document(p, exe))
+    assert r["decoded_equal_backup"] is True

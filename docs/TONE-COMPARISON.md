@@ -1,6 +1,6 @@
 # How the Tone Comparison Works
 
-*Last updated: 2026-10-17 (chain builder written and tested on fake engines only; earlier: 2026-10-16 (fine-detail method retuned as `mrstft_v2` and passed its trust check with a matching DI, proposed for admission; earlier the same day: search moves delay time, modulation speed and reverb decay; purpose-made test signals; flanger and phaser closed). Kept current by `tone-metrics` (comparison methods and trust results) and the lead (search, hardware check), whenever any of these details change; see "Keeping this document current" at the end.*
+*Last updated: 2026-10-17 (a hybrid search, broad sampling of every model followed by measured-seed refinement of the best four, found the right model on 13 of the 16 development items against 11 for random search and 10 for the measured-seed search alone; earlier the same day: search now measures echo time, reverb decay and modulation speed from the target before choosing a model, which lifted single-block model accuracy on the 16 development items from 6 to 10 right; earlier the same day: block-presence detector added and tested on single blocks: reliable for cab and "a gain stage is present", not yet for the other kinds or inside chains; chain builder written and tested on fake engines only; earlier: 2026-10-16 (fine-detail method retuned as `mrstft_v2` and passed its trust check with a matching DI, proposed for admission; earlier the same day: search moves delay time, modulation speed and reverb decay; purpose-made test signals; flanger and phaser closed). Kept current by `tone-metrics` (comparison methods and trust results) and the lead (search, hardware check), whenever any of these details change; see "Keeping this document current" at the end.*
 
 The matcher plays candidate presets through Helix Native and scores each one against the song's separated guitar using a set of spectral and dynamic measurements. It keeps adjusting the settings to lower that score. Those measurements are not yet trustworthy when the notes differ: none of those has passed its trust check. With a lined-up DI of the same performance, the retuned fine-detail method (`mrstft_v2`) passed (0.99) and is proposed for admission. On real Helix sounds (tested 2026-10-16) the score tells clearly different chains apart some of the time, but when the notes played differ from the target it cannot tell close settings apart at all. Your ear is still the judge.
 
@@ -61,6 +61,10 @@ The search treats the score as a number to minimise. It never "hears" anything: 
 **Chain builder (written 2026-10-17, tested on fake engines only, not yet run on Native).** The human's direction is to model single blocks and build the chain from the analysis. The builder works in this order: measure which block types the target seems to contain; ask the chain-pattern model for the few most likely orderings of those types; for each ordering pick a short list of models per position, tune one position at a time with the others held still, then tune everything together a little; give the orderings that score worst less time at each round (halving) and keep the best. A chain is rendered one single-block template after another, each result shifted back by 16 samples, which the Native checks showed matches a real chain to within -60 dB. With a known DI it uses the admitted fine-detail comparison plus the level guard keyed to the target's own loudness; without one the weights are provisional and the result says so. Cost is counted in single-block renders and capped.
 
 **What it does not search yet:** which models to use (only the fixed chains), the cab parameters, and the drive, EQ, modulation and reverb blocks. The per-block library and the block probes are being built to change that.
+
+**Measuring before guessing (2026-10-17, development items only).** When the original dry guitar is known, the search no longer tries delay times, reverb decays and modulation speeds blindly. It first measures them from the target: the gap between an echo and the note that caused it, how fast the tail dies away, how quickly the volume or pitch wobbles. A one-off calibration (360 renders, run once per library version on a guitar clip that no test uses) records, for each delay, reverb and modulation block, which knob position gives which measurement, so a measured value converts to a knob setting without any further renders. Each candidate block of that kind starts at its measured setting and is then tuned only in a narrow band around it (4 % of the knob's range for time and speed, 12 % for levels, 20 % for reverb decay, which is the least exact). On the 16 development items, at the same 300 renders per item, the right block was chosen 10 times instead of 6 (delay 1 of 2, reverb 2 of 2, modulation 2 of 2). The true reverb had ranked 28th of 47 candidates before; it now ranks 1st or 2nd. These are development numbers, not the Gate 2 test. Still wrong: one delay whose several echo voices fool the time measurement, and the compressor, equaliser, amp and cabinet misses, which have no measurement of this kind yet. Details in `docs/notes/measured-seed.md`.
+
+**Hybrid search (2026-10-17, development items only, not gate evidence).** For single blocks with the dry guitar known, the search can now spend 40 % of its 300 renders trying a few settings on every one of the 47 models (the first try is the measured seed where there is one, the rest are spread evenly over the knobs), score them without the level guard (a random output knob would otherwise swamp the differences between models), keep the four models that matched best, and spend the other 60 % tuning those four, halving the field as it goes. On the 16 development items, at about 306 renders each: the right model on 13 (random search 11, measured seeding alone 10), the right kind of block on 15, a typical knob error of 0.078 against 0.084 for measured seeding alone on the items both got right (0.095 against 0.162 for random search), and a median error on new notes of 0.060 (0.085 and 0.142). Sixteen items is a small sample: one flipped item is 6 points, so treat the comparison as a direction, not a result.
 
 **Cost:** a Native render takes about 0.3 s (it was about 2 s before the memory fix). A 25-minute budget therefore allows several thousand renders, not about 500.
 
@@ -201,6 +205,54 @@ It is proposed to the lead as the only term in the score when a matching DI exis
 
 **Bottom line:** treat the score as a rough guide that finds the right neighbourhood, and your listening as the decision.
 
+## Which blocks are in the target (block-presence detector)
+
+*Added 2026-10-17 ([T102](../board/TASKS.md#t102 "Block-presence detector for the chain builder")).* Chains are to be built from analysis: measure which kinds of block the target has, then arrange them in the usual order learned from real presets (see `src/tonematch/chain_prior.py`). The detector (`src/tonematch/metrics/presence.py`) gives a probability, from 0 to 1, for each of eight kinds of block: drive, amp, cab, compressor, EQ, modulation, delay and reverb. It also gives direct estimates: delay time, reverb decay time, modulation speed and type, and how much gain there is.
+
+**How it works.** It runs in one of two modes, depending on whether a DI of the same performance exists.
+
+- **With a DI of the same performance**, it compares target and DI directly:
+    - It works out the part of the change that a fixed filter explains. That covers EQ and cab (from the filter's frequency response) and echoes and tails (from the filter's later part).
+    - It looks at what such a filter cannot explain. Distortion adds new frequencies. A compressor or tremolo changes the level from moment to moment. A chorus wobbles the pitch.
+    - It also compares the DI and target note energy over time, which still catches modulated reverb tails and echoes.
+- **Without a DI** it can only use statistics of the target that do not depend on the notes: spectrum shape, distortion statistics, dynamics, and repeats in the waveform.
+
+A small statistical model per kind of block turns these measurements into a probability. Each model was fitted on half of a set of single Helix blocks and tested once on the other half, which uses different recordings and mostly different models.
+
+**Results on single blocks (test half, 1,950 renders of one Helix Native block on a clean DI).** Precision is the share of "present" calls that were right. Recall is the share of real blocks that were found. The bars were set before testing.
+
+| Kind of block | With the DI: precision / recall | Without a DI: precision / recall | Bar met? |
+| --- | --- | --- | --- |
+| Cab | 0.89 / 0.95 | 0.49 / 0.79 | Yes, with the DI |
+| Any gain stage (drive or amp) | 0.82 / 0.87 | 0.81 / 0.89 | Without a DI yes; with the DI no (bar 0.90) |
+| Modulation | 0.71 / 0.69 | 0.25 / 0.33 | No |
+| Reverb | 0.60 / 0.68 | 0.26 / 0.40 | No |
+| Delay | 0.47 / 0.78 | 0.27 / 0.75 | No |
+| Compressor | 0.74 / 0.49 | 0.20 / 0.53 | No |
+| EQ | 0.63 / 0.65 | 0.16 / 0.33 | No |
+| Drive vs amp, told apart | 0.47-0.58 / 0.73-0.75 | 0.38-0.56 / 0.75-0.78 | No |
+
+**Where it goes wrong.** With the DI:
+
+- Half the reverbs are also called delay.
+- A raw amp (no cab) and a drive pedal are often mistaken for each other.
+- EQ is sometimes called amp or cab.
+- A quarter of modulation blocks are also called delay.
+
+With the DI alone and nothing applied, it correctly says "nothing" 94% of the time. Without a DI, the clean DI itself is called "something" 95% of the time, so only "is there a gain stage" means anything there.
+
+**The direct estimates (with the DI):**
+
+- **Delay time:** within 10% for 47% of delays. Plain digital and tape delays do well (71-100%). Multi-tap, reverse and some ping-pong delays fail.
+- **Modulation speed:** within 10% for Harmonic Tremolo (100%) and MM4 Analog Chorus (82%). It fails on the MM4 Bias and Opto tremolos (0%).
+- **Reverb decay time:** within 20% on synthetic reverbs 72% of the time (median error 4%). On Helix reverbs it does not follow the Decay knob at all (rank correlation -0.16), probably because their tails are modulated.
+- **Gain amount:** orders two settings of the same drive or amp correctly 77% of the time.
+- **Modulation type:** right 35% of the time. A chorus with its dry signal mixed in mostly reads as a phaser.
+
+**In a chain it does not work yet.** It was tried on 47 chains of amp, cab and one extra block. Behind the amp the extra block was called "drive" almost every time, and a 375 ms delay after a clean amp was not found. Comparing with the DI cannot isolate a block that comes after a distorting amp.
+
+**What this means for now.** The chain builder may use these probabilities only as a soft hint. Cab and "a gain stage is present" are the reliable calls. Any delay, reverb or modulation it adds should be confirmed by rendering with and without it and keeping what scores better. A multi-block test set (`presence-v2`, 120 chains) is designed and waiting for renders. The proposed fix for chains is to measure post-amp effects against the current best render of the chain without them, rather than against the DI. Results: ledger kind `benchmark`, dataset `presence-v1`. Details and proposals: [`docs/DECISIONS.md`](DECISIONS.md) (2026-10-17, [T102](../board/TASKS.md#t102 "Block-presence detector for the chain builder")).
+
 ## What would make it trustworthy
 
 1. **Make the methods ignore the notes played** well enough to see a near miss. On the Helix test, a note change moves every method 4.5 to 10 times more than a near miss does (see above). Ideas to try: compare notes of the same pitch region rather than whole-clip averages, average over several DI passages, use longer clips, and train a guitar-specific learned method on Helix renders. Each is re-checked on the Helix test set.
@@ -213,6 +265,7 @@ It is proposed to the lead as the only term in the score when a matching DI exis
 
 All from this repository:
 
+- [`src/tonematch/metrics/presence.py`](../src/tonematch/metrics/presence.py) and [`scripts/presence_eval.py`](../scripts/presence_eval.py): the block-presence detector and its evaluation
 - [`src/tonematch/metrics/`](../src/tonematch/metrics/): the comparison methods (`kit.py`, `ltas.py`, `crest.py`, `envelope.py`, `mrstft.py`, `mrstft_v2.py`, `afxrep.py`; `trust.py` holds the same-sound tie rule)
 - [`scripts/match_song.py`](../scripts/match_song.py): the search and the end-to-end run
 - [`scripts/parity_null.py`](../scripts/parity_null.py) and [`ledger/runs.csv`](../ledger/runs.csv) (kind `parity`): the null tests

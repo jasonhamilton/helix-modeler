@@ -2,7 +2,7 @@
  "actions": {
   "blind-listening-and-signoff": {
    "group": "later",
-   "title": "Review Gate 2 once the full run is done, and sign off Gates 2 and 3 when evidence exists"
+   "title": "Review Gate 2 after the second attempt, and sign off Gates 2 and 3 when evidence exists"
   },
   "choose-songs": {
    "group": "soon",
@@ -41,25 +41,28 @@
    "title": "Provide about 130 songs with known artist and title for the song-context test"
   }
  },
- "biggest_problem": "Gate 2 runs are paused until engine settings and renders are verified",
+ "biggest_problem": "Gate 2 attempt 1 did not pass: effect category and model choice fall short",
  "capabilities": {
   "missing": [
-   "Build a whole chain from single-block analysis",
+   "A specialist for each effect family",
    "Learned predictor for good starting points",
    "Look up song context",
+   "Pass the known-answer test (Gate 2)",
    "Pedal control on Windows or Linux",
    "Produce up to three tone snapshots from one song",
    "Run blind listening sessions",
-   "Run the full known-answer test on Helix audio",
    "Stereo blocks and dual cabinets in Native",
    "Turn a song into a pedal-verified preset with one command"
   ],
   "unproven": [
+   "Build a whole chain from analysis",
    "Choose a clean reference guitar recording",
+   "Detect which kinds of block a tone contains",
+   "Estimate a cabinet by deconvolution",
    "Isolate the guitar from a full mix",
    "Judge tone similarity reliably",
    "Measure each block's behaviour with a test signal",
-   "Native applies the requested settings exactly and repeats renders",
+   "Pedal renders are sample-stable and settings land exactly",
    "Pick a preset that matches a recorded tone",
    "Predict typical chain order",
    "Record the player's own guitar alongside the song",
@@ -72,6 +75,7 @@
    "Control the HX Stomp from code and restore it",
    "Hold the pedal's effect models in Native as single-block templates",
    "Native and the pedal agree on simple presets",
+   "Native applies the requested settings exactly and repeats renders",
    "Native stands in for the pedal on most effect types",
    "Read, write and check preset files",
    "Render two variants in one pedal pass",
@@ -115,9 +119,12 @@
  "date": "2026-10-17",
  "features": {
   "block-probe": "prototype",
+  "cab-estimation": "prototype",
+  "chain-builder": "prototype",
   "dry-signal": "prototype",
   "engine-interface": "working",
   "evaluation": "prototype",
+  "family-specialists": "designing",
   "learning": "not-started",
   "licensing": "working",
   "listening": "prototype",
@@ -125,6 +132,7 @@
   "native-engine": "working",
   "pipeline": "prototype",
   "platform": "prototype",
+  "presence": "prototype",
   "preset": "working",
   "process": "working",
   "search": "prototype",
@@ -153,15 +161,20 @@
    "priority": "Low",
    "title": "What the Line 6 licence agreements allow for training is not recorded"
   },
-  "gate2-paused-verification": {
-   "classification": "Active Blocker",
+  "gate2-attempt1-not-passed": {
+   "classification": "Confirmed Problem",
    "priority": "Critical",
-   "title": "Gate 2 runs are paused until engine settings and renders are verified"
+   "title": "Gate 2 attempt 1 did not pass: effect category and model choice fall short"
   },
   "native-coverage-gaps": {
    "classification": "Risk",
    "priority": "Medium",
    "title": "The software engine cannot stand in for every pedal effect"
+  },
+  "native-verification-misses": {
+   "classification": "Confirmed Problem",
+   "priority": "Medium",
+   "title": "Native verification leaves recorded misses that are explained, not fixed"
   },
   "no-blind-listening": {
    "classification": "Unknown/Unverified",
@@ -178,13 +191,18 @@
    "priority": "Medium",
    "title": "Everything is verified on one computer, one pedal firmware, with a private helper"
   },
+  "stomp-results-not-countable": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "No pedal measurement counts until the sampling defects are handled"
+  },
   "tone-comparison-known-di-only": {
    "classification": "Risk",
    "priority": "High",
    "title": "The tone comparison is only admitted when the clean recording is known"
   }
  },
- "ledger_rows": 757,
+ "ledger_rows": 893,
  "milestones": {
   "Gate 1": {
    "done": 4,
@@ -195,7 +213,7 @@
   "Gate 2": {
    "done": 1,
    "signed": false,
-   "state": "In Progress",
+   "state": "At Risk",
    "total": 3
   },
   "Gate 3": {
@@ -207,7 +225,7 @@
  },
  "readiness": "Prototype",
  "schema": "tonematch.status-snapshot",
- "tasks_done": 82,
+ "tasks_done": 90,
  "technical": "Advancing",
  "version": 1
 }

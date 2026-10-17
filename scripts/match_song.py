@@ -396,7 +396,7 @@ def derive_free(preset, template, catalog, frozen=None) -> list:
             if template is not None and key not in template.map:
                 continue
             ver = getattr(template, "verified", None)
-            if ver and key not in ver:   # CC not verified to move the render: baked into the state
+            if ver is not None and key not in ver:   # not verified (an empty list frees nothing): baked
                 continue
             pd = models.get(s.model_id, {}).get("params", {}).get(name) if catalog else None
             if pd is not None and pd.get("kind", "continuous") != "continuous":
@@ -489,6 +489,12 @@ class TimedEngine:
         self.rss_limit_mb, self.check_every = rss_limit_mb, check_every
         self._preset = None
         self._applied: dict = {}
+
+    def native_stats(self) -> dict | None:
+        """The inner engine's render, recycle, canary and in-run sentinel counts
+        (``NativeEngine.stats()``, T103), or None for engines without them."""
+        s = getattr(self.inner, "stats", None)
+        return s() if callable(s) else None
 
     def host_rss_mb(self) -> float | None:
         """Resident size of the plugin-host child process in MB (None when there is none)."""
@@ -1389,6 +1395,7 @@ def run(args, engine=None, cands=None, log=None, max_scores_per_chain=None) -> i
             "label": LABEL, "window": win, "stomp_speed": speed, "clip": clip_info, "render_s": eng.render_s,
             "search_wall_s": sr_["search_wall_s"], "beam_s": sr_["beam_s"], "refine_s": sr_["refine_s"],
             "t_render_probe_s": sr_["t_render"], "t_loss_probe_s": sr_["t_loss"], "renders": eng.renders, "host_restarts": eng.restarts, "proactive_restarts": eng.proactive,
+            "native_stats": eng.native_stats(),
             "level_ref_db": sr_["level_ref_db"], "level_ref_final_db": kit.ref_db, "start_levels_db": sr_["levels_db"], "wall_s": wall,
             "finals": [{"chain": d["result"].cand.name, "loss": d["loss"], "terms": d["terms"], "level_db": d["level_db"],
                         "values": {f"{i}:{k}": float(v) for (i, k), v in zip(d["result"].space.refs,

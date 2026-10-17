@@ -183,3 +183,35 @@ Lead ruling "S1 closed" (`docs/DECISIONS.md`, 2026-10-16). In the 20:27Z push se
 - Fallback: with no decoder (a custom compiler without one, or no stompd compiler configured, or a decode error) `decoded_equal_backup` is None, `restore_compare` is `"bytes"`, `decode_unavailable` says why, and `restore_ok` uses the bytes. Without `verify_bytes`, `restore_ok` is the chain match alone (`"chain-only"`).
 - `restore_verdict(report)` reads `restore_ok`, or for reports written before [T097](../../board/TASKS.md#t097 "E4: judge pedal restores by decoded equality"), match and bytes. The pedal scripts (`stomp_push_session`, `stomp_fw380`, `parity_spot`, `parity_timefx_stimuli`, `stomp_speed`, `stomp_twopath`, `stomp_twopath_random`, `parity_null`, `stomp_inject`) print `restore_ok` and `decoded_equal_backup` next to the bytes, and their exit codes follow `restore_ok`. `benchmark_suite`'s parity check uses `restore_ok` when the summary has it, otherwise the bytes.
 - Tests: `tests/test_stomp_restore_verdict.py` (fake decoders: equal, real difference, decoder missing, no compiler). It has one optional test on the two push-session buffers, read from `cache/` only and skipped when they or an offline decoder are missing. Those buffers are never committed.
+
+## Verification ([T108](../../board/TASKS.md#t108 "HX Stomp verification suite"), stomp-verify-v1, 2026-10-17, fw 3.80)
+
+`scripts/stomp_verify.py` (`gen` offline, `run` on the pedal, `analyse` and `ledger` offline). The pass rules were fixed in `docs/DECISIONS.md` before the first run and were not changed afterwards. There were four sessions, each holding the shared pedal lock, with HX Edit closed, working in the 04C edit buffer only. Each ended with the pedal restored to 04C "Smoke Known" and judged by decoded equality. Runs are in `cache/stomp/hw/20261017T{165159,165405,170717,171958}Z-verify/`; the ledger rows are under dataset `stomp-verify-v1`.
+
+**Setting truth (check 1, 40 random items over 8 categories).**
+- The device stores every value as **float32 of what was sent; it applies no coarser grid**, for Hz, dB, time, 0-1 knobs, menus and switches alike (288 values).
+- In-place `set_params` and a whole write read back identically.
+- The device reports parameter ranges as float32 copies of the catalog's. `set_params` therefore sends values that differ from the file's value below float32 precision, and once by one float32 step (VIC Rotating Decay).
+- Strict readback: 23/40. With the comparison in float32: 34/40.
+- The other 6:
+  - 4 models the device refuses as whole documents (VIC Stutter Edit, L6SPB Inf Sustain, NonLinear, and Moon Nrm with the 4x12 Greenback30WithPan IR cab): the device accepts the op-21 write but never shows the document. `StompEngine` raises `LayoutRefused`.
+  - 1 legitimately silent amp (Grammatico Brt with DriveBright 0).
+  - The 1-step case above.
+
+**Sampling.**
+- With the old `PRE_S` of 0.25 s, 10-23 % of deterministic renders had a one-sample slip or a 1-6 ms burst 0.25-0.67 s after the stream start, inside the clip. PortAudio reported no xrun for any of them.
+- Amps carry state from the previous render: -39 dB at 0.3 s, -56 dB at 1 s, -77 dB at 2 s, -94 dB at 3 s (RevvGen Purple).
+- Engine now: `PRE_S` 1.0 s, `AMP_PRE_S` 2.0 s, `reamp.MAX_JITTER` 4. Category repeat floors went from -31 to -69 dB (drive), -39 to -82 dB (EQ) and -38 to -60 dB (comp).
+- A slip still happens about once in 90 renders, at any time (one was 1.77 s into a stream). The sentinel caught one.
+- Latency between renders of one setting still differs by -1..+1 samples; the alignment absorbs it.
+
+**Write-then-render.** A render straight after `set_params` or a whole write equals settled renders (3b, 3/3 in both sessions). `set_params` settles about 100-130 ms after its command returns. A whole write changes the audio before the command returns.
+
+**Order and route.** DL4 Echo Platter renders differently in place than after a whole write, reproducibly: -9.5 and -16.4 dB, with a fractional lag of -0.38. Glitz shows the same, -27 dB. This is consistent with a time parameter gliding after an in-place change; open.
+
+**Sentinel.** `StompEngine(sentinel=Sentinel(...))`, or `TONEMATCH_STOMP_SENTINEL=on|off|auto` (auto: on when the purpose names a benchmark), with `TONEMATCH_STOMP_SENTINEL_EVERY`.
+- Every N renders it backs the edit buffer up, loads the reference, renders the reference clip, compares the result with the first reference render (threshold max(floor + 6 dB, -60 dB)), writes the backup back and checks the chain signature.
+- On a drift it raises `SentinelDrift`, keeps `reference.npy` and `drifted.npy`, and refuses every later render; `close()` still restores the pedal.
+- It tripped twice on its own, both times stopping the session cleanly; the second trip was a confirmed one-sample slip. The forced +5-sample test was caught at -13 dB.
+
+**Session close.** After a session that hit a device refusal, the pedal did not acknowledge the session-close on two of three channels. Every later session opened normally.

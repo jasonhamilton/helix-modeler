@@ -371,6 +371,82 @@ def search_item_mc(engine, blocks: dict[str, Block], section, kit, weights: dict
             "screen_renders": ch.screen_renders, "notes": ch.notes}
 
 
+SEED_CAL = ROOT / "cache" / "measured-seed" / "calibration.json"
+POOL_USAGE = ROOT / "reports" / "local" / "preset-corpus" / "model_usage.json"
+
+
+def search_item_ms(engine, blocks: dict[str, Block], section, kit, weights: dict, budget: int, beam: int,
+                   seed: int, clip_s: float, screen_frac: float = 0.5) -> dict:
+    """Measured seeding (T113, known-DI mode) before the screen, then model choice at the same budget:
+    measure echo time / feedback / level, RT60 / pre-delay, LFO rate / depth against the DI, set the
+    matching knobs of every candidate in the category (calibration curves, narrow band), screen with a second
+    rung, then halve (module docstring of tonematch.search.measured_seed)."""
+    from tonematch.search import Budget
+    from tonematch.search.measured_seed import (
+        choose_models_seeded,
+        load_calibration,
+        measure,
+        usage_counts,
+        usage_rank,
+    )
+
+    cal = load_calibration(SEED_CAL)
+    if not cal:
+        raise RuntimeError(f"no seed calibration at {SEED_CAL}: run scripts/seed_calibrate.py first")
+    bud = Budget(max_renders=budget, clip_s=clip_s, seed=seed, weights=weights)
+    meas = measure(section.target, section.dry)
+    cands = model_candidates(blocks)
+    ranges = {m: dict(b.rng) for m, b in blocks.items()}
+    usage = usage_rank(list(blocks), usage_counts(POOL_USAGE))
+    ch = choose_models_seeded(section, engine, kit, cands, bud, meas, cal, ranges, k=beam, screen_frac=screen_frac,
+                              usage=usage)
+    best = ch.best
+    b = blocks[best.model]
+    vals = best.values if best.values is not None else b.space.start
+    return {"model": best.model,
+            "values": {n: float(x) for (_, n), x in zip(b.space.refs, vals, strict=True)},
+            "loss_fit": float(best.refined if best.refined is not None else best.screen),
+            "screen": {s.model: float(s.screen) for s in ch.ranked},
+            "refined": {s.model: float(s.refined) for s in ch.ranked if s.refined is not None},
+            "screen_renders": ch.screen_renders, "notes": ch.notes,
+            "seeded": ch.seeds, "measured": ch.measured, "probs": meas.probs, "stage_renders": ch.rungs,
+            "screen_scores": {s.model: s.scores for s in ch.ranked}}
+
+
+HYBRID = {"f": 0.5, "k": 5, "fingerprint": False, "scale": 0.8, "level_free": False}   # set by --hybrid-f / --hybrid-k / --hybrid-fingerprint
+
+
+def search_item_hy(engine, blocks: dict[str, Block], section, kit, weights: dict, budget: int, beam: int,
+                   seed: int, clip_s: float, screen_frac: float = 0.5) -> dict:
+    """Hybrid (Gate 2): broad space-filling draws over all pool models (centred on the measured seed band
+    where one exists), top-K narrowing, successive halving with banded CMA-ES; same render budget."""
+    from tonematch.search import Budget
+    from tonematch.search.hybrid import choose_models_hybrid
+    from tonematch.search.measured_seed import load_calibration, measure, usage_counts, usage_rank
+
+    bud = Budget(max_renders=budget, clip_s=clip_s, seed=seed, weights=weights)
+    cal = load_calibration(SEED_CAL)
+    meas = measure(section.target, section.dry)
+    ranges = {m: dict(b.rng) for m, b in blocks.items()}
+    usage = usage_rank(list(blocks), usage_counts(POOL_USAGE))
+    ch = choose_models_hybrid(section, engine, kit, model_candidates(blocks), bud, meas=meas, cal=cal, ranges=ranges,
+                              f=HYBRID["f"], k=HYBRID["k"], refine_scale=HYBRID["scale"],
+                              broad_kit=getattr(kit, "inner", None) if HYBRID["level_free"] else None, fingerprint=HYBRID["fingerprint"], usage=usage)
+    best = ch.best
+    b = blocks[best.model]
+    vals = best.values if best.values is not None else b.space.from_unit(
+        b.space.to_unit(np.array([best.start.get((0, n), d) for (_, n), d in zip(b.space.refs, b.space.start,
+                                                                                strict=True)])))
+    return {"model": best.model,
+            "values": {n: float(x) for (_, n), x in zip(b.space.refs, vals, strict=True)},
+            "loss_fit": float(best.refined if best.refined is not None else best.screen),
+            "screen": {s.model: float(s.screen) for s in ch.ranked},
+            "refined": {s.model: float(s.refined) for s in ch.ranked if s.refined is not None},
+            "screen_renders": ch.screen_renders, "notes": ch.notes,
+            "seeded": ch.seeds, "measured": ch.measured, "probs": meas.probs, "stage_renders": ch.rungs,
+            "hybrid": dict(HYBRID)}
+
+
 def search_item(engine, blocks: dict[str, Block], section, kit, weights: dict, budget: int, beam: int,
                 seed: int, clip_s: float) -> dict:
     """Screen every pool model at its catalog defaults (one render each), then refine the best `beam`
@@ -473,7 +549,8 @@ def rank1_rows(engine, it: dict, pool: dict, kit, weights, dry: dict, target_a, 
 
 def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budget, beam, do_rank1,
              clip_s: float, model_choice: bool = False, search_kit=None,
-             known_di: bool = False) -> dict:
+             known_di: bool = False, seed_measured: bool = False, audio_dir=None,
+             hybrid: bool = False) -> dict:
     import soundfile as sf
 
     from tonematch.search import Section
@@ -489,7 +566,7 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
     target_a = np.asarray(engine.render(dry["A"]), np.float32)
     sec = Section("synthetic-v1", it["id"], target_a, dry["A"])
     allowed = {m: b for m, b in pool.items()}
-    searcher = search_item_mc if model_choice else search_item
+    searcher = search_item_hy if hybrid else search_item_ms if seed_measured else search_item_mc if model_choice else search_item
     s = searcher(engine, allowed, sec, search_kit or kit, weights, budget, beam, int(it["id"][1:]), clip_s)
     t_search = now_s() - t0
     pb = pool[s["model"]]
@@ -501,6 +578,9 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
         "true_model_screen_rank": 1 + sorted(s["screen"].values()).index(s["screen"][it["model"]]),
         "search_s": round(t_search, 1),
     }
+    for key in ("seeded", "measured", "probs", "stage_renders", "screen_scores", "hybrid"):
+        if key in s:
+            res[key] = s[key]
     if res["model_ok"]:
         tn, pn = tb.norm(it["values"]), tb.norm(s["values"])
         res["param_abs_err"], lvl = split_level({n: abs(tn[n] - pn[n]) for n in tn}, known_di)
@@ -516,6 +596,9 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
     engine.load(pb.with_values(s["values"]))
     found_c = np.asarray(engine.render(dry["C"]), np.float32)
     res["loss_heldout"] = float(kit.score(target_c, found_c, weights=weights).total)
+    if audio_dir is not None:   # for the human's blind listen (ab_session gate2-demo): new notes only
+        sf.write(str(audio_dir / f"{it['id']}_target.wav"), target_c, SR, subtype="FLOAT")
+        sf.write(str(audio_dir / f"{it['id']}_recovered.wav"), found_c, SR, subtype="FLOAT")
     if do_rank1:
         rows, extra = rank1_rows(engine, it, pool, kit, weights, dry, target_a, target_c, known_di)
         res.update(rank1_fields(rows))
@@ -576,13 +659,22 @@ def baseline_item_fields(it: dict, pool: dict, pred_model: str, pred_values: dic
 
 def _scores(engine, kit, weights, target, dry, presets) -> list[float]:
     """Score each preset on the fit notes through render_many, chunked."""
-    from tonematch.engines.base import render_many
+    from tonematch.engines.base import EngineError, render_many
     from tonematch.search.model_choice import CHUNK, _score_one
 
     out: list[float] = []
     for a in range(0, len(presets), CHUNK):
         part = presets[a:a + CHUNK]
-        ys = render_many(engine, dry, part)
+        try:
+            ys = render_many(engine, dry, part)
+        except EngineError:   # e.g. a random draw that renders silent: score each alone, a failure is inf
+            ys = []
+            for p in part:
+                try:
+                    engine.load(p)
+                    ys.append(engine.render(dry))
+                except EngineError:
+                    ys.append(None)
         out += [float("inf") if y is None else _score_one(kit, target, y, weights) for y in ys]
     return out
 
@@ -911,6 +1003,8 @@ def cmd_run(a) -> int:
     shard = tuple(int(x) for x in a.shard.split("/")) if a.shard else None
     items = select_items(labels, a.items, a.ids, shard)
     weights, admitted, wlabel = load_weights(a.weights)
+    HYBRID.update(f=a.hybrid_f, k=a.hybrid_k, fingerprint=a.hybrid_fingerprint, scale=a.hybrid_scale,
+                  level_free=a.hybrid_level_free)
     running = machine_hosts()
     print(f"native_host processes before start: {running}; this run opens 1", flush=True)
     if running + 1 > MAX_MACHINE_HOSTS:
@@ -937,6 +1031,7 @@ def cmd_run(a) -> int:
     t0 = now_s()
     engine = make_engine()
     t_open = now_s() - t0
+    nstats = None
     print(f"engine open in {t_open:.1f} s; machine now {machine_hosts()} native_host; {len(items)} items, "
           f"search budget {a.budget} renders, weights: {wlabel}", flush=True)
     results = []
@@ -948,7 +1043,10 @@ def cmd_run(a) -> int:
                 continue
             try:
                 r = run_item(engine, it, blocks_by_cat, catalog, kit, weights, a.budget, a.beam,
-                             not a.no_rank1, man["clip_seconds"], a.model_choice, search_kit=search_kit, known_di=known_di)
+                             not a.no_rank1, man["clip_seconds"], a.model_choice or a.seed_measured,
+                             search_kit=search_kit, known_di=known_di, seed_measured=a.seed_measured,
+                             hybrid=a.hybrid,
+                             audio_dir=run_dir if getattr(a, "save_audio", False) else None)
             except Exception as e:  # noqa: BLE001 - recorded, counted as a miss
                 r = {"id": it["id"], "category": it["category"], "model": it["model"], "category_ok": False,
                      "model_ok": False, "error": f"{type(e).__name__}: {e}", "renders": 0, "wall_s": 0.0}
@@ -960,6 +1058,7 @@ def cmd_run(a) -> int:
                   f"{r.get('param_mae_item', float('nan')):.3f} rank1 {r.get('rank1', '-')} "
                   f"{r.get('renders', 0)} renders {r.get('wall_s', 0)} s", flush=True)
     finally:
+        nstats = engine.native_stats()  # T103: canary + in-run sentinel counts
         engine.close()
     wall = now_s() - t0
     full = len(items) == len(labels) and not shard
@@ -970,7 +1069,7 @@ def cmd_run(a) -> int:
                  "budget": a.budget,
                  "wall_s": round(wall, 1), "engine_open_s": round(t_open, 1),
                  "full_run_estimate_s": round(summ["item_wall_s_mean"] * len(labels), 0),
-                 "gate_evidence": bool(full and admitted and not a.no_rank1)})
+                 "gate_evidence": bool(full and admitted and not a.no_rank1), "native_stats": nstats})
     (run_dir / "summary.json").write_text(json.dumps(summ, indent=1))
     show = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in summ.items() if k != "by_category"}
     print(json.dumps(show, indent=1))
@@ -980,7 +1079,9 @@ def cmd_run(a) -> int:
     if a.ledger:
         notes = (f"{wlabel}; {len(results)} of {len(labels)} items; search budget {a.budget} renders per item; "
                  f"one-block presets from block-library; block_f1 = category identified; "
-                 f"oracle isolated target, DI A fit and C held-out" + (f"; {a.note}" if a.note else ""))
+                 f"oracle isolated target, DI A fit and C held-out" + (f"; {a.note}" if a.note else "")
+                 + (f"; native sentinel checks {nstats.get('sentinel_checks')} drifts {nstats.get('sentinel_drifts')} "
+                    f"canary fixes {nstats.get('canary_fixed')}" if nstats else ""))
         wrote = write_ledger(summ, dataset, notes, wall)
         print(f"ledger: {len(wrote)} rows, dataset {dataset}")
     return 1 if regs else 0
@@ -1011,6 +1112,23 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--weights", default="provisional", help="'provisional' or a JSON file of loss weights")
     r.add_argument("--model-choice", action="store_true",
                    help="model choice per slot (T050): fingerprint screen + successive halving")
+    r.add_argument("--save-audio", action="store_true",
+                   help="save each item's target and recovered render on the new notes (DI C) as WAV in the run dir (cache/, local), for the blind listen")
+    r.add_argument("--seed-measured", action="store_true",
+                   help="measured seeding before the screen (T113, known-DI): echo time/feedback/mix, reverb "
+                        "decay/pre-delay, LFO rate/depth set on the candidates, narrow band; second screening "
+                        "rung; same render budget. Needs scripts/seed_calibrate.py output. Replaces --model-choice")
+    r.add_argument("--hybrid", action="store_true",
+                   help="Gate 2 hybrid: broad space-filling draws over all pool models (seed-centred where "
+                        "measured), top-K narrowing, successive halving with banded CMA-ES (same budget)")
+    r.add_argument("--hybrid-f", type=float, default=0.5, help="fraction of the budget for the broad stage")
+    r.add_argument("--hybrid-k", type=int, default=5, help="models kept after the broad stage")
+    r.add_argument("--hybrid-scale", type=float, default=0.8,
+                   help="share of the remaining budget handed to the refine stage (halve overshoots its share)")
+    r.add_argument("--hybrid-level-free", action="store_true",
+                   help="score the broad draws without the level guard (shape only); refine keeps the guard")
+    r.add_argument("--hybrid-fingerprint", action="store_true",
+                   help="broad stage uses each model's fingerprint settings (centre, corners) before LHS draws")
     r.add_argument("--known-di", action="store_true",
                    help="known-DI mode (implied by admitted weights): rank-1 on the target's own DI A through "
                         "aligned_capture, rule B; Output/Volume/Level error reported as param_mae_level")

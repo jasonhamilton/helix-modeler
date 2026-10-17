@@ -388,3 +388,32 @@ def test_off_mode_still_raises_on_layout_change(rig):
     with pytest.raises(UnsupportedModelChange):
         eng.load(hlx([("DistC", 0.1), ("DistD", 0.2), ("DistE", 0.3)]))
     assert not compiled
+
+
+# --------------------------------------------------------------------------- T108: device refusal
+
+
+def test_device_refused_document_is_layout_refused(rig):
+    from tonematch.engines.stomp_bridge import BridgeError
+
+    eng, pedal, _compiled, _ = rig(mode="always")
+    real = pedal.call
+
+    def refusing(cmd, timeout_s=30.0, **a):
+        if cmd == "restore" and "candidate" in str(a.get("path")):
+            raise BridgeError("restore: protocol error: the device accepted a document and never showed it back")
+        return real(cmd, timeout_s=timeout_s, **a)
+
+    pedal.call = refusing
+    with pytest.raises(stomp.LayoutRefused):
+        eng.load(hlx([("DistB", 0.3)]))
+    assert eng.preset is None
+
+    def broken(cmd, timeout_s=30.0, **a):
+        if cmd == "restore":
+            raise BridgeError("restore: timed out")
+        return real(cmd, timeout_s=timeout_s, **a)
+
+    pedal.call = broken
+    with pytest.raises(BridgeError):
+        eng.load(hlx([("DistC", 0.3)]))

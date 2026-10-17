@@ -34,7 +34,7 @@ the signal. 6-7 blocks is typical (45 and 42 presets), max 9 (cab counted as a b
   amp 36 / 85 / 7, cab 2+ in 26 (dual cab or amp plus cab block).
 
 
-## Corpus update (T109): 1,932 curated presets
+## Corpus update ([T109](../../board/TASKS.md#t109 "Curated corpus analysis")): 1,932 curated presets
 
 Category-level only. Names (models, presets, authors, artists) are in `reports/local/preset-corpus/` (gitignored).
 Machine-readable aggregates: `data/chain_prior/corpus_patterns.json`; rebuilt prior: `data/chain_prior/category_prior.json`

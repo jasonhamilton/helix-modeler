@@ -2045,6 +2045,12 @@ def main(argv: list[str] | None = None) -> int:
             print("docs/BENCHMARKING.md: time-per-sample block refreshed")
     except (OSError, ValueError) as exc:
         print(f"status_report: could not refresh the time-per-sample table: {exc}", file=sys.stderr)
+    try:   # local Gate 2 report (gitignored); a failure here never breaks the status report
+        import gate2_report
+
+        print(gate2_report.build(root))
+    except Exception as exc:  # noqa: BLE001
+        print(f"status_report: could not refresh the local Gate 2 report: {exc}", file=sys.stderr)
     if a.json:
         a.json.write_text(json.dumps(model, indent=1, ensure_ascii=False, default=str) + "\n",
                           encoding="utf-8")

@@ -39,7 +39,9 @@ AGREE_SAMPLES = 2
 # PortAudio buffering. "low" gives a 1206-1207 sample round trip on macOS (vs 12498-12499 with the
 # default "high"); every capture and the calibration must use the same setting.
 PA_LATENCY = "low"
-MAX_JITTER = 2  # stream-start jitter is 0..1 sample on every setting tried; align within this
+# Stream-start latency jitter: renders of one setting land -1..+2 samples from the first (T108,
+# stomp-verify-v1, 2026-10-17; 0..1 before). Aligned within this, with margin.
+MAX_JITTER = 4
 
 
 class ReampError(RuntimeError):

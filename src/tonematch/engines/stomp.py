@@ -54,6 +54,7 @@ import subprocess
 import tempfile
 import time
 import weakref
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
 
@@ -73,8 +74,9 @@ from .stomp_bridge import BridgeError, StompBridge, helper_path, stomp_on_bus
 from .stomp_layout import ensure_sabj
 from .stomp_readback import ReadbackMismatch, check, snapshot_conflicts, sync_snapshot_controllers
 
-__all__ = ["LayoutRefused", "ReadbackMismatch", "StompEngine", "compare_backups", "compile_document",
-           "decode_document", "merge_two_path", "reamp_hlx_dict", "restore_verdict", "two_path_fit"]
+__all__ = ["LayoutRefused", "ReadbackMismatch", "Sentinel", "SentinelDrift", "StompEngine", "compare_backups",
+           "compile_document", "decode_document", "merge_two_path", "reamp_hlx_dict", "resolve_sentinel",
+           "restore_verdict", "two_path_fit"]
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[3]
@@ -119,6 +121,69 @@ class LayoutRefused(ReadbackMismatch, UnsupportedModelChange):
 class SilentPath(EngineError):
     """A path came back silent for a non-silent input."""
 
+
+class SentinelDrift(EngineError):
+    """The session's sentinel render drifted from its reference (or could not be made, or the
+    engine could not return to the session's state afterwards). The engine refuses every later
+    render; ``close()`` still restores the pedal. ``report`` is the engine's sentinel_report."""
+
+    def __init__(self, msg: str, report: dict):
+        super().__init__(msg)
+        self.report = report
+
+
+ENV_SENTINEL = "TONEMATCH_STOMP_SENTINEL"           # on | off | auto (auto: on for benchmark sessions)
+ENV_SENTINEL_EVERY = "TONEMATCH_STOMP_SENTINEL_EVERY"
+
+
+@dataclass
+class Sentinel:
+    """A fixed reference re-rendered every ``every`` renders (T108, stomp-verify-v1 rule 4).
+
+    ``preset``: the reference setting (None: a copy of the first preset loaded in the session).
+    ``clip``: the reference clip (None: 1 s of seeded noise at -24 dBFS RMS). The first check renders
+    the reference twice: the floor is their null, the threshold max(floor + margin_db, strictest_db);
+    a floor above max_floor_db (a reference that does not repeat) disables the sentinel."""
+
+    every: int = 25
+    preset: object | None = None
+    clip: np.ndarray | None = None
+    margin_db: float = 6.0
+    strictest_db: float = -60.0
+    max_floor_db: float = -30.0
+
+
+def sentinel_clip(seconds: float = 1.0, dbfs_rms: float = -24.0, seed: int = 105) -> np.ndarray:
+    """The default sentinel clip: seeded white noise, faded in and out (deterministic)."""
+    x = np.random.default_rng(seed).standard_normal(int(seconds * SAMPLE_RATE))
+    x *= 10 ** (dbfs_rms / 20) / np.sqrt(np.mean(x ** 2))
+    fade = int(0.01 * SAMPLE_RATE)
+    ramp = np.linspace(0.0, 1.0, fade)
+    x[:fade] *= ramp
+    x[-fade:] *= ramp[::-1]
+    return x.astype(np.float32)
+
+
+def resolve_sentinel(sentinel, purpose: str | None) -> Sentinel | None:
+    """The engine's sentinel from its argument and ``TONEMATCH_STOMP_SENTINEL``. Explicit
+    arguments win (a Sentinel, True, False); otherwise ``on``/``off``, or ``auto`` (default): on
+    when the session's purpose names a benchmark."""
+    if isinstance(sentinel, Sentinel):
+        return sentinel
+    every = int(os.environ.get(ENV_SENTINEL_EVERY) or Sentinel.every)
+    if sentinel is True:
+        return Sentinel(every=every)
+    if sentinel is False:
+        return None
+    mode = (os.environ.get(ENV_SENTINEL) or "auto").strip().lower()
+    if mode not in ("on", "off", "auto"):
+        raise EngineError(f"{ENV_SENTINEL} must be on, off or auto, got {mode!r}")
+    if mode == "on" or (mode == "auto" and purpose and "benchmark" in purpose.lower()):
+        return Sentinel(every=every)
+    return None
+
+
+DEVICE_REFUSED = "never showed it back"   # stompd's restore error when the device drops a written document
 
 LAYOUT_MARKERS = ("no block at device slot", " model ", " cab ", "the file has no block there", "path topology",
                   "the device has no", "attaches before", "whole-preset write")
@@ -202,6 +267,16 @@ def _first_difference(a, b, path: str = "") -> str | None:
     return None if a == b else f"{path}: {a!r} vs {b!r}"
 
 
+def _unordered_assignments(doc):
+    """A decoded document with every ``assignments`` list sorted (they are a set, not a sequence)."""
+    if isinstance(doc, dict):
+        return {k: (sorted(v, key=str) if k == "assignments" and isinstance(v, list) else _unordered_assignments(v))
+                for k, v in doc.items()}
+    if isinstance(doc, list):
+        return [_unordered_assignments(x) for x in doc]
+    return doc
+
+
 def compare_backups(backup: Path, after: Path, decoder=decode_document) -> dict:
     """Judge a restore: is the edit buffer read after the restore the same document as the backup?
 
@@ -229,7 +304,10 @@ def compare_backups(backup: Path, after: Path, decoder=decode_document) -> dict:
         out.update(decoded_equal_backup=None, restore_compare="bytes",
                    decode_unavailable=f"decode unavailable ({e}): judged by bytes")
         return out
-    diff = _first_difference(da, db)
+    # The device may also re-order its controller assignments when it re-encodes a buffer (T108:
+    # the 16:52Z verify session read the same three CC 110 assignments back in reverse order).
+    # They are a set (chain_signature sorts them too), so they are compared in sorted order.
+    diff = _first_difference(_unordered_assignments(da), _unordered_assignments(db))
     out.update(decoded_equal_backup=diff is None, restore_compare="decoded")
     if diff is None:
         log.info("restore: edit buffer re-encoded by the device (%d vs %d bytes), decoded identical",
@@ -302,6 +380,8 @@ def _category_of(model_id: str | None) -> str | None:
     if cat:
         return cat
     low = model_id.lower()
+    if low.startswith(("hd2_amp", "hd2_preamp")):
+        return "amp"
     return "delay" if ("delay" in low or "dl4" in low) else "reverb" if "reverb" in low else None
 
 
@@ -534,7 +614,14 @@ class StompEngine:
 
     SILENT_IN_DB = -70.0
     SILENT_OUT_DB = -100.0
-    PRE_S = 0.25          # render pre-roll; the stream start is not sample-stable before this
+    # Render pre-roll. T108 (stomp-verify-v1, 2026-10-17): the USB stream is not sample-stable until
+    # about 0.7 s after it starts. With 0.25 s, 10-23 % of deterministic renders had a one-sample slip
+    # or a 1-6 ms burst 0.25-0.67 s after the stream start (inside the clip); none of 12 at >= 0.5 s.
+    PRE_S = 1.0
+    # T108: amps carry state from the render before (sag, supply): a render 0.3 s after the previous
+    # one nulled at -39 dB against a rested render; -56 dB at 1 s, -77 dB at 2 s, -94 dB at 3 s
+    # (RevvGen Purple). Chains with an enabled amp wait at least this long.
+    AMP_PRE_S = float(os.environ.get("TONEMATCH_STOMP_AMP_PRE_S") or 2.0)
     TAIL_PAD_S = 0.05     # extra after the latency so the trimmed clip is complete
     # Measured 2026-10-14 (fw 3.50): a render started straight after load() with a model change
     # nulls against a settled render as well as two settled renders do (-29..-43 dB vs -31 dB),
@@ -555,8 +642,10 @@ class StompEngine:
 
     def __init__(self, bridge: StompBridge | None = None, calibration: reamp.Calibration | None = None,
                  session_dir: Path | None = None, whole_preset: str | None = None,
-                 compiler=None, decoder=None, purpose: str | None = None):
-        """``purpose`` names the session in the shared pedal lock's owner.json (tonematch.pedal_lock)."""
+                 compiler=None, decoder=None, purpose: str | None = None, sentinel=None):
+        """``purpose`` names the session in the shared pedal lock's owner.json (tonematch.pedal_lock).
+        ``sentinel``: a :class:`Sentinel`, True, False, or None (``TONEMATCH_STOMP_SENTINEL``;
+        auto = on when ``purpose`` names a benchmark). See :meth:`_sentinel_run`."""
         mode = whole_preset if whole_preset is not None else (os.environ.get(ENV_WHOLE_PRESET) or DEFAULT_WHOLE_MODE)
         if mode not in WHOLE_MODES:
             raise EngineError(f"whole_preset must be one of {WHOLE_MODES}, got {mode!r}")
@@ -623,6 +712,15 @@ class StompEngine:
         self.serial_renders = 0
         self.two_path_skips: list[str] = []
         self.last_paths: dict[str, Audio] = {}
+        # T108: the session sentinel (rule 4 of stomp-verify-v1).
+        self.sentinel = resolve_sentinel(sentinel, purpose)
+        self._first_preset = None
+        self._sentinel_ref: np.ndarray | None = None
+        self._sentinel_busy = False
+        self.sentinel_report: dict = {
+            "enabled": self.sentinel is not None, "every": self.sentinel.every if self.sentinel else None,
+            "checks": 0, "nulls_db": [], "floor_db": None, "threshold_db": None, "tripped": False,
+            "reason": None, "disabled_reason": None, "renders_since": 0, "seconds": 0.0}
 
     # --- availability ---------------------------------------------------------------------
 
@@ -642,6 +740,10 @@ class StompEngine:
         from tonematch import param_policy
 
         self.policy_warnings = param_policy.violations(preset, "stomp")
+        if self._first_preset is None and not self._sentinel_busy:
+            import copy
+
+            self._first_preset = copy.deepcopy(preset)   # the sentinel's default reference
         fast = self.readback_every > 1 and self._chain_trusted and self.whole_preset != "always"
         if not fast:
             self._refresh()
@@ -740,7 +842,20 @@ class StompEngine:
                 # Offline, before anything is written: every block value and every snapshot
                 # controller value of the compiled document against the .hlx.
                 checks["document"] = check(self._decoder(out), hlx_dict, report, "the compiled document").as_dict()
-            self.bridge.call("restore", path=str(out), timeout_s=30)
+            try:
+                self.bridge.call("restore", path=str(out), timeout_s=30)
+            except BridgeError as e:
+                if DEVICE_REFUSED not in str(e):
+                    raise
+                # T108: the device took the op-21 write and never showed the document (VIC Stutter
+                # Edit, 2026-10-17). The model or layout cannot be loaded: a refusal the caller can
+                # skip, not a dead session. What the buffer holds now is read back.
+                self.preset = None
+                try:
+                    self._refresh()
+                except (BridgeError, EngineError):
+                    pass
+                raise self._refused(f"the device refused the whole-preset write: {e}") from e
             t3 = time.perf_counter()
             if self.keep_documents is not None:  # evidence for spikes: what was compiled and written
                 import shutil
@@ -841,7 +956,112 @@ class StompEngine:
         time.sleep(self.SETTLE_PARAM_S)
 
     def render(self, dry: Audio) -> Audio:
-        return self._render_paths(dry, ("A",))["A"]
+        self._sentinel_gate()
+        y = self._render_paths(dry, ("A",))["A"]
+        self._sentinel_tick()
+        return y
+
+    # --- sentinel (T108) ------------------------------------------------------------------------
+
+    def _sentinel_gate(self) -> None:
+        if self.sentinel_report.get("tripped"):
+            raise SentinelDrift(f"the session sentinel tripped earlier ({self.sentinel_report.get('reason')}): "
+                                "no further renders in this session", self.sentinel_report)
+
+    def _sentinel_tick(self) -> None:
+        """Count a session render; run the sentinel on the first one and then every N."""
+        if self.sentinel is None or self._sentinel_busy or not self.sentinel_report["enabled"]:
+            return
+        rep = self.sentinel_report
+        rep["renders_since"] += 1
+        if self._sentinel_ref is None or rep["renders_since"] >= self.sentinel.every:
+            self._sentinel_run()
+
+    def sentinel_check_now(self) -> float | None:
+        """Run a sentinel check at once (scripts; the forced-drift test). Returns its null."""
+        if self.sentinel is None or not self.sentinel_report["enabled"]:
+            return None
+        self._sentinel_gate()
+        self._sentinel_run()
+        return self.sentinel_report["nulls_db"][-1] if self.sentinel_report["nulls_db"] else None
+
+    def _sentinel_run(self) -> None:
+        """Back up the edit buffer, load the reference, render the reference clip, compare it with
+        the reference's first render, write the backup back (same session) and check the chain
+        signature. The first run renders twice and sets the floor and threshold. Raises
+        SentinelDrift on a drift, a broken audio path, or a failed return to the session's state."""
+        cfg, rep = self.sentinel, self.sentinel_report
+        ref_preset = cfg.preset if cfg.preset is not None else self._first_preset
+        if ref_preset is None:
+            return   # nothing loaded yet: no reference
+        clip = cfg.clip if cfg.clip is not None else sentinel_clip()
+        t0 = time.perf_counter()
+        self._sentinel_busy = True
+        keep = {k: getattr(self, k) for k in ("preset", "slot_map", "last_readback", "last_offset", "last_paths",
+                                             "policy_warnings", "_loads_since_readback", "_chain_trusted")}
+        trip = None
+        backup = None
+        try:
+            self._refresh()
+            before = chain_signature(self.chain)
+            backup = Path(self.session_dir) / f"sentinel_{rep['checks']:03d}_{os.getpid()}.bin"
+            self.bridge.call("backup", path=str(backup))
+            try:
+                self.load(ref_preset)
+                ys = [self._render_paths(clip, ("A",))["A"] for _ in range(2 if self._sentinel_ref is None else 1)]
+            except (SilentPath, reamp.ReampError, BridgeError) as e:
+                trip = f"reference render failed: {type(e).__name__}: {e}"
+            except EngineError as e:
+                if self._sentinel_ref is None:
+                    rep.update(enabled=False, disabled_reason=f"reference not loadable: {type(e).__name__}: {e}")
+                else:
+                    trip = f"reference load failed: {type(e).__name__}: {e}"
+            else:
+                if self._sentinel_ref is None:
+                    floor = reamp.null_db(ys[0], ys[1])
+                    rep["floor_db"] = round(float(floor), 2)
+                    if floor > cfg.max_floor_db:
+                        rep.update(enabled=False, disabled_reason=f"reference does not repeat: floor {floor:.1f} dB "
+                                                                  f"> {cfg.max_floor_db} dB")
+                    else:
+                        self._sentinel_ref = ys[0]
+                        rep["threshold_db"] = round(float(max(floor + cfg.margin_db, cfg.strictest_db)), 2)
+                else:
+                    null = float(reamp.null_db(self._sentinel_ref, ys[0]))
+                    rep["nulls_db"].append(round(null, 2))
+                    rep["offsets"] = rep.get("offsets", []) + [int(self.last_offset)]
+                    rep["checks"] += 1
+                    if null > rep["threshold_db"]:
+                        trip = f"sentinel null {null:.1f} dB > threshold {rep['threshold_db']:.1f} dB"
+                        # Evidence for the diagnosis: the reference and the render that drifted.
+                        ev = Path(self.session_dir) / f"sentinel_trip_{os.getpid()}"
+                        try:
+                            ev.mkdir(parents=True, exist_ok=True)
+                            np.save(ev / "reference.npy", self._sentinel_ref)
+                            np.save(ev / "drifted.npy", ys[0])
+                            rep["evidence"] = str(ev)
+                        except OSError:
+                            pass
+            # Back to the session's state, whatever happened above.
+            self.bridge.call("restore", path=str(backup), timeout_s=30)
+            self._refresh()
+            if chain_signature(self.chain) != before:
+                trip = trip or "the edit buffer did not return to the session's state after the sentinel"
+        except (BridgeError, EngineError, OSError) as e:
+            trip = trip or f"sentinel failed: {type(e).__name__}: {e}"
+        finally:
+            for k, v in keep.items():
+                setattr(self, k, v)
+            self._chain_trusted = trip is None
+            self._sentinel_busy = False
+            rep["renders_since"] = 0
+            rep["seconds"] = round(rep["seconds"] + time.perf_counter() - t0, 3)
+            if backup is not None:
+                backup.unlink(missing_ok=True)
+        if trip:
+            rep.update(tripped=True, reason=trip)
+            log.error("stomp sentinel: %s", trip)
+            raise SentinelDrift(trip, rep)
 
     def _render_paths(self, dry: Audio, paths: tuple[str, ...]) -> dict[str, Audio]:
         """One pedal pass; Path A from USB 1/2 and, when asked, Path B from USB 3/4. Each path is
@@ -855,7 +1075,7 @@ class StompEngine:
         tail = self.cal.latency_samples / SAMPLE_RATE + self.TAIL_PAD_S
         key = self._tail_key()
         bound = self._bound_s()
-        probe = self.tail_mode == "measured" and bound > self.PRE_S and key not in self.decay_s
+        probe = self.tail_mode == "measured" and bound > self._min_wait_s() and key not in self.decay_s
         if probe:
             tail += bound   # record this chain's own tail once and measure where it dies
         wait = self._wait_s()
@@ -876,7 +1096,7 @@ class StompEngine:
             self._flush_after = (0.0, ended)   # the recorded tail already played out
         else:
             need = self.decay_s.get(key, bound) + self.DECAY_MARGIN_S if self.tail_mode == "measured" else bound
-            self._flush_after = (need if bound > self.PRE_S else 0.0, ended)
+            self._flush_after = (need if bound > self._min_wait_s() else 0.0, ended)
         j = reamp.MAX_JITTER
         out: dict[str, Audio] = {}
         offsets = {}
@@ -950,11 +1170,13 @@ class StompEngine:
                 and self._can_compile())
 
     def _render_pair(self, dry: Audio, a, b) -> list[Audio]:
+        self._sentinel_gate()
         merged = merge_two_path(a, b)
         self._load_whole(merged, time.perf_counter())
         ys = self._render_paths(dry, ("A", "B"))
         self.last_paths = ys
         self.two_path_passes += 1
+        self._sentinel_tick()
         return [ys["A"], ys["B"]]
 
     def _resolve_variants(self, variants: list) -> list:
@@ -1022,7 +1244,13 @@ class StompEngine:
             return self.pre_roll_s()
         need, ended = self._flush_after
         left = need - (time.monotonic() - ended) if ended else need
-        return float(max(self.PRE_S, min(left, self.MAX_FLUSH_S)))
+        return float(max(self._min_wait_s(), min(left, self.MAX_FLUSH_S)))
+
+    def _min_wait_s(self) -> float:
+        """The shortest pre-roll for the current chain: PRE_S, or AMP_PRE_S with an enabled amp."""
+        amp = any(sl.get("enabled") and _category_of(sl.get("model_id")) == "amp"
+                  for sl in _block_slots(self.chain).values())
+        return float(max(self.PRE_S, self.AMP_PRE_S) if amp else self.PRE_S)
 
     def pre_roll_s(self) -> float:
         """Silence before the clip, long enough for the previous render's delay or reverb tail to
@@ -1030,7 +1258,7 @@ class StompEngine:
         with a 0.25 s pre-roll gave renders of the same document 8.5 dB apart across loads and
         repeats at -28 dB; with 3 s, -32..-36 dB, the chain's repeat floor). Delays: time to -60 dB
         from Time and Feedback (Time 2 s when tempo-synced: worst case); reverbs: REVERB_FLUSH_S."""
-        need = self.PRE_S
+        need = self._min_wait_s()
         for sl in _block_slots(self.chain).values():
             if not sl.get("enabled"):
                 continue

@@ -197,8 +197,22 @@ def rss_mb(pid: int) -> float | None:
 # itself, so search and parity results silently depended on which host rendered them. Every
 # host opened in a start state renders a short canary through it; a host that disagrees with
 # the machine's reference is replaced (majority of three decides if the reference is in doubt).
+#
+# Cause (T103, 2026-10-17, measured): every prepareToPlay of the Native instance picks one of
+# exactly two numeric modes. A fresh instance's first prepare lands in B about 1 time in 10
+# (15 of 153 opens). A re-prepare (one silent block at another sample rate) lands in B about
+# 1 time in 2, whether it is given time to settle or not. The B/A difference is rounding-level: a
+# 1-ulp change of one input sample moves the canary by -72.5 dB, the same as A vs B (-71.5 dB).
+# Amps, high-feedback reverbs and modulated delays amplify it. 192 canary renders gave exactly
+# two clusters, so the canary is a real detector, not a flawed check. A host found in B is now
+# re-prepared IN PLACE until it agrees on two consecutive canaries (``_reprepare_until``, about
+# 0.5 s instead of a ~7 s respawn; respawn after ``CANARY_REPREPARES``). In-place-fixed hosts
+# render 7 test chains bit-identically to hosts that opened in A (-316 to -335 dB). Only a fresh
+# process's first canary votes. The in-run sentinel (below) catches a host that changes mode
+# mid-run (any later prepare: reload_with_state, a recycle).
 CANARY_THRESHOLD_DB = -150.0
 CANARY_RETRIES = 6
+CANARY_REPREPARES = 10  # in-place re-prepares before a host in the wrong mode is replaced (T103)
 _CANARY_LOCK = threading.Lock()
 
 
@@ -237,8 +251,89 @@ def _save_canary_votes(f: Path, votes: list[dict]) -> None:
     f.with_suffix(".json").write_text(json.dumps(meta))
 
 
+# Amp latch (T103, 2026-10-17, measured). The first single-block amp or preamp template a Native
+# instance loads switches a persistent internal state: from then on some multi-block amp chains
+# render a second way (golden H, Placater Dirty + 4x12 Uber V30 + DL4 Ping Pong: -97.4 dB against
+# the same chain in a host that never loaded a lone amp). It does not depend on warm-up (0.5-2 s),
+# pre-roll (0.5-8 s) or an empty-chain flush, and nothing seen resets it (golden chains, drives,
+# reverbs). Single-block amp templates latch themselves on their first load, which is why they
+# always repeated. A host that only ever loaded golden chains stayed unlatched, so hosts with
+# different histories disagreed. Every canary-checked host is latched at open, after the canary
+# check, which judges the unlatched start state. ``TONEMATCH_NATIVE_PRIME=0`` turns it off.
+PRIME_MODEL = "HD2_AmpEssexA30"
+
+
+def prime_enabled() -> bool:
+    return os.environ.get("TONEMATCH_NATIVE_PRIME", "1").strip().lower() not in ("0", "false", "no")
+
+
+def prime_state() -> bytes | None:
+    try:
+        from . import native_library as _nl
+
+        t = _nl.template_for(PRIME_MODEL)
+    except Exception:  # noqa: BLE001 - no library cached: no latch
+        return None
+    return t.state if t is not None else None
+
+
+def flush_state_path() -> Path:
+    """The empty-chain HX Stomp state (captured once by drop, ``native_verify.py flush-state``)."""
+    return cache_dir() / "empty_stomp.state"
+
+
+def flush_enabled() -> bool:
+    """``TONEMATCH_NATIVE_FLUSH=1`` (default OFF): load the empty chain before every new chain.
+    Tried for T103 against the amp latch and the start-state "C" render: no measurable effect
+    (both unchanged to 0.1 dB), so it stays an opt-in for experiments."""
+    return os.environ.get("TONEMATCH_NATIVE_FLUSH", "0").strip().lower() in ("1", "true", "yes")
+
+
 def canary_enabled() -> bool:
     return os.environ.get("TONEMATCH_NATIVE_CANARY", "1").strip().lower() not in ("0", "false", "no")
+
+
+# In-run sentinel (T103, 2026-10-17). The canary checks a host once, at open. The sentinel
+# re-checks it during a run: every ``sentinel_every()`` renders (default 50) the engine borrows its
+# host, renders the canary signal through a fixed reference chain and nulls it against the
+# machine's stored render of that chain (``cache/native/canary/sentinel_<key>.npy``, saved by the
+# first canary-accepted host). The chain is the block-library DoubleTank, which separates Native's
+# two numeric modes by -26 dB and is history-independent. The start-state canary chain is not
+# (after an amp, cab, EQ, mod or drive load it renders a third way, -71.8 dB, in every host). On
+# drift the engine re-prepares the host in place until it agrees, else recycles it, and counts
+# the event in ``stats()``; ``TONEMATCH_NATIVE_SENTINEL_STRICT=1`` raises instead. Renders since
+# the last good check are counted as ``sentinel_suspect_renders``.
+SENTINEL_EVERY = 50
+SENTINEL_MODEL = "HD2_ReverbDoubleTank"
+
+
+def sentinel_every() -> int:
+    """``TONEMATCH_NATIVE_SENTINEL_EVERY`` (default 50 renders; 0 turns the sentinel off)."""
+    env = os.environ.get("TONEMATCH_NATIVE_SENTINEL_EVERY")
+    try:
+        return max(0, int(env)) if env else SENTINEL_EVERY
+    except ValueError:
+        return SENTINEL_EVERY
+
+
+def sentinel_strict() -> bool:
+    return os.environ.get("TONEMATCH_NATIVE_SENTINEL_STRICT", "0").strip().lower() in ("1", "true", "yes")
+
+
+def sentinel_state() -> bytes | None:
+    """The sentinel's reference chain: the block library's ``SENTINEL_MODEL`` template state."""
+    try:
+        from . import native_library as _nl
+
+        t = _nl.template_for(SENTINEL_MODEL)
+    except Exception:  # noqa: BLE001 - no library cached: no sentinel
+        return None
+    return t.state if t is not None else None
+
+
+def _sentinel_file(plugin: str, state: bytes) -> Path:
+    key = hashlib.sha1(state + plugin_version(plugin).encode() + platform.node().encode()).hexdigest()[:16]
+    return cache_dir() / "canary" / f"sentinel_{key}.npy"
 
 
 class HostProcess:
@@ -262,12 +357,37 @@ class HostProcess:
             and not str(plugin).startswith("builtin:")
         self.canary_null_db: float | None = None
         self.canary_respawns = 0
+        self.canary_reprepares = 0  # in-place re-prepares tried (T103)
+        self.canary_fixed = 0       # hosts brought back to the reference mode in place
+        self.flush = False          # an empty-chain state is loaded before each new chain (T103)
+        self.primed = False         # latched by one single-block amp render at open (T103)
         self._spawn()
 
     def _spawn(self) -> None:
         self._spawn_process()
         if self.canary:
             self._check_canary()
+        if self.canary and flush_enabled():  # real plugin in a start state: build every chain from empty
+            f = flush_state_path()
+            if f.is_file():
+                self.call("set_flush_state", f.read_bytes())
+                self.flush = True
+        if self.canary and prime_enabled():
+            self._prime()
+
+    def _prime(self) -> None:
+        """Latch the instance (T103, ``PRIME_MODEL``): render one single-block amp template, then
+        go back to the start state. Every host is then in the same latched state for its whole
+        life, whatever it loads later."""
+        st = prime_state()
+        if st is None or _hc_mode(st) != _hc_mode(self.initial_state):
+            return
+        x = np.zeros(4800, np.float32)
+        x[100] = 0.25
+        self.call("set_state", st)
+        self.call("render", x.astype("<f4").tobytes(), reset=True)
+        self.call("set_state", self.initial_state)
+        self.primed = True
 
     def _spawn_process(self) -> None:
         env = dict(os.environ)
@@ -301,7 +421,7 @@ class HostProcess:
         f = _canary_file(self.plugin, self.initial_state)
         nd = 0.0
         for attempt in range(CANARY_RETRIES + 1):
-            y = self._canary_render()
+            y = self._canary_render()  # a fresh process's first render: the only one that votes
             with _CANARY_LOCK:
                 votes = _canary_votes(f)
                 idx = next((i for i, v in enumerate(votes) if len(v["y"]) == len(y)
@@ -316,9 +436,17 @@ class HostProcess:
                 if idx == best and votes[best]["n"] >= 2:
                     self.canary_null_db = nd
                     return
-            if votes[best]["n"] >= 2:
+                ref = votes[best]["y"] if votes[best]["n"] >= 2 else None
+                counts = [v["n"] for v in votes]
+            if ref is not None and self._reprepare_until(ref):
+                print(f"NativeHost: host came up in Native's other numeric mode ({nd:.1f} dB, votes "
+                      f"{counts}); re-prepared in place {self.canary_reprepares}x, now agrees "
+                      "(T103, explained)", file=sys.stderr)
+                return
+            if ref is not None:
                 print(f"NativeHost: host renders differently from the majority ({nd:.1f} dB, "
-                      f"votes {[v['n'] for v in votes]}); replacing it", file=sys.stderr)
+                      f"votes {counts}) after {CANARY_REPREPARES} re-prepares; replacing it",
+                      file=sys.stderr)
             if attempt == CANARY_RETRIES:
                 break
             self.canary_respawns += 1
@@ -326,6 +454,31 @@ class HostProcess:
             self._spawn_process()
         self.close()
         raise EngineError(f"Native host canary: no agreeing host in {CANARY_RETRIES + 1} tries")
+
+    def _reprepare_until(self, ref: np.ndarray, tries: int | None = None, render=None) -> bool:
+        """Re-prepare this instance in place (``native_host.Host.reprepare``) until ``render()``
+        (default: the canary) nulls against ``ref`` to ``CANARY_THRESHOLD_DB``; True on success
+        (T103: each prepare picks Native's numeric mode A or B, about 1 in 2 after the first)."""
+        render = render or self._canary_render
+
+        def agrees(y: np.ndarray) -> bool:
+            return len(y) == len(ref) and null_db(ref, y) <= CANARY_THRESHOLD_DB
+
+        for _ in range(CANARY_REPREPARES if tries is None else tries):
+            self.call("reprepare")
+            self.canary_reprepares += 1
+            # The first render after a re-prepare can be a transient (-9 dB seen once after a knob
+            # render, T103), so the reference must agree on two consecutive renders.
+            render()
+            y = render()
+            if agrees(y) and agrees(render()):
+                if render == self._canary_render:
+                    self.canary_null_db = null_db(ref, y)
+                self.canary_fixed += 1
+                if getattr(self, "primed", False):
+                    self._prime()  # a re-prepare clears the amp latch (T103): set it again
+                return True
+        return False
 
     def call(self, cmd: str, payload: bytes = b"", **kw) -> tuple[dict, bytes]:
         with self._lock:
@@ -447,6 +600,127 @@ class ChainTemplate:
                                  "map": self.map, "ranges": self.ranges, "verified": self.verified,
                                  "baked_hash": self.baked_hash, "baked": self.baked}, indent=1))
         return p
+
+    # --- CC ranges for search (T098) -------------------------------------------------------
+
+    def param_ranges(self, catalog: dict | None = None) -> dict[str, dict]:
+        """Per CC-mapped continuous param (``"<slot>:<param>"``): ``grid`` = the [lo, hi] this
+        template's CC covers (``ranges``; narrowed for delay times, LFO rates, reverb Decay and
+        Block Level, T072/N6d), ``full`` = the HX catalog [min, max] (None without a catalog),
+        ``narrowed`` (grid narrower than full), ``step`` (grid step, (hi - lo) / 127) and
+        ``live`` (CC verified to move the render).
+
+        Search may sample anywhere in ``full``: ``NativeEngine.load`` and ``set_params`` switch to
+        a wider template for a value outside ``grid`` (an older full-range library version, else
+        an on-demand capture, T098) and back to the finest grid that holds every value."""
+        models = _catalog_models(catalog)
+        out: dict[str, dict] = {}
+        for ref, rng in sorted(self.ranges.items()):
+            i, name = ref.split(":", 1)
+            if name.startswith("@"):
+                continue
+            try:
+                mid = self.chain[int(i)][1]
+            except (ValueError, IndexError):
+                continue
+            p = ((models.get(mid or "") or {}).get("params") or {}).get(name)
+            full = None
+            if p and p.get("kind") == "continuous" and p.get("min") is not None and p.get("max") is not None:
+                full = (float(p["min"]), float(p["max"]))
+            lo, hi = float(rng[0]), float(rng[1])
+            out[ref] = {"grid": (lo, hi), "full": full,
+                        "narrowed": full is not None and (abs(lo - full[0]) > 1e-9 or abs(hi - full[1]) > 1e-9),
+                        "step": (hi - lo) / CC_STEPS, "live": ref in self.verified}
+        return out
+
+    def full_range(self, ref: str, catalog: dict | None = None) -> tuple[float, float] | None:
+        """``ref``'s HX catalog range (``param_ranges()[ref]["full"]``): what search may ask for.
+        ``ranges[ref]`` is only the range this template's CC grid covers."""
+        return self.param_ranges(catalog).get(ref, {}).get("full")
+
+
+_CATALOG_MODELS: dict | None = None
+
+
+def _catalog_models(catalog: dict | None = None) -> dict:
+    """``catalog["models"]`` (the cached HX catalog when ``catalog`` is None; {} without one)."""
+    global _CATALOG_MODELS
+    if catalog is not None:
+        return catalog.get("models", catalog)
+    if _CATALOG_MODELS is None:
+        try:
+            from tonematch.catalog import load_catalog
+
+            _CATALOG_MODELS = load_catalog().get("models", {})
+        except Exception:  # noqa: BLE001 - no catalog cached: ranges without a full range
+            return {}
+    return _CATALOG_MODELS
+
+
+# Template directories scanned per chain without reading every state (T098): the library's older
+# versions and its on-demand captures are consulted only when a value falls outside the primary
+# templates' CC ranges. Metadata is cached per directory and re-scanned when the directory's
+# mtime changes (a capture added a file); states are read once, on first use.
+_DIR_INDEX: dict[str, tuple[int, dict]] = {}
+_DIR_LOCK = threading.Lock()
+
+
+def dir_variants(d: Path, chain) -> list[ChainTemplate]:
+    """The templates in directory ``d`` for ``chain`` (``ChainTemplate.load_variants`` for one
+    chain, lazily). The same objects are returned on every call until ``d`` changes."""
+    d = Path(d)
+    try:
+        mt = d.stat().st_mtime_ns
+    except OSError:
+        return []
+    with _DIR_LOCK:
+        hit = _DIR_INDEX.get(str(d))
+        if hit is None or hit[0] != mt:
+            old = {str(e[0]): e for v in (hit[1].values() if hit else ()) for e in v}
+            idx: dict[tuple, list] = {}
+            for j in sorted(d.glob("*.json")):
+                if str(j) in old:
+                    e = old[str(j)]
+                else:
+                    try:
+                        meta = json.loads(j.read_text())
+                    except (OSError, ValueError):
+                        continue
+                    if "chain" not in meta:
+                        continue
+                    e = [j, meta, None]
+                if not j.with_suffix(".state").is_file():
+                    continue
+                idx.setdefault(tuple(tuple(x) for x in e[1]["chain"]), []).append(e)
+            hit = _DIR_INDEX[str(d)] = (mt, idx)
+        out = []
+        for e in hit[1].get(tuple(tuple(x) for x in chain), []):
+            if e[2] is None:
+                j, meta = e[0], e[1]
+                e[2] = ChainTemplate(tuple(tuple(x) for x in meta["chain"]), j.with_suffix(".state").read_bytes(),
+                                     meta.get("map", {}), meta.get("ranges", {}), meta.get("name", j.stem),
+                                     meta.get("verified", []), meta.get("baked", {}), meta.get("baked_hash", ""))
+                from . import native_library as _nl
+
+                v = _nl.version_of(d)
+                if v and d.resolve() == _nl.library_templates(v).resolve():  # not on-demand captures
+                    _nl.apply_cc_policy(e[2])  # T103: older library versions bake them too
+            out.append(e[2])
+        return out
+
+
+def on_demand_enabled() -> bool:
+    """``TONEMATCH_NATIVE_ONDEMAND=1`` (default OFF since 2026-10-17, T101): capture a full-range
+    variant when a value is outside every template's CC range but the chain and baked values match
+    (T098). Off by default because each on-demand capture opens Native's editor for one preset
+    (one window per preset) instead of batching drops in one session; turn it back on only once
+    on-demand captures are batched (``capture_missing``-style). Off, such a value raises
+    ``UnsupportedModelChange`` "outside its CC range" (older full-range library templates are
+    still used)."""
+    return os.environ.get("TONEMATCH_NATIVE_ONDEMAND", "0").strip().lower() in ("1", "true", "yes")
+
+
+_ON_DEMAND_LOCK = threading.Lock()  # one on-demand capture at a time per process (pool threads)
 
 
 # --------------------------------------------------------------------------- measurements
@@ -1267,11 +1541,13 @@ class NativeEngine:
                  templates_dir: Path | None = None, route: str | None = None,
                  preroll: int | None = None, reset_mode: str | None = None, flush_s: float = 2.0,
                  autocapture: bool | None = None, mem_limit_mb: float | None = None,
-                 start_state: bytes | None = None):
+                 start_state: bytes | None = None, fallback_dirs: list | None = None,
+                 on_demand: bool | None = None):
         self._init_kw = {"plugin_name": plugin_name, "calibration_db": calibration_db,
                           "block_size": block_size, "templates_dir": templates_dir, "route": route,
                           "preroll": preroll, "reset_mode": reset_mode, "flush_s": flush_s,
-                          "mem_limit_mb": mem_limit_mb, "start_state": start_state}
+                          "mem_limit_mb": mem_limit_mb, "start_state": start_state,
+                          "fallback_dirs": fallback_dirs, "on_demand": on_demand}
         p = plugin_path or os.environ.get("TONEMATCH_NATIVE_PLUGIN") or locate_plugin()
         if p is None:
             raise EngineError("Helix Native not found. Install it (your own licence) or set TONEMATCH_NATIVE_PLUGIN.")
@@ -1303,6 +1579,21 @@ class NativeEngine:
         self._params = {d["name"]: d for d in self.host.info.get("params", [])}
         self.templates = ChainTemplate.load_all(templates_dir)
         self._variants = ChainTemplate.load_variants(templates_dir)
+        # Values outside the narrowed CC ranges (T098): templates of the library's older,
+        # full-range versions, then its on-demand captures (``native_library``); on-demand capture
+        # of a full-range variant when none holds the value.
+        from . import native_library as _nl
+
+        self.library_version = _nl.version_of(templates_dir)
+        if self.library_version:  # T103: CCs Native cannot land exactly are baked, never driven
+            for t in [t for ts in self._variants.values() for t in ts] + list(self.templates.values()):
+                _nl.apply_cc_policy(t)
+        self.fallback_dirs = [Path(x) for x in fallback_dirs] if fallback_dirs is not None else \
+            _nl.fallback_template_dirs(templates_dir)
+        self.on_demand = on_demand_enabled() if on_demand is None else bool(on_demand)
+        self._on_demand_capture = None  # tests inject ``fn(preset, templates_dir) -> ChainTemplate``
+        self._on_demand_failed: dict[str, str] = {}
+        self.last_on_demand: dict | None = None
         self._initial_state = self._get_state()
         self._hc_mode = _hc_mode(self._initial_state) if self._initial_state else None
         self.codec = _load_codec()
@@ -1324,6 +1615,161 @@ class NativeEngine:
         self._loaded_preset = None                 # last preset load()ed (render_many's base)
         self._params_since_load: dict[ParamRef, float] = {}
         self._many_pool: NativeRenderPool | None = None  # render_many's extra hosts (lazy)
+        # In-run sentinel (T103; module comment at SENTINEL_EVERY). Only on canary-checked hosts
+        # (a real plugin opened in a start state), so builtin stand-ins and fakes are unaffected.
+        self.renders = 0
+        self._since_sentinel = 0
+        self.sentinel = {"checks": 0, "drifts": 0, "fixed": 0, "recycles": 0, "suspect_renders": 0,
+                         "skipped": 0, "worst_db": None, "off": ""}
+        self._sentinel_state: bytes | None = None
+        self._sentinel_ref: np.ndarray | None = None
+        self._latch_ref: np.ndarray | None = None  # latched start-state render (amp latch, T103)
+        self.sentinel_every = sentinel_every() if getattr(self.host, "canary", False) else 0
+        if self.sentinel_every:
+            self._init_sentinel()
+        elif not getattr(self.host, "canary", False):
+            self.sentinel["off"] = "host not canary-checked (builtin, no start state or canary off)"
+        else:
+            self.sentinel["off"] = "TONEMATCH_NATIVE_SENTINEL_EVERY=0"
+
+    # --- in-run sentinel (T103) -------------------------------------------------------------
+
+    def _init_sentinel(self) -> None:
+        """Load the sentinel chain's reference: the machine's stored render, else this host's
+        own (it just passed the canary, so it is in the reference mode)."""
+        st = sentinel_state()
+        if st is None or _hc_mode(st) != self._hc_mode:
+            self.sentinel_every = 0
+            self.sentinel["off"] = (f"no {SENTINEL_MODEL} library template" if st is None
+                                    else "sentinel template is in another HC mode")
+            return
+        self._sentinel_state = st
+        y = self._sentinel_raw()
+        self._restore_after_borrow()
+        f = _sentinel_file(self.plugin, st)
+        with _CANARY_LOCK:
+            ref = None
+            if f.is_file():
+                try:
+                    ref = np.load(f)
+                except (OSError, ValueError):
+                    ref = None
+            if ref is None or len(ref) != len(y):
+                f.parent.mkdir(parents=True, exist_ok=True)
+                np.save(f, y)
+                ref = y
+        self._sentinel_ref = ref
+        if getattr(self.host, "primed", False):  # the latched start state: the amp-latch reference
+            y2 = self._latch_raw()
+            self._restore_after_borrow()
+            f2 = f.with_name(f.name.replace("sentinel_", "sentinel_latch_"))
+            with _CANARY_LOCK:
+                ref2 = None
+                if f2.is_file():
+                    try:
+                        ref2 = np.load(f2)
+                    except (OSError, ValueError):
+                        ref2 = None
+                if ref2 is None or len(ref2) != len(y2):
+                    np.save(f2, y2)
+                    ref2 = y2
+            self._latch_ref = ref2
+        n1, n2 = self._sentinel_nulls()
+        if max(n1, n2 if n2 is not None else -400.0) > CANARY_THRESHOLD_DB:  # canary passed, sentinel not
+            self._sentinel_drift(n1, n2, where="open")
+
+    def _latch_raw(self) -> np.ndarray:
+        """The canary signal through the host's start state (latch-sensitive, see PRIME_MODEL)."""
+        x = canary_signal()
+        self.host.call("set_state", self.host.initial_state)
+        _, y = self.host.call("render", x.astype("<f4").tobytes(), reset=True)
+        return np.frombuffer(y, dtype="<f4")[4800:].copy()
+
+    def _sentinel_nulls(self) -> tuple[float, float | None]:
+        """(DoubleTank null, latched start-state null or None); the host is restored after."""
+        try:
+            n1 = null_db(self._sentinel_ref, self._sentinel_raw())
+            n2 = None
+            if getattr(self, "_latch_ref", None) is not None:
+                n2 = null_db(self._latch_ref, self._latch_raw())
+        finally:
+            self._restore_after_borrow()
+        return n1, n2
+
+    def _sentinel_raw(self) -> np.ndarray:
+        """The canary signal through the sentinel chain (host state left on the sentinel chain)."""
+        x = canary_signal()
+        self.host.call("set_state", self._sentinel_state)
+        _, y = self.host.call("render", x.astype("<f4").tobytes(), reset=True)
+        return np.frombuffer(y, dtype="<f4")[4800:].copy()
+
+    def _restore_after_borrow(self) -> None:
+        if self._loaded_state is not None:
+            self._restore_host()
+        elif self._initial_state:
+            self.host.call("set_state", self._initial_state)
+
+    def sentinel_check(self) -> float | None:
+        """Re-render the sentinel and null it against the reference (dB; None when off).
+        On drift: re-prepare in place, else recycle the host (``TONEMATCH_NATIVE_SENTINEL_STRICT``
+        raises instead); every outcome is counted in ``stats()``."""
+        if self._sentinel_ref is None:
+            return None
+        if _hc_mode(self._sentinel_state) != self._hc_mode:
+            self.sentinel["skipped"] += 1  # host is in another HC mode (reload_with_state)
+            self._since_sentinel = 0
+            return None
+        self.sentinel["checks"] += 1
+        n1, n2 = self._sentinel_nulls()
+        nd = max(n1, n2 if n2 is not None else -400.0)
+        w = self.sentinel["worst_db"]
+        self.sentinel["worst_db"] = round(nd if w is None else max(w, nd), 1)
+        suspect, self._since_sentinel = self._since_sentinel, 0
+        if nd > CANARY_THRESHOLD_DB:
+            self.sentinel["suspect_renders"] += suspect
+            self._sentinel_drift(n1, n2, where=f"after {suspect} renders")
+        return nd
+
+    def _sentinel_ok(self) -> bool:
+        n1, n2 = self._sentinel_nulls()
+        return n1 <= CANARY_THRESHOLD_DB and (n2 is None or n2 <= CANARY_THRESHOLD_DB)
+
+    def _sentinel_drift(self, n1: float, n2: float | None, where: str) -> None:
+        """Mode drift (DoubleTank off): re-prepare in place, which re-latches. Latch lost (start
+        state off, DoubleTank fine): re-latch. Else recycle the host; raise if even that fails."""
+        self.sentinel["drifts"] += 1
+        what = (f"{SENTINEL_MODEL} {n1:.1f} dB" if n1 > CANARY_THRESHOLD_DB else "") + (
+            f" latched start state {n2:.1f} dB" if n2 is not None and n2 > CANARY_THRESHOLD_DB else "")
+        msg = f"NativeEngine sentinel: reference off ({what.strip()}; {where}; threshold {CANARY_THRESHOLD_DB} dB)"
+        if sentinel_strict():
+            raise EngineError(msg + "; TONEMATCH_NATIVE_SENTINEL_STRICT=1")
+        try:
+            rep = getattr(self.host, "_reprepare_until", None)
+            if n1 > CANARY_THRESHOLD_DB and rep is not None:
+                rep(self._sentinel_ref, render=self._sentinel_raw)
+            elif getattr(self.host, "primed", False):
+                self.host._prime()
+        finally:
+            self._restore_after_borrow()
+        if self._sentinel_ok():
+            self.sentinel["fixed"] += 1
+            print(msg + "; fixed in place, agrees again", file=sys.stderr)
+            return
+        self.recycle_host()
+        self.sentinel["recycles"] += 1
+        if not self._sentinel_ok():
+            raise EngineError(msg + "; still off after recycling the host")
+        print(msg + "; host recycled, agrees again", file=sys.stderr)
+
+    def stats(self) -> dict:
+        """Renders, host recycles, canary and sentinel counts for this engine (T103)."""
+        h = self.host
+        return {"renders": self.renders, "recycles": self.recycles,
+                "canary_respawns": getattr(h, "canary_respawns", 0),
+                "canary_reprepares": getattr(h, "canary_reprepares", 0),
+                "canary_fixed": getattr(h, "canary_fixed", 0),
+                "sentinel_every": self.sentinel_every,
+                **{f"sentinel_{k}": v for k, v in self.sentinel.items()}}
 
     # --- availability ---------------------------------------------------------------------
 
@@ -1345,7 +1791,7 @@ class NativeEngine:
             self.current_template = None
             return
         key = chain_key(preset)
-        tpl, why = self._match_template(preset, key)
+        tpl, why = self._resolve_template(preset, key)
         if tpl is None and self.autocapture:
             tpl = self._autocapture(preset)
         if tpl is None:
@@ -1354,22 +1800,34 @@ class NativeEngine:
                 f"({[m for _, m in key if m]}): {why}. Capture it hands-off with "
                 "TONEMATCH_NATIVE_AUTOCAPTURE=1 (macOS, GUI session, extra native-gui)."
             )
+        self._widened = False  # set below; set_params must not re-enter load() meanwhile
         if key != self.current_chain or tpl is not self.current_template:
             self._set_state(tpl.state)
             self.current_chain, self.current_template = key, tpl
         changes, unmapped = {}, []
+        verified = set(tpl.verified)
         for i, s in enumerate(preset.slots):
             for name, v in (s.params or {}).items():
-                if f"{i}:{name}" in tpl.map:
+                ref = f"{i}:{name}"
+                if ref in tpl.map and ref in verified:
                     changes[(i, name)] = v
-                else:
-                    unmapped.append(f"{i}:{name}")
+                elif ref not in tpl.map:
+                    unmapped.append(ref)
+                # else: mapped but never verified, so baked. The template's state holds the
+                # preset's value (baked_hash matched). Sending its CC would snap an off-grid value
+                # to the 128-step grid (T103 audit: Simple Delay Feedback 0.35 -> -66 dB, the
+                # Return/Send blocks' 0 dB -> -33 dB), so it is never sent.
             if f"{i}:@enabled" in tpl.map:
                 changes[(i, "@enabled")] = 1.0 if s.enabled else 0.0
         self.last_unmapped = unmapped  # these stay at the template's captured values
         if changes:
             self.set_params(changes)
         self._loaded_preset, self._params_since_load = preset, {}
+        # A wider template than the chain's finest (T098): later set_params re-pick the template,
+        # so a value that fits the finer grid again is rendered on it (history-independent).
+        w = range_width_key(tpl)
+        self._widened = any(t is not tpl and t.baked_hash == tpl.baked_hash and range_width_key(t) < w
+                            for t in self._variants.get(key, []) + self._fallback_variants(key))
 
     def _match_template(self, preset, key) -> tuple[ChainTemplate | None, str]:
         """The template whose baked values (state-fixed, not host-settable) equal the preset's.
@@ -1381,6 +1839,106 @@ class NativeEngine:
         cands = self._variants.get(key, [])
         if not cands:
             return None, "no template captured for this structure"
+        tpl, why = self._pick_template(preset, cands)
+        if tpl is not None:
+            return tpl, ""
+        # T098: a value outside the narrowed CC ranges. The library's older full-range versions
+        # and its on-demand captures hold the same chain; the finest grid that fits wins. They
+        # never add a chain the primary store left out (e.g. VIC_DelayGlitch has no v1.2 template).
+        extra = self._fallback_variants(key)
+        if extra:
+            tpl, why2 = self._pick_template(preset, extra)
+            if tpl is not None:
+                return tpl, ""
+            why = f"{why}; full-range fallbacks: {why2}"
+        return None, why
+
+    def _fallback_variants(self, key) -> list[ChainTemplate]:
+        """Templates for ``key`` in ``fallback_dirs`` (older library versions, on-demand captures)."""
+        out: list[ChainTemplate] = []
+        for d in getattr(self, "fallback_dirs", None) or []:
+            out += dir_variants(d, key)
+        return out
+
+    def _range_only_miss(self, preset, key) -> list[str]:
+        """The CC-driven params that keep ``preset`` off every template whose chain and baked
+        values match it (values outside the CC ranges); [] when no such template exists."""
+        for t in list(self._variants.get(key, [])) + self._fallback_variants(key):
+            if t.baked_hash and baked_fingerprint(preset, t.map, t.verified)[1] == t.baked_hash:
+                bad = out_of_range(t, preset)
+                if bad:
+                    return bad
+        return []
+
+    def _resolve_template(self, preset, key) -> tuple[ChainTemplate | None, str]:
+        """``_match_template``, then (T098) an on-demand full-range capture when the only thing
+        keeping ``preset`` off a template is a value outside the CC ranges. The new template is
+        saved in the library's ``on_demand`` store (or ``templates_dir`` off the library),
+        recorded in the library index, and reused by every later load."""
+        tpl, why = self._match_template(preset, key)
+        if tpl is not None or not getattr(self, "on_demand", False):
+            return tpl, why
+        if not self._variants.get(key):
+            return tpl, why
+        bad = self._range_only_miss(preset, key)
+        if not bad:
+            return tpl, why
+        try:
+            return self._capture_on_demand(preset, key, bad), ""
+        except UnsupportedModelChange as e:
+            return None, f"{why}; on-demand full-range capture failed: {e}"
+
+    def _capture_on_demand(self, preset, key, wide: list[str]) -> ChainTemplate:
+        from . import native_library as _nl
+
+        ck = capture_key(preset)
+        if ck in self._on_demand_failed:
+            raise UnsupportedModelChange(self._on_demand_failed[ck])
+        lib_v = getattr(self, "library_version", None)
+        out_dir = _nl.on_demand_templates(lib_v) if lib_v else (self.templates_dir or cache_dir() / "templates")
+
+        def capture(p, d: Path) -> ChainTemplate:
+            if self._on_demand_capture is not None:
+                return self._on_demand_capture(p, d)
+            s0 = start_state_path()
+            try:
+                return capture_chain(p, self.plugin, plugin_name=self.plugin_name,
+                                     start_state=s0.read_bytes() if s0.is_file() else None,
+                                     templates_dir=d, host_factory=self._capture_host_factory,
+                                     replay_host=self.host)
+            finally:
+                self._restore_host()
+
+        def recheck() -> ChainTemplate | None:
+            return self._match_template(preset, key)[0]
+
+        t0 = time.perf_counter()
+        with _ON_DEMAND_LOCK:
+            tpl = recheck()  # another thread (a pool engine) may have captured it meanwhile
+            if tpl is not None:
+                return tpl
+            try:
+                if lib_v:
+                    tpl = _nl.capture_on_demand(preset, capture, version=lib_v, wide=wide, recheck=recheck)
+                else:
+                    tpl = capture(preset, Path(out_dir))
+                    if not (Path(out_dir) / f"{template_stem(tpl)}.json").is_file():
+                        tpl.save(Path(out_dir))
+            except UnsupportedModelChange as e:
+                msg = str(e)
+                self._on_demand_failed[ck] = msg
+                if "autocapture unavailable" in msg:  # no GUI session: stop trying on this engine
+                    self.on_demand = False
+                raise
+            if not any(t is tpl for t in self._variants.get(key, [])) and \
+                    not any(t is tpl for t in self._fallback_variants(key)):
+                self._variants.setdefault(tpl.chain, []).append(tpl)
+        self.last_capture_s = time.perf_counter() - t0
+        self.last_on_demand = {"template": template_stem(tpl), "wide": list(wide),
+                               "seconds": round(self.last_capture_s, 3)}
+        return tpl
+
+    def _pick_template(self, preset, cands) -> tuple[ChainTemplate | None, str]:
         diffs, ok = [], []
         for t in cands:
             if not t.baked_hash:
@@ -1477,17 +2035,65 @@ class NativeEngine:
         tpl = self.current_template
         if tpl is None:
             raise EngineError("set_params before load()")
+        if self._loaded_preset is not None and (getattr(self, "_widened", False) or self._outside_grid(tpl, changes)
+                                                or self._moves_baked(tpl, changes)):
+            # T098: a value outside this template's CC range would be clamped by the CC (or this is
+            # a widened template and the values may fit a finer one again). Load the preset with
+            # every change so far instead: load() picks the finest template whose range holds it
+            # (older full-range library version or an on-demand capture), with no state change
+            # when that is the current template.
+            base, since = self._loaded_preset, {**self._params_since_load, **changes}
+            p = copy.deepcopy(base)
+            for (slot, name), v in since.items():
+                if name == "@enabled":
+                    p.slots[slot].enabled = bool(v >= 0.5)
+                else:
+                    p.slots[slot].params[name] = v
+            self.load(p)
+            self._loaded_preset, self._params_since_load = base, since
+            return
         values = {}
         for (slot, name), v in changes.items():
             k = f"{slot}:{name}"
             host_name = tpl.map.get(k)
             if host_name is None:
                 raise EngineError(f"{k} is not assigned to an automation knob/switch in template {tpl.name!r}")
+            if tpl.baked_hash and not name.startswith("@") and k not in tpl.verified:
+                continue  # baked, and at its baked value (``_moves_baked``): the state holds it
             lo, hi = tpl.ranges.get(k, [0.0, 1.0])
             values[host_name] = cc_norm(float(v), float(lo), float(hi))
         self.host.call("set_params", values=values)
         self._host_params.update(values)
         self._params_since_load.update(changes)
+
+    @staticmethod
+    def _moves_baked(tpl: ChainTemplate, changes: dict[ParamRef, float]) -> bool:
+        """True when a change moves a CC-mapped param whose CC was never verified (it is baked in
+        the template's state) off its baked value. Its CC may be dead, so it is never sent as a
+        knob move: ``set_params`` re-loads the preset instead, and ``load`` applies the baked-value
+        rule (another template, or ``UnsupportedModelChange``). T103 check 2."""
+        if not tpl.baked_hash:
+            return False
+        for (slot, name), v in changes.items():
+            ref = f"{slot}:{name}"
+            if name.startswith("@") or ref not in tpl.map or ref in tpl.verified:
+                continue
+            if _scalar(v) != tpl.baked.get(ref):
+                return True
+        return False
+
+    @staticmethod
+    def _outside_grid(tpl: ChainTemplate, changes: dict[ParamRef, float], tol: float = 1e-6) -> bool:
+        """True when a change to a CC-driven continuous param lies outside ``tpl``'s CC range."""
+        for (slot, name), v in changes.items():
+            r = tpl.ranges.get(f"{slot}:{name}")
+            if r is None or name.startswith("@") or isinstance(v, bool) or not isinstance(v, (int, float)):
+                continue
+            lo, hi = float(r[0]), float(r[1])
+            span = abs(hi - lo) or 1.0
+            if not lo - tol * span <= float(v) <= hi + tol * span:
+                return True
+        return False
 
     def render(self, dry: Audio) -> Audio:
         x = np.asarray(dry, dtype=np.float32)
@@ -1496,6 +2102,9 @@ class NativeEngine:
         if len(x) == 0:
             return x.copy()
         self.check_memory()
+        every = getattr(self, "sentinel_every", 0)  # engines built without __init__ (tests): off
+        if every and self._since_sentinel >= every:
+            self.sentinel_check()
         lat, reset = self.latency(), self.reset_mode == "reset"
         pre = self.preroll if reset else int(self.flush_s * SAMPLE_RATE)
         padded = np.concatenate([np.zeros(pre, np.float32), x, np.zeros(lat, np.float32)])
@@ -1506,6 +2115,8 @@ class NativeEngine:
             raise EngineError("Native returned silence for a non-silent input")
         g = np.float32(10 ** (self.calibration_db / 20))
         self.last_gain_db = self.calibration_db
+        self.renders = getattr(self, "renders", 0) + 1
+        self._since_sentinel = getattr(self, "_since_sentinel", 0) + 1
         return (y * g).astype(np.float32)
 
     def cost(self) -> Cost:
@@ -2023,11 +2634,19 @@ class NativeRenderPool:
         return float(sum(e.host.mem_mb or 0.0 for e in self.engines))
 
     def stats(self) -> dict:
-        """Hosts, footprint, watchdog recycles and canary replacements so far."""
-        return {"hosts": self.workers, "mem_mb": round(self.mem_mb()),
-                "mem_mb_per_host": [round(e.host.mem_mb or 0.0) for e in self.engines],
-                "recycles": sum(e.recycles for e in self.engines),
-                "canary_respawns": sum(getattr(e.host, "canary_respawns", 0) for e in self.engines)}
+        """Hosts, footprint, watchdog recycles, canary replacements and in-place fixes, and the
+        in-run sentinel's counts (T103) summed over the hosts; ``sentinel_worst_db`` is the worst."""
+        per = [e.stats() if hasattr(e, "stats") else {} for e in self.engines]
+        worst = [p["sentinel_worst_db"] for p in per if p.get("sentinel_worst_db") is not None]
+        out = {"hosts": self.workers, "mem_mb": round(self.mem_mb()),
+               "mem_mb_per_host": [round(e.host.mem_mb or 0.0) for e in self.engines],
+               "recycles": sum(e.recycles for e in self.engines),
+               "canary_respawns": sum(getattr(e.host, "canary_respawns", 0) for e in self.engines)}
+        for k in ("renders", "canary_reprepares", "canary_fixed", "sentinel_checks", "sentinel_drifts",
+                  "sentinel_fixed", "sentinel_recycles", "sentinel_suspect_renders", "sentinel_skipped"):
+            out[k] = sum(int(p.get(k, 0) or 0) for p in per)
+        out["sentinel_worst_db"] = max(worst) if worst else None
+        return out
 
     def use_template(self, template: ChainTemplate) -> None:
         """Make every host use ``template`` for its chain (as search's load_candidate does)."""
