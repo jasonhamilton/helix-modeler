@@ -89,10 +89,17 @@ def usable_runs(seconds: float) -> list[dict]:
     return runs
 
 
-def pick_excerpts(rng: np.random.Generator, n: int, seconds: float) -> list[dict]:
+def overlaps_any(r: dict, avoid: list[dict], seconds: float) -> bool:
+    return any(a["path"] == r["path"] and abs(a["start_s"] - r["start_s"]) < seconds for a in avoid)
+
+
+def pick_excerpts(rng: np.random.Generator, n: int, seconds: float, avoid: list[dict] | None = None) -> list[dict]:
     """n excerpts of `seconds`, each from consecutive 4 s index segments of one file, files in a
-    random order, never overlapping an earlier pick from the same file."""
+    random order, never overlapping an earlier pick from the same file. `avoid` (default none)
+    lists excerpts (path, start_s) that no pick may overlap."""
     runs = usable_runs(seconds)
+    if avoid:
+        runs = [r for r in runs if not overlaps_any(r, avoid, seconds)]
     files = sorted({r["path"] for r in runs})
     order = rng.permutation(len(files))
     out: list[dict] = []

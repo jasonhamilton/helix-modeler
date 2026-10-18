@@ -716,8 +716,9 @@ def cmd_repeat(a) -> int:
         n = rng.randint(int(0.3 * SR), len(x_full))
         return x_full[:n]
 
-    with cf.ThreadPoolExecutor(4) as ex:
-        rs = list(ex.map(lambda k: Renderer(f"host{k}"), range(4)))
+    nh = max(1, int(getattr(a, "hosts", 4) or 4))  # T132: --hosts (default 4, T103's rule 3)
+    with cf.ThreadPoolExecutor(nh) as ex:
+        rs = list(ex.map(lambda k: Renderer(f"host{k}"), range(nh)))
     try:
         for r in rs:
             for it in items:
@@ -732,7 +733,7 @@ def cmd_repeat(a) -> int:
         seq1 = [("item", it) for it in items for _ in range(5)] + [("dist", distractor()) for _ in range(100)]
         rng.shuffle(seq1)
         seqs = []
-        for _ in range(3):
+        for _ in range(nh - 1):
             s = [("item", it) for it in items] + [("dist", distractor()) for _ in range(30)]
             rng.shuffle(s)
             seqs.append(s)
@@ -753,7 +754,7 @@ def cmd_repeat(a) -> int:
                     prev = f"distractor {[s.model_id for s in p.slots if s.model_id]} ({len(clips[id(e)])} samples)"
             return got
 
-        with cf.ThreadPoolExecutor(4) as ex:
+        with cf.ThreadPoolExecutor(nh) as ex:
             outs = list(ex.map(run, rs, [seq1] + seqs))
         drifts = engine_drifts(rs)
     finally:
@@ -787,7 +788,7 @@ def cmd_repeat(a) -> int:
     ledger("parity", "repeat_pass", n - len(fails), drifts["renders"], wall,
            f"T103 rule 3 (warmup {warm}): {n - len(fails)}/{n} renders null <= -100 dB (or floor+3) vs the first "
            f"host-1 render; {len(items) - len(gold)} library pairs + {len(gold)} golden chains; host 1 5x each among "
-           f"100 distractors (35% same-chain knob moves, random clip lengths), hosts 2-4 1x each among 30; "
+           f"100 distractors (35% same-chain knob moves, random clip lengths), hosts 2-{nh} 1x each among 30; "
            f"worst {wn} dB; failures {fails[:8]}; sentinel {drifts}; file {f.relative_to(ROOT)}")
     ledger("parity", "repeat_worst_null_db", wn if wn is not None else 0.0, None, wall,
            f"T103 rule 3 (warmup {warm}): worst null over every repeat; see repeat_pass row")
@@ -920,6 +921,7 @@ def main() -> int:
     s.add_argument("--seed", type=int, default=1031)
     s.add_argument("--warmup", type=int, default=None, help="TONEMATCH_NATIVE_WARMUP for the hosts (0 = pre-T103)")
     s.add_argument("--legacy", action="store_true", help="pre-T103 host: warm-up 0 and no amp latch")
+    s.add_argument("--hosts", type=int, default=4, help="hosts (default 4: host 1 five times, 3 more once each)")
     s = sub.add_parser("canary")
     s.add_argument("--hosts", type=int, default=24)
     s = sub.add_parser("sentinel")

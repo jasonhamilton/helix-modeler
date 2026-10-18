@@ -628,7 +628,7 @@ def build_model(reg: dict, cur: dict, facts: dict, baseline: dict | None = None)
     now: dt.datetime = facts["now"]
     today = now.strftime("%Y-%m-%d")
     ear_q = cur.get("ear_qualifier", "") if not any(
-        g["name"] == "Gate 3" and g["signed"] for g in facts["gates"]) else ""
+        g["name"] == "Gate 4" and g["signed"] for g in facts["gates"]) else ""
     feats = [f for f in reg["features"] if not f.get("retired")]
     fdetail = {f["id"]: feature_detail(f, facts, ear_q) for f in feats}
     evid = {e["id"]: e for e in cur["evidence"]}
@@ -2051,6 +2051,12 @@ def main(argv: list[str] | None = None) -> int:
         print(gate2_report.build(root))
     except Exception as exc:  # noqa: BLE001
         print(f"status_report: could not refresh the local Gate 2 report: {exc}", file=sys.stderr)
+    try:   # local offline site of reports and docs (gitignored); a failure never breaks the status report
+        import local_site
+
+        print(local_site.build(root))
+    except Exception as exc:  # noqa: BLE001
+        print(f"status_report: could not refresh the local docs site: {exc}", file=sys.stderr)
     if a.json:
         a.json.write_text(json.dumps(model, indent=1, ensure_ascii=False, default=str) + "\n",
                           encoding="utf-8")

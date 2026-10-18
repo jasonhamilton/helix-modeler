@@ -331,6 +331,26 @@ Human top priority: every setting we send must land exactly, and renders must be
 
 **Not fixed, known:** a host after `reload_with_state` (HC-mode change) is a new instance, neither canary-checked nor latched, and the sentinel skips it (`sentinel_skipped`). No current template needs a mode change. The empty-chain flush (`TONEMATCH_NATIVE_FLUSH=1`) and the post-load warm-up (`TONEMATCH_NATIVE_WARMUP`) stay opt-in: neither changed any measured render, and the warm-up costs 5-14 % per 2 s render.
 
+## NaN poisoning (2026-10-17, [T132](../../board/TASKS.md#t132 "Native NaN after search"))
+
+[T120](../../board/TASKS.md#t120 "Amp specialist (human 2026-10-17 \"a specialist per effect family\"")'s devfam amp items i071, i079, i087 and i095 failed with "Native returned NaN or inf". It looked like the held-out render of the true preset, after the search. Every host call of one i071 run was recorded and replayed on fresh hosts (scratch tools, one host). The run reproduced exactly: 194 counted renders and 3 sentinel checks, as in the original summary.
+
+- **Trigger, inside Native.** Preamp EV Panama Red with **Low 0 and High about 0.96** (Mid 1; Gain, Master and Sag only shift the onset) is numerically unstable. The output grows about 55 dB per second from about 2 s into a render: peaks 0.02, 0.2, 9e4, 4e10 and so on up to 7e35. It overflows to inf/NaN at about 9.5 s whatever the input (DI A, DI C, a synthetic test signal). Reverting Low or High alone makes it stable. On a fresh host it is deterministic. The devfam clips are 10 s long, so i071's search crossed the point at its 194th render.
+- **Poisoning, the engine's problem.** After one non-finite render, every later render of that host process is NaN on any chain. A state re-load, another chain (Panama Blue, DoubleTank), the empty-chain flush and 5 s of silence leave it NaN. `reprepare` and a pedalboard re-instantiation clear it but then render -31.4 dB off (the amp latch is lost). A new process, or a re-prepare until the sentinel agrees followed by re-latching, is bit-identical to a fresh host (-295.5 dB). A finite unstable render (a 2 s clip) does not carry over: the next clean render nulls at -289 dB, 8 times in a row.
+- **Why [T103](../../board/TASKS.md#t103 "Native verification suite scripts/native_verify.py") missed it.** `null_db` of a NaN render was NaN, and `NaN > -150` is False, so the sentinel passed a poisoned host. Failed renders also did not count toward the sentinel interval. Once every render failed, no check was ever due.
+- **Collateral.** In the original 4-item general run only i071 hit the setting. i079, i087 and i095 failed at their first render on the still-poisoned host (0 counted renders each).
+
+**Fix** (`NativeEngine.render`, `null_db`, `stats`):
+1. A render with any NaN or inf, preroll and tail included, recycles the host (chain and knobs restored) and renders once more. A clean re-render is returned. A second non-finite render is a setting that is unstable on a clean host: the host is recycled again and `EngineError("... numerically unstable ...")` is raised, so the search scores that trial as a failure and later renders are unaffected.
+2. A finite peak above `RUNAWAY_PEAK` (1000, +60 dBFS) raises without a recycle. This is the same instability on a shorter clip.
+3. `null_db` returns +inf when either signal is non-finite, so the sentinel now flags a poisoned host as a drift and fixes it in place.
+4. Every render attempt counts toward the sentinel interval.
+5. `stats()` (and the pool's) gain `nonfinite_events`, `_recovered`, `_unstable`, `_recycles` and `_runaway`.
+
+A recovery costs one recycle, 6.6 to 7.5 s; an unstable setting costs two.
+
+**Evidence:** `tests/test_native_nonfinite.py` (fake host). `scripts/native_nan_check.py --ledger`, one host: 4/4 checks; the true preset after each recovery nulls at -296.6 dB against the clean reference; sentinel null inf, caught and fixed in place. The 4 items re-run, general and with the amp specialist: 8 of 8 complete, 0 errors. The general method hit an unstable setting on all 4 items (4 events, 8 recycles); the specialist hit none. Ledger smoke `native-nan-v1`. `native_verify.py repeat --hosts 2` after the fix (2 hosts, the [T132](../../board/TASKS.md#t132 "Native NaN after search") host limit; `--hosts` defaults to [T103](../../board/TASKS.md#t103 "Native verification suite scripts/native_verify.py")'s 4): 162/162, worst -161.5 dB, the same worst as [T103](../../board/TASKS.md#t103 "Native verification suite scripts/native_verify.py") (ledger parity `native-verify-v1` [2026-10-17T22:41:32](../../ledger/runs.csv?plain=1#L1002 "parity · native · native-verify-v1 · repeat_pass = 162.0 (first of 2 rows at this time)") (2 rows)).
+
 ## Routes, in order (after [T018n](../../board/TASKS.md#t018n "Hands-off Native loading"))
 
 1. **C', in-process drop + MIDI-CC map** (macOS VST3, hands-off). `scripts/native_drop_load.py <hlx> --cc --start-state ...` captures a template per chain; then `load()` plus `set_params` drive up to 90 parameters per chain through `cc_<n>`. `load()` still raises `UnsupportedModelChange` for an uncaptured chain. The proposal is that the engine (or the render service) calls the drop capture itself, see DECISIONS.
@@ -355,3 +375,7 @@ Native is the user's own licence. Never copy the bundle, its presets, its librar
 - `scripts/engine_smoke.py` imports `tonematch.preset.load_hlx`, but `preset.py` defines `read_hlx`. As written, engine-smoke fails on every engine with an ImportError (owners: benchmark / preset).
 - Design choices in `native.py` that touch contract wording (contract unchanged): a fixed calibration gain (0 dB, Native's digital output is the reference); latency once per chain; every render is a reset render with a 4,800-sample pre-roll (3 s for chains holding a delay, reverb or "other" block since 2026-10-16, `TAIL_PREROLL`); `reset_mode="flush"` is opt-in.
 - The 1.6 s fixed reset cost means about 2.3 renders/s across 6 processes on this Mac (empty chain). Search and learning budgets should come from `cost()`, and flush mode (if proven) or batching several clips per reset would change them by more than 10×.
+
+## Quiet is not silent (2026-10-17, [T139](../../board/TASKS.md#t139 "i062 silent true-preset render"))
+
+The render guard raised "Native returned silence" for any output under -100 dBFS RMS. Native goes much lower at real settings: Preamp US Double Vib on a -27 dBFS DI gives -106.4 dBFS at Drive 0.17 / Master 0.14 and -141.1 dBFS at Drive 0 / Master 0, same in fresh and warm hosts, every sample non-zero. A dead host returns digital zero, so the guard is now -240 dBFS (`SILENT_OUT_DB`). The JUCE `builtin:Gain` stand-in is exactly zero at -100 dB and below, so the tests use -90 dB on the -31.6 dBFS test signal for "quiet" and -300 dB for "silent".

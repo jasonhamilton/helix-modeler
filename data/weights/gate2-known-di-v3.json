@@ -1,0 +1,24 @@
+{
+  "weights": {
+    "mrstft_v2": 1.0,
+    "level_db": 1e-07
+  },
+  "admitted": true,
+  "mode": "known-DI (same notes, aligned DI): Gate 2 synthetic recovery",
+  "mrstft_version": "2.0",
+  "level_db_version": "1.0",
+  "requires": "Terms `mrstft_v2` (tonematch.metrics.mrstft_v2 2.0) and `level_db` (tonematch.metrics.level 1.0), both in contracts/loss-kit.md (level_db added 2026-10-18, additive, known-DI only). Rank-1 judged under the extended rule B (human 2026-10-18; tonematch.metrics.trust).",
+  "weight_choice": "level_db 1e-7 chosen on the T144 fit split (helix-trust-v2 train + gain-trust-v1 fit, plateau 1e-8..1e-6); not retuned",
+  "evidence": {
+    "bar": "docs/DECISIONS.md 2026-10-18 (tone-metrics, T146), registered before any render or score",
+    "1_gain_trust_v1b_pooled": "0.978 (88/90) against >= 0.97: MET (plain mrstft_v2 0.900)",
+    "2_helix_trust_v2_test_per_family": "all 8 families 12/12 with level_db; plain: drive 11/12, others 12/12; none below plain: MET",
+    "3_gain_trust_v1b_amp_drive": "amp 45/45 (plain 44/45), drive 43/45 (plain 37/45): MET",
+    "remaining_misses": "gain-trust-v1b items 13 and 73: exact pure-gain neighbours at +3.85 and -3.62 dB (beyond the +-3 dB range) nearer the capture's level than the truth; undecidable by any score",
+    "diagnosis_only_synthetic_v2": "attempt-2 rank-1 under the extended rule: plain 90/96, with level_db 94/96 (not evidence; v2 is spent)"
+  },
+  "ledger_row": "ledger/runs.csv 2026-10-18T13:41:39+00:00 loss-trust native gain-trust-v1b and helix-trust-v2 rank1_rate_audible_ruleb_ext",
+  "proposed_by": "tone-metrics",
+  "date": "2026-10-18",
+  "admitted_by": "lead (tone-matcher-lead), 2026-10-18, after reviewer PASS on T146"
+}

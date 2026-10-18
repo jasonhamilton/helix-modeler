@@ -214,7 +214,7 @@ def test_weights_and_names(pair):
     assert kit.score(*pair, weights={"embed_afxrep": 0.0, "envelope": 1.0}).terms.keys() == {"envelope"}
     with pytest.raises(ValueError):
         kit.score(*pair, weights={"sepcons": 1.0})
-    assert len(TERMS) == 12   # mrstft_v2 added 2026-10-16 (contract amendment, additive)
+    assert len(TERMS) == 13   # mrstft_v2 added 2026-10-16, level_db 2026-10-18 (contract amendments, additive)
 
 
 def test_cache_and_mask(pair):

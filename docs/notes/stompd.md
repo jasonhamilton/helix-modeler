@@ -215,3 +215,39 @@ Lead ruling "S1 closed" (`docs/DECISIONS.md`, 2026-10-16). In the 20:27Z push se
 - It tripped twice on its own, both times stopping the session cleanly; the second trip was a confirmed one-sample slip. The forced +5-sample test was caught at -13 dB.
 
 **Session close.** After a session that hit a device refusal, the pedal did not acknowledge the session-close on two of three channels. Every later session opened normally.
+
+## Robustness follow-ups ([T110](../../board/TASKS.md#t110), [T111](../../board/TASKS.md#t111), [T112](../../board/TASKS.md#t112)), 2026-10-17, fw 3.80
+
+Probe session `cache/stomp/hw/20261017T204855Z-robust-probe/` (diagnosis); rules for the scored session in `docs/DECISIONS.md` (2026-10-17, "registered BEFORE any of their runs").
+
+**The pedal wedged in the probe.** The session was lost after 9 refused op-21 writes (8 on purpose, one pilot) and about 35 accepted ones. The next open failed with `usb error: write timed out`. Power-cycle the pedal (9V adapter) before the next session. After a refused write the device leaves a reset edit buffer. [T108](../../board/TASKS.md#t108 "HX Stomp verification suite scripts/stomp_verify.py") sessions, with 1-3 refusals, did not wedge. The engine now avoids refusals instead of provoking them.
+
+**[T110](../../board/TASKS.md#t110 "Device refuses whole documents of VIC Stutter Edit, L6SPB Inf…"): why the device refused four models.** Found by comparing, slot by slot, the document the device builds itself (`model` command, then `backup`) with ours (`stompd dump <doc> 0 22`).
+
+| Model | Device | Our catalog build |
+|---|---|---|
+| VIC Stutter Edit, L6SPB Inf Sustain | engine class 24, no trails value, counts n = n2 (18, 14) | class 8, a trails value, n = n2 + 1 |
+| NonLinear | 18 values + trails: TempoSync2, SyncSelect2 (missing from HX Edit's symbol list), and 3 hidden values 0.318 / 0.362 / 2 | 16 + trails, hidden values 0 |
+| Moon Nrm + 4x12 Greenback30**WithPan** | the `model` command itself is refused (error -21) | (not a compiler matter: the pairing does not load) |
+
+- **Compiler fix:** `stompd-compile` has device templates (`STOMPD_TEMPLATES=<dir>`; file `m<model number>[_c<cab number>].bin`, a device backup holding that block).
+  - A built slot is the device's own slot with the file's values written over it. The values go by the index the `set` command uses; the trails value goes last.
+  - A negative value into an unsigned slot is now signed, not clamped to 0.
+  - Build sha256 `e4280756...`. The previous build is kept as `stompd-compile.pre-t110` and the source backup as `cache/stomp/stompd-src-backup-pre-t110/`. Without templates the output is byte-identical (78 of 78 `.hlx`).
+- **Engine:** `StompEngine` captures a template the first time a whole write builds a mono model or Amp+Cab pairing (`needed_templates`, `capture_templates`).
+  - A capture is one `model` command on a Path A block slot and two backups. Then the buffer is written back and its chain signature checked.
+  - Templates are kept per firmware in `cache/stomp/templates/<fw>/`, with `index.json`.
+  - A refused `model` command is recorded there and raised as `ModelRefused` before any document is written. `TONEMATCH_STOMP_TEMPLATES=off` turns capture off.
+- **Readback** (`stomp_readback`): the last extra value is the trails (or mic); extras before it are hidden values. A file parameter the symbol list does not name, at its catalog default, is info.
+
+**[T111](../../board/TASKS.md#t111 "In-place time-parameter glide"): in-place delay/reverb changes.** Not reproduced in the probe: in-place renders equal whole-written ones at the repeat floor (Echo Platter -57 dB, Glitz -56 dB). The probe tried the full set from whole-written defaults, each parameter's round trip, and Time from the other side, with renders at 0, 5 and 20 s. [T108](../../board/TASKS.md#t108 "HX Stomp verification suite scripts/stomp_verify.py")'s sequence differed: defaults set in place, then B in place, with no render between. It is replicated in the next session, with a document backup after each step. Policy until then: a parameter change on an enabled delay or reverb block is a whole write (`ambient_changes`; `TONEMATCH_STOMP_AMBIENT_INPLACE=1` turns it off; counted in `stats()["ambient_whole"]`).
+
+**[T112](../../board/TASKS.md#t112 "Residual one-sample USB slips"): stream-slip guard.**
+- **How it works.** Every preset is written with a bypassed `HD2_EQSimple3Band` on Path B (SAB, Path B output on USB 3/4), so USB 3/4 records the dry clip through the same stream as Path A. A 30 ms marker plays after the clip; it reaches the pedal after the last returned sample.
+- **The check.** `slip_check` fits the integer lag (+-16 samples around the calibrated latency) and the gain, then scores the residual per 2.5 ms window. Each window's residual is compared with that window's energy, or with the mean window energy - 30 dB when the window is quieter.
+- **Re-takes.** A take over the threshold is taken again, up to `TONEMATCH_STOMP_SLIP_RETAKES` (3) times, then `StreamSlip`. A discarded take never becomes an alignment reference.
+- **Modes.** `TONEMATCH_STOMP_SLIP_GUARD=on` (default): `render_many` renders serially. `pairs`: two-path passes are allowed but unguarded. `off`: no guard.
+- **Not guarded,** counted by reason in `stats()["slip_guard"]["unguarded_why"]`: two-path passes, 8-block presets, an input noise gate that is on, or a session where the device refused the pilot layout once (tried once per session).
+- **Status.** The threshold is set by the registered phase D, and the scored phase P is still to run. The probe's own pilot, a bypassed Gain block, was refused.
+
+**Next session (after the power cycle):** `scripts/stomp_robust.py session`, then `analyse <dir>` and `ledger <dir>`. Rules: `docs/DECISIONS.md`.

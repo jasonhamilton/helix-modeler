@@ -1,7 +1,7 @@
 """`LossKit.score`, the one call of contracts/loss-kit.md (v0).
 
 Implemented in v0: `ltas_tilt`, `crest_flatness_hnr`, `envelope` (no DI needed, content-invariant)
-and `mrstft` (needs an aligned DI). `embed_afxrep` (AFx-Rep learned embedding, T032) is implemented
+and `mrstft`, `mrstft_v2`, `level_db` (need an aligned DI; `level_db` added 2026-10-18, T146). `embed_afxrep` (AFx-Rep learned embedding, T032) is implemented
 but heavy and optional (the `embed` extra plus a checkpoint in cache/models/afx-rep/): it is computed
 only when its weight is non-zero, and raises `afxrep.AfxRepUnavailable` if the model is missing. The
 other contract names are reserved: asking for one with a non-zero weight raises
@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from tonematch.metrics import afxrep, crest, envelope, ltas, mrstft, mrstft_v2
+from tonematch.metrics import afxrep, crest, envelope, level, ltas, mrstft, mrstft_v2
 from tonematch.metrics._common import as_mono
 
 Audio = np.ndarray
@@ -31,11 +31,12 @@ Stems = dict[str, np.ndarray]  # the song's other stems for `sepcons`, name -> 4
 
 TERMS: tuple[str, ...] = (
     "ltas_tilt", "crest_flatness_hnr", "envelope", "embed_afxrep", "embed_fxenc", "embed_openamp",
-    "delay_echo", "reverb_tail", "mod_periodicity", "mrstft", "sepcons", "mrstft_v2",
+    "delay_echo", "reverb_tail", "mod_periodicity", "mrstft", "sepcons", "mrstft_v2", "level_db",
 )
 # terms with features(x, mask) / distance(a, b): target features are cached across calls
 _FEATURE_TERMS = {ltas.NAME: ltas, crest.NAME: crest, envelope.NAME: envelope}
-_ALIGNED_TERMS = {mrstft.NAME: mrstft, mrstft_v2.NAME: mrstft_v2}
+# level_db: known-DI only, like mrstft_v2 (contracts/loss-kit.md amendment 2026-10-18, T146)
+_ALIGNED_TERMS = {mrstft.NAME: mrstft, mrstft_v2.NAME: mrstft_v2, level.NAME: level}
 # learned embeddings: feature terms too (target embedding cached), but only run at non-zero weight
 _EMBED_TERMS = {afxrep.NAME: afxrep}
 NO_DI_TERMS: tuple[str, ...] = tuple(_FEATURE_TERMS)      # the cheap numpy DSP no-DI terms

@@ -185,26 +185,9 @@ EXTRA_TERMS = (MV2.NAME,)    # versioned terms outside the kit's contract names 
 _null_db = TR.null_db
 
 
-def aligned_capture(x: np.ndarray, rng: np.random.Generator, frac_delay_samples: float = 0.5,
-                    gain_db: float = 3.0, noise_db_re_rms: float = -60.0) -> np.ndarray:
-    """The true render as an aligned capture gives it (helix-trust-v2 `aligned`): a residual
-    fractional delay uniform in +-frac_delay_samples (after integer alignment), a gain uniform in
-    +-gain_db, and pink noise noise_db_re_rms below the render's RMS."""
-    x = np.asarray(x, dtype=np.float64)
-    d = float(rng.uniform(-frac_delay_samples, frac_delay_samples))
-    g = float(rng.uniform(-gain_db, gain_db))
-    pad = 4096
-    xp = np.pad(x, (pad, pad))
-    f = np.fft.rfftfreq(xp.size)
-    y = np.fft.irfft(np.fft.rfft(xp) * np.exp(-2j * np.pi * f * d), n=xp.size)[pad:pad + x.size]
-    w = np.fft.rfft(rng.standard_normal(x.size))
-    fw = np.fft.rfftfreq(x.size, 1 / 48_000)
-    w[1:] /= np.sqrt(fw[1:] / fw[1])
-    w[0] = 0
-    pink = np.fft.irfft(w, n=x.size)
-    rms = float(np.sqrt(np.mean(x ** 2))) or 1e-12
-    pink *= rms * 10 ** (noise_db_re_rms / 20) / (float(np.sqrt(np.mean(pink ** 2))) or 1e-12)
-    return (10 ** (g / 20) * y + pink).astype(np.float32)
+# The aligned capture lives with the rule-B helper so the extended rule's level range is the
+# capture's own setting (T146). Same code and defaults as before, so every seeded target is unchanged.
+aligned_capture = TR.aligned_capture
 
 
 def helix_targets(clean: np.ndarray, seed: int, i: int, conditions, bleed_db: float, use_mask: bool,
@@ -228,6 +211,7 @@ def helix_item(args: tuple) -> dict:
     tags = sorted(item["di"]) if "di" in item else ["A", "B"]
     subsets = tuple(opts.get("subsets") or helix_subsets(tags))
     from tonematch.metrics import afxrep, crest, envelope, ltas, mrstft
+    from tonematch.metrics import level as LVL
     mods = {ltas.NAME: ltas, crest.NAME: crest, envelope.NAME: envelope, afxrep.NAME: afxrep}
     if afxrep.NAME in terms and afxrep._EMBEDDER is None:
         afxrep.set_embedder(afxrep.Embedder(threads=threads))
@@ -263,8 +247,8 @@ def helix_item(args: tuple) -> dict:
                     row.append(float(mod.distance(tf[cond], f)))
                     timing.setdefault(f"{t}:distance", []).append(time.perf_counter() - t0)
                 scores[s][t] = row
-        elif t in (mrstft.NAME, MV2.NAME):
-            fn = mrstft.term if t == mrstft.NAME else (lambda x, y, m: MV2.term(x, y, m, v2cfg))
+        elif t in (mrstft.NAME, MV2.NAME, LVL.NAME):
+            fn = {mrstft.NAME: mrstft.term, LVL.NAME: LVL.term}.get(t, lambda x, y, m: MV2.term(x, y, m, v2cfg))
             for s in subsets:
                 cond, sub = s.split("/")
                 x, m = targets[cond]
@@ -280,6 +264,10 @@ def helix_item(args: tuple) -> dict:
     out = {"item": i, "category": item["category"], "true_model": item["true_model"], "labels": labels,
            "split": item.get("split"),
            "null_db_same_notes": [_null_db(clean, y) for y in ren["A"]],
+           # extended rule B (T146): gain-matched null and its gain, same notes
+           **{f"{k}_same_notes": v for k, v in zip(("gm_null_db", "gm_gain_db"),
+                                                   map(list, zip(*[TR.gain_match(clean, y) for y in ren["A"]])),
+                                                   strict=True)},
            "timing_s": {k: float(np.mean(v)) for k, v in timing.items()}}
     out["subsets"] = list(subsets)
     for s in subsets:
@@ -296,9 +284,23 @@ def helix_item(args: tuple) -> dict:
     return out
 
 
-def helix_extras(items: list[dict], names: list[str], subsets: tuple[str, ...]) -> dict:
-    """Margin, rank-1 under rule B (audible distractors only; shared helper), per category and per
-    distractor kind under rule B, and which kinds beat the truth under rule B."""
+def rule_b_nulls(it: dict, subset: str, aligned: dict | None) -> dict:
+    """Keyword arguments of the shared rule-B helper for one item and subset (T146 extended rule B):
+    the level range is the aligned capture's own `gain_db` (manifest setting) for the `aligned`
+    condition and 0 for targets without level jitter. Items scored before T146 carry no gain-matched
+    nulls and keep the direct-null rule."""
+    rng = TR.capture_gain_range_db(aligned) if subset.split("/")[0] == "aligned" else 0.0
+    if "gm_null_db_same_notes" not in it:
+        return {}
+    return {"gm_null_db": it["gm_null_db_same_notes"][1:], "gm_gain_db": it["gm_gain_db_same_notes"][1:],
+            "level_range_db": rng}
+
+
+def helix_extras(items: list[dict], names: list[str], subsets: tuple[str, ...],
+                 aligned: dict | None = None) -> dict:
+    """Margin, rank-1 under rule B (audible distractors only; shared helper, extended rule B with the
+    aligned capture's level range), per category and per distractor kind under rule B, and which
+    kinds beat the truth under rule B."""
     ex: dict = {}
     for s in subsets:
         ex[s] = {}
@@ -308,12 +310,14 @@ def helix_extras(items: list[dict], names: list[str], subsets: tuple[str, ...]) 
             for it in items:
                 sc = np.asarray(it[s][t]["scores"])
                 nd = np.asarray(it["null_db_same_notes"][1:])
-                r = TR.rank1_rule_b(sc[0], sc[1:], nd)
+                kw = rule_b_nulls(it, s, aligned)
+                r = TR.rank1_rule_b(sc[0], sc[1:], nd, **kw)
                 res.append(r)
                 margins.append(r.margin)
                 cats.setdefault(it["category"], []).append(it[s][t]["rank"] == 1)
                 cats_b.setdefault(it["category"], []).append(r.rank1_audible)
-                aud = ~TR.same_sound(nd)
+                aud = ~TR.same_sound(nd, TR.SAME_SOUND_NULL_DB, kw.get("gm_null_db"), kw.get("gm_gain_db"),
+                                     kw.get("level_range_db", 0.0))
                 for pool in HELIX_POOLS:
                     sel = np.array([lab.startswith(pool) for lab in it["labels"][1:]]) & aud
                     kind_b.setdefault(pool, []).append(bool(np.all(sc[1:][sel] > sc[0])))
@@ -382,7 +386,7 @@ def run_helix(a, terms: list[str], threads: int) -> int:
             assert abs(v - items[0][s0][t]["scores"][1]) < 1e-6 * max(1.0, abs(v)), (t, v)
     names = terms + ([COMBO] if COMBO in items[0][subsets[0]] else [])
     summ = summarise(items, names, subsets, HELIX_POOLS)
-    extra = helix_extras(items, names, subsets)
+    extra = helix_extras(items, names, subsets, mf.get("aligned"))
     for s in subsets:
         for t in names:
             summ[s][t].update(extra[s][t])
@@ -413,7 +417,10 @@ def run_helix(a, terms: list[str], threads: int) -> int:
     report = {"dataset": dataset, "split": a.split, "proxy": False, "engine": "native", "items": len(items),
               "distractors": n_dis, "seed": mf["seed"], "seconds": mf["seconds"], "bleed_db": bleed,
               "mask": a.mask, "chance_rank1_rate": 1.0 / (n_dis + 1), "inaudible_null_db": INAUDIBLE_NULL_DB,
-              "rule_b": "plain null (not gain matched) <= -30 dB on the same notes = tie (tonematch.metrics.trust)",
+              "rule_b": "extended rule B (T146): plain null <= -30 dB on the same notes, or gain-matched null "
+                        "<= -30 dB with the gain within the aligned capture's +-gain_db (aligned condition "
+                        "only) = tie (tonematch.metrics.trust)",
+              "aligned": mf.get("aligned"),
               "inaudible_distractors": inaud, "inaudible_by_kind": inaud_kind, "timing_s": timing,
               "render": render, "afxrep_device": dev, "mrstft_v2_config": v2cfg.as_dict(),
               "wall_clock_s": round(wall, 1), "subsets": list(subsets), "summary": summ,

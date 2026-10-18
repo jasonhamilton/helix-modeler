@@ -288,3 +288,172 @@ def test_level_knobs_split_only_in_known_di_mode():
     s = sv.summarize([r], [{"id": "i000", "category": "drive"}], {"drive": {"a": 1}})
     assert s["param_mae"] == pytest.approx(0.1) and s["param_mae_level"] == pytest.approx(0.3)
     assert "param_mae_level" not in sv.summarize([item("drive")], [{"id": "i000", "category": "drive"}], {})
+
+
+def test_set_paths_follow_the_set_name():
+    old = (sv.DATASET, sv.SET_DIR)
+    try:
+        assert sv.set_paths("synthetic-v2") == ("synthetic-v2", ROOT / "cache" / "synthetic-v2")
+        assert sv.DATASET == "synthetic-v2"
+    finally:
+        sv.set_paths(old[0])
+    assert sv.SET_DIR == old[1] == ROOT / "cache" / "synthetic-v1"
+
+
+def test_generate_cli_defaults_keep_synthetic_v1(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(sv, "generate", lambda *a, **k: seen.update(a=a, k=k) or
+                        {"items": 0, "pool": {}})
+    try:
+        sv.main(["generate"])
+        assert seen["a"] == (sv.SEED,)
+        assert seen["k"] == {"items_per_category": None, "categories": None, "avoid_sets": [], "name": "synthetic-v1",
+                           "check_targets": None}
+        assert sv.DATASET == "synthetic-v1"
+        sv.main(["generate", "--set", "x", "--seed", "5", "--items-per-category", "3", "--categories", "mod", "amp",
+                 "--avoid-sets", "synthetic-v1"])
+        assert seen["a"] == (5,) and seen["k"]["categories"] == ["mod", "amp"] and seen["k"]["name"] == "x"
+        assert sv.SET_DIR == ROOT / "cache" / "x"
+    finally:
+        sv.set_paths("synthetic-v1")
+
+
+def test_pick_excerpts_avoid_keeps_clear_of_given_excerpts(monkeypatch):
+    import helix_trust_set as HT
+    runs = [{"path": "a.wav", "start_s": float(s), "style": "x"} for s in range(0, 200, 4)] + \
+           [{"path": "b.wav", "start_s": float(s), "style": "x"} for s in range(0, 200, 4)]
+    monkeypatch.setattr(HT, "usable_runs", lambda seconds: runs)
+    avoid = [{"path": "a.wav", "start_s": 20.0}]
+    got = HT.pick_excerpts(np.random.default_rng(3), 12, 10.0, avoid)
+    assert not any(HT.overlaps_any(g, avoid, 10.0) for g in got)
+    assert HT.pick_excerpts(np.random.default_rng(3), 5, 10.0) == HT.pick_excerpts(np.random.default_rng(3), 5, 10.0, None)
+
+
+def test_baseline_fields_record_the_guessed_values():
+    pool = {"T": FakeBlock("T", "drive")}
+    r = sv.baseline_item_fields(base_item(), pool, "T", {"A": 5.0, "B": 6.0})
+    assert r["pred_values"] == {"A": 5.0, "B": 6.0}
+    assert "pred_values" not in sv.baseline_item_fields(base_item(), pool, "T", None)
+
+
+def _fake_generate_env(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    ht = types.ModuleType("helix_trust_set")
+    ex = [{"path": f"f{i}.wav", "start_s": 10.0 * i} for i in range(40)]
+    ht.usable_runs = lambda s: ex
+    ht.overlaps_any = lambda r, a, s: False
+    ht.pick_excerpts = lambda rng, n, s, avoid: ex[:n]
+    ht.load_excerpt = lambda e, s, ref: (np.ones(480, np.float32) * 0.1, 0.0)
+    monkeypatch.setitem(sys.modules, "helix_trust_set", ht)
+    pools = {c: {f"HD2_{c}{k}": [("A", 0.0, 1.0, 0.5), ("B", 0.0, 1.0, 0.5)] for k in range(3)} for c in sv.CATEGORIES}
+    monkeypatch.setattr(sv, "build_pools", lambda seed, categories=None: pools)
+    monkeypatch.setattr(sv, "second_passage", lambda rng, runs, ea, s: dict(runs[-1], same_file=False))
+    monkeypatch.setattr(sv, "ROOT", tmp_path)
+    nl = types.ModuleType("tonematch.engines.native_library")
+    nl.VERSION = "fake"
+    monkeypatch.setitem(sys.modules, "tonematch.engines.native_library", nl)
+    monkeypatch.setattr(sv, "FIXTURE", tmp_path / "fx.json")
+
+
+def test_generate_redraws_a_digital_zero_target(monkeypatch, tmp_path):
+    _fake_generate_env(monkeypatch, tmp_path)
+    calls = []
+
+    def checker(model, cat, free, values, dry):
+        calls.append(model)
+        return "digital zero" if model == "HD2_delay0" else None   # this model never makes sound
+
+    man = sv.generate(7, tmp_path / "s", items_per_category=3, name="synthetic-vx", checker=checker)
+    labels = json.loads((tmp_path / "s" / "labels.json").read_text())
+    assert len(labels) == 24 and all(it["model"] != "HD2_delay0" for it in labels)
+    delay = sorted(it["model"] for it in labels if it["category"] == "delay")
+    assert len(delay) == 3 and all(m.startswith("HD2_delay") for m in delay)
+    rd = man["target_check"]["redraws"]
+    assert [r["category"] for r in rd] == ["delay"] and rd[0]["rejected"][0]["model"] == "HD2_delay0"
+    assert len(rd[0]["rejected"]) == sv.MAX_KNOB_REDRAWS   # knobs first, then the model changes
+
+
+def test_generate_knob_redraw_keeps_the_model(monkeypatch, tmp_path):
+    _fake_generate_env(monkeypatch, tmp_path)
+    seen = {"n": 0}
+
+    def checker(model, cat, free, values, dry):
+        seen["n"] += 1
+        return "silence guard" if seen["n"] == 1 else None      # only the first draw fails
+
+    sv.generate(7, tmp_path / "s", items_per_category=1, name="synthetic-vx", checker=checker)
+    clean = json.loads((tmp_path / "s" / "labels.json").read_text())
+    seen["n"] = 100
+    sv.generate(7, tmp_path / "t", items_per_category=1, name="synthetic-vx", checker=checker)
+    base = json.loads((tmp_path / "t" / "labels.json").read_text())
+    assert clean[0]["model"] == base[0]["model"] and clean[0]["knobs"] != base[0]["knobs"]
+    assert [i["knobs"] for i in clean[1:]] == [i["knobs"] for i in base[1:]]   # other items unchanged
+
+
+def test_legacy_sets_skip_the_rule(monkeypatch, tmp_path):
+    _fake_generate_env(monkeypatch, tmp_path)
+    man = sv.generate(7, tmp_path / "s", items_per_category=1, name="synthetic-v2",
+                      checker=lambda *a: pytest.fail("legacy set must not render"))
+    assert "target_check" not in man
+
+
+def test_true_screen_rank_is_none_when_the_search_never_screened_the_true_model():
+    # T148: the hybrid drops time-variant models (HD2_DelayADT), so the true model can be absent.
+    assert sv.true_screen_rank({"A": 0.3, "B": 0.1, "C": 0.2}, "C") == 2
+    assert sv.true_screen_rank({"A": 0.3, "B": 0.1}, "HD2_DelayADT") is None
+
+
+def test_build_pools_drops_measured_time_variant_models_after_the_draw(monkeypatch):
+    # T148: a model only in native_library.TIME_VARIANT_NATIVE_382 (not flagged in the index) must
+    # not reach a pool, and dropping it after the draw leaves every other pick as it was.
+    import tonematch.catalog as cat
+    from tonematch.engines import native_library as NL
+
+    models = {f"HD2_Delay{x}": {"category": "delay"} for x in "ABCDEFGHIJ"}
+    models["HD2_DelayADT"] = {"category": "delay"}
+    monkeypatch.setattr(NL, "load_index", lambda *a, **k: {"models": models})
+    monkeypatch.setattr(NL, "template_for", lambda m: object())
+    monkeypatch.setattr(NL, "is_routing", lambda m: False)
+    monkeypatch.setattr(cat, "native_unavailable", list)
+    monkeypatch.setattr(sv, "free_params", lambda m, tpl, catalog, c: [("Mix", 0.0, 1.0, 0.5)])
+    monkeypatch.setattr(NL, "time_variant_models", lambda *a, **k: frozenset())
+    before = sv.build_pools(7, catalog={}, categories=("delay",))["delay"]
+    monkeypatch.setattr(NL, "time_variant_models", lambda *a, **k: frozenset({"HD2_DelayADT"}))
+    after = sv.build_pools(7, catalog={}, categories=("delay",))["delay"]
+    assert "HD2_DelayADT" in before          # seed 7 draws it, so the test is not vacuous
+    assert "HD2_DelayADT" not in after
+    assert list(after) == [m for m in before if m != "HD2_DelayADT"]
+
+
+class SilenceGuardEngine(FakeEngine):
+    """FakeEngine whose gain-0 presets trip Native's silence guard, as the real engine does."""
+    def render(self, d):
+        from tonematch.engines.base import EngineError
+
+        if float(self.p[1]) == 0.0:
+            raise EngineError("Native returned silence for a non-silent input")
+        return super().render(d)
+
+
+@pytest.mark.parametrize("known_di", [True, False])
+def test_a_neighbour_that_renders_silent_is_a_worst_case_distractor_not_a_crash(known_di):
+    # T148: devmod2 i019 i024 i040 died on a Compressor Auto Swell neighbour with a high Threshold.
+    eng, it, pool, dry, ta, tc = _known_di_setup()
+    eng = SilenceGuardEngine()
+    it["neighbours"].append({"label": "same_category", "model": "m_n3", "knobs": 0.0})
+    pool["m_n3"] = GainBlock("m_n3")
+    rows, extra = sv.rank1_rows(eng, it, pool, FakeKit(), {}, dry, ta, tc, known_di=known_di)
+    silent = rows[-1]
+    assert silent["model"] == "m_n3" and silent["loss"] == sv.NEIGHBOUR_BAD_LOSS
+    assert silent["null_db"] == pytest.approx(0.0)     # digital zero: residual = the truth, never a tie
+    if known_di:
+        assert silent["gm_gain_db"] == float("-inf")   # gain_match on silence: not a level tie
+    assert len(extra["neighbour_render_errors"]) == (2 if known_di else 1)
+    f = sv.rank1_fields(rows, extra.get("rule_b_level_range_db", 0.0))
+    assert f["n_same_sound"] == 1                       # only the gain-1 neighbour; the silent row adds no tie
+    # the other rows are exactly what they are without the silent neighbour
+    eng2, it2, pool2, *_ = _known_di_setup()
+    rows2, _ = sv.rank1_rows(eng2, it2, pool2, FakeKit(), {}, dry, ta, tc, known_di=known_di)
+    assert rows[:-1] == rows2

@@ -461,14 +461,17 @@ def build_chain(target: np.ndarray, dry: np.ndarray | None, engine, library: Blo
                 budget: ChainBudget | None = None, mode: ScoreMode | None = None,
                 presence_fn: Callable | None = None, probs: dict | None = None, estimates: dict | None = None,
                 structures_fn: Callable | None = None, context: dict | None = None,
-                validator: Callable | None = None, seed_fn: Callable | None = None) -> ChainResult:
+                validator: Callable | None = None, seed_fn: Callable | None = None,
+                renderer_factory: Callable | None = None) -> ChainResult:
     """Build a chain for `target`. `dry` is the DI the candidates render from (required: the
     chain is rendered, not guessed). With a known DI pass `mode=ScoreMode.known_di_mode()`.
 
     `presence_fn(target, dry) -> (probs, estimates)` (default: tonematch.metrics.presence.detect);
     pass `probs` to skip it. `structures_fn(probs, k, context=) -> [(categories, p)]` defaults to
     `chain_prior.top_structures`. `validator(chain) -> [violation text]` refuses chains the device
-    would (default none; use `preset_validator`)."""
+    would (default none; use `preset_validator`). `renderer_factory(engine, library, dry, cap)`
+    replaces `ChainRenderer` (T121: `engines.native_chain.NativeChainRenderer` on real Native,
+    whose renders are already latency-trimmed; see `build_chain_native`)."""
     budget = budget or ChainBudget()
     if dry is None:
         raise ValueError("a dry signal is required")
@@ -483,7 +486,7 @@ def build_chain(target: np.ndarray, dry: np.ndarray | None, engine, library: Blo
     if structures_fn is None:
         from tonematch.chain_prior import top_structures as structures_fn
     structs = structures_fn(probs, budget.top_k, context=context)
-    rend = ChainRenderer(engine, library, dry, budget.max_renders)
+    rend = (renderer_factory or ChainRenderer)(engine, library, dry, budget.max_renders)
     ev = ChainEvaluator(rend, kit, target, mode)
     search = StructureSearch(ev, library, models_per_slot=budget.models_per_slot, seed=budget.seed,
                              seed_fn=seed_fn, estimates=estimates)

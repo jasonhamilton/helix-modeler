@@ -185,6 +185,215 @@ def resolve_sentinel(sentinel, purpose: str | None) -> Sentinel | None:
 
 DEVICE_REFUSED = "never showed it back"   # stompd's restore error when the device drops a written document
 
+
+# --------------------------------------------------------------------------- T112: stream-slip guard
+#
+# About 1 render in 90 (PRE_S 1.0, T108) has a one-sample slip or a 1-6 ms corrupted burst inside
+# the clip, with no PortAudio flag. The guard: a pilot path. The preset is written with one bypassed
+# block on Path B in the SAB layout (Path B fed by the split, sent to its own output, USB 3/4), so
+# USB 3/4 records the dry clip itself, digitally, through the same stream as Path A. Every render
+# compares that loopback with the clip it sent (best integer lag, least-squares gain, residual per
+# 2.5 ms window) plus a short marker sent after the clip (it reaches the pedal after the last
+# returned sample, so it changes nothing returned; it shows a slip in the clip's trailing silence).
+# A render whose loopback does not match is taken again, up to SLIP_RETAKES times, then StreamSlip.
+# Rules, thresholds and their evidence: docs/DECISIONS.md (T112).
+
+ENV_SLIP_GUARD = "TONEMATCH_STOMP_SLIP_GUARD"       # on (default) | pairs | off
+ENV_SLIP_RETAKES = "TONEMATCH_STOMP_SLIP_RETAKES"
+SLIP_MODES = ("on", "pairs", "off")
+PILOT_MODEL = "HD2_EQSimple3Band"   # bypassed; landed as a built block in every T108 session
+PILOT_POS = 11                      # device slot of Path B cell 0
+SLIP_RETAKES = 3
+SLIP_WIN = 120                      # 2.5 ms
+SLIP_LAG_SEARCH = 16
+SLIP_FLOOR_REL_DB = -30.0           # windows quieter than this (re the clip's mean) are judged against it
+SLIP_THRESHOLD_DB = -60.0           # registered in docs/DECISIONS.md before the T112 pass run
+SLIP_MARKER_S = 0.03
+SLIP_MARKER_GAP_S = 0.008
+
+
+class StreamSlip(EngineError):
+    """Every take of a render failed the loopback check (``report``: the last verdicts)."""
+
+    def __init__(self, msg: str, report: dict):
+        super().__init__(msg)
+        self.report = report
+
+
+def slip_marker(seconds: float = SLIP_MARKER_S, gap_s: float = SLIP_MARKER_GAP_S, dbfs_rms: float = -30.0,
+                seed: int = 112) -> np.ndarray:
+    """The post-clip marker: a gap, then a short seeded noise burst (deterministic)."""
+    x = np.random.default_rng(seed).standard_normal(int(seconds * SAMPLE_RATE))
+    x *= 10 ** (dbfs_rms / 20) / np.sqrt(np.mean(x ** 2))
+    return np.concatenate([np.zeros(int(gap_s * SAMPLE_RATE)), x]).astype(np.float32)
+
+
+def slip_check(loop: np.ndarray, sent: np.ndarray, start: int, lag0: int, search: int = SLIP_LAG_SEARCH,
+               win: int = SLIP_WIN, floor_rel_db: float = SLIP_FLOOR_REL_DB,
+               threshold_db: float = SLIP_THRESHOLD_DB) -> dict:
+    """Does the recorded loopback hold exactly what was sent? Pure; unit-tested.
+
+    ``loop``: the loopback channel of the whole capture; ``sent``: what was played from index
+    ``start`` of the stream (clip + marker); ``lag0``: the expected round trip. The best integer lag
+    in lag0 +- search and the least-squares gain are fitted over the whole of ``sent``; then the
+    residual energy of each ``win``-sample window is compared with that window's own energy, or
+    with ``floor_rel_db`` below the mean window energy when the window is quieter. ``ok`` when no
+    window exceeds ``threshold_db``. A one-sample slip leaves -15 to -40 dB in every window after it;
+    an exact loopback leaves the 24-bit quantisation (about -110 dB)."""
+    s = np.asarray(sent, np.float64)
+    y = np.asarray(loop, np.float64)
+    n = len(s)
+    es = float(np.dot(s, s))
+    out = {"ok": False, "lag": None, "gain_db": None, "worst_db": None, "worst_at_s": None, "bad_windows": None}
+    if n == 0 or es <= 0:
+        out.update(ok=True, reason="nothing sent")
+        return out
+    best, best_l = -np.inf, None
+    for lag in range(lag0 - search, lag0 + search + 1):
+        a = start + lag
+        if a < 0 or a + n > len(y):
+            continue
+        c = float(np.dot(y[a:a + n], s))
+        if c > best:
+            best, best_l = c, lag
+    if best_l is None:
+        out["reason"] = "capture too short for the loopback window"
+        return out
+    seg = y[start + best_l:start + best_l + n]
+    g = float(np.dot(seg, s) / es)
+    if g <= 0:
+        out.update(lag=best_l, reason="no loopback signal (is the pilot path on USB 3/4?)")
+        return out
+    r = seg - g * s
+    k = -(-n // win)
+    pad = k * win - n
+    er = np.concatenate([r, np.zeros(pad)]).reshape(k, win)
+    ex = np.concatenate([g * s, np.zeros(pad)]).reshape(k, win)
+    er, ex = np.sum(er ** 2, axis=1), np.sum(ex ** 2, axis=1)
+    ref = np.maximum(ex, float(np.mean(ex)) * 10 ** (floor_rel_db / 10))
+    rel = 10 * np.log10(np.maximum(er, 1e-30) / np.maximum(ref, 1e-30))
+    w = int(np.argmax(rel))
+    worst = float(rel[w])
+    bad = int(np.sum(rel > threshold_db))
+    out.update(ok=worst <= threshold_db, lag=int(best_l), gain_db=round(20 * np.log10(g), 4),
+               worst_db=round(worst, 2), worst_at_s=round(w * win / SAMPLE_RATE, 4), bad_windows=bad)
+    if not out["ok"]:
+        out["reason"] = f"loopback residual {worst:.1f} dB > {threshold_db:.1f} dB at {w * win / SAMPLE_RATE:.3f} s"
+    return out
+
+
+def _pilot_hlx(preset) -> dict:
+    """``preset``'s frame with only the pilot block: one bypassed PILOT_MODEL at cell 0."""
+    d = preset.to_hlx_dict()
+    tone = d["data"]["tone"]
+    dsp = tone.setdefault("dsp0", {})
+    for k in [k for k in dsp if k.startswith(("block", "cab"))]:
+        del dsp[k]
+    for sec in ("controller", "footswitch"):
+        tone.pop(sec, None)
+    dsp["block0"] = {"@model": PILOT_MODEL, "@enabled": False, "@path": 0, "@position": 0,
+                     "@no_snapshot_bypass": False}
+    for n in range(8):
+        sn = tone.get(f"snapshot{n}")
+        if isinstance(sn, dict):
+            sn["blocks"] = {"dsp0": {"block0": False}}
+            sn.pop("controllers", None)
+    return d
+
+
+def pilot_unfit(preset) -> str | None:
+    """Why ``preset`` cannot carry the pilot path, or None. Pure."""
+    from .stomp_layout import path_b_blocks, topology
+
+    if not hasattr(preset, "to_hlx_dict"):
+        return "not a preset"
+    d = preset.to_hlx_dict()
+    if path_b_blocks(d) or topology(d) not in ("A", ""):
+        return "the preset uses Path B"
+    main = _main_blocks(preset)
+    if len(main) >= MAX_BLOCKS:
+        return f"{len(main)} blocks: no cell left for the pilot"
+    if any(s.position is None for s in main):
+        return "a block without a row position"
+    inp = (d["data"]["tone"].get("dsp0") or {}).get("inputA") or {}
+    if inp.get("noiseGate"):
+        return "the input noise gate is on (the loopback would be gated)"
+    return None
+
+
+def with_pilot(preset):
+    """(piloted preset, None) or (None, reason). The piloted preset is ``preset`` on Path A plus the
+    bypassed pilot on Path B (SAB, USB 3/4); ``preset``'s own block and cab keys are unchanged."""
+    why = pilot_unfit(preset)
+    if why:
+        return None, why
+    from tonematch import preset as P
+
+    return merge_two_path(preset, P.from_dict(_pilot_hlx(preset))), None
+
+
+def remap_slots(user, target, slot_map: dict[int, tuple[int, bool]]) -> dict[int, tuple[int, bool]]:
+    """A slot map of ``target`` (the piloted preset) by ``user``'s slot indices (matched by key)."""
+    idx = {s.key: j for j, s in enumerate(target.slots) if s.key}
+    out = {}
+    for i, s in enumerate(user.slots):
+        j = idx.get(s.key)
+        if j is not None and j in slot_map:
+            out[i] = slot_map[j]
+    return out
+
+
+# --------------------------------------------------------------------------- T111: ambient in-place policy
+#
+# T108 (stomp-verify-v1): DL4 Echo Platter, Auto-Vol Echo and Glitz rendered differently after an
+# in-place change sequence (B whole -> defaults in place -> B in place) than after a whole write of B
+# (-9.5 / -16.4, -32.2, -27.3 dB against floors of -42 to -50 dB). A whole write of B repeats at the
+# floor. Policy: a parameter change on an enabled delay or reverb block is a whole write.
+# TONEMATCH_STOMP_AMBIENT_INPLACE=1 restores in-place changes. Evidence: docs/DECISIONS.md (T111).
+ENV_AMBIENT_INPLACE = "TONEMATCH_STOMP_AMBIENT_INPLACE"
+AMBIENT = ("delay", "reverb")
+
+
+def ambient_changes(plan: dict, dev: dict[int, dict]) -> list[str]:
+    """The parameters an in-place plan would change on enabled delay/reverb blocks (same model on
+    the pedal). Pure."""
+    out = []
+    for pos, t in sorted(plan.get("targets", {}).items()):
+        cur = dev.get(pos) or {}
+        if not t.get("enabled") or _category_of(t.get("model")) not in AMBIENT or cur.get("model_id") != t["model"]:
+            continue
+        meta = _param_meta(cur.get("params") or [])
+        for pid, v in t.get("params", {}).items():
+            m = meta.get(pid)
+            if m is None:
+                continue
+            nv = _wire_value(v)
+            if abs(float(m["value"]) - nv) > EPS * max(1.0, abs(nv)):
+                out.append(f"{pos}:{pid}")
+    return out
+
+
+# --------------------------------------------------------------------------- T110: device templates
+#
+# stompd-compile builds a new slot from the catalog unless it has a device template: the slot the
+# device built itself after a `model` command (STOMPD_TEMPLATES). fw 3.80 refused (op 21, "never
+# showed it back") the catalog builds of VIC Stutter Edit, L6SPB Inf Sustain (class 24, no trails)
+# and NonLinear (two values and three hidden values more). The engine captures a template the first
+# time it builds a model (one `model` command and two backups, on the scratch edit buffer, then the
+# buffer is put back), and keeps it per firmware in cache/stomp/templates/<fw>/. A model the device
+# refuses on the `model` command itself (Moon Nrm + a "WithPan" IR cab: error -21) is recorded and
+# raised as ModelRefused without any document write.
+TEMPLATE_ROOT = ROOT / "cache" / "stomp" / "templates"
+ENV_TEMPLATES = "TONEMATCH_STOMP_TEMPLATES"         # auto (default) | off
+
+
+class ModelRefused(UnsupportedModelChange):
+    """The device refuses the model (or the Amp+Cab pairing) on its own `model` command."""
+
+
+def template_key(model_id: str, cab_id: str | None) -> str:
+    return f"{model_id}|{cab_id or ''}"
+
 LAYOUT_MARKERS = ("no block at device slot", " model ", " cab ", "the file has no block there", "path topology",
                   "the device has no", "attaches before", "whole-preset write")
 
@@ -215,14 +424,19 @@ def _offline_exe(mode: str, exe: Path | None) -> Path:
     return Path(exe)
 
 
-def compile_document(hlx: Path, base: Path, out: Path, compiler: Path | None = None) -> dict:
+def compile_document(hlx: Path, base: Path, out: Path, compiler: Path | None = None,
+                     templates: Path | None = None) -> dict:
     """Compile a .hlx onto a base device document with ``stompd compile`` (offline, no USB).
 
-    Returns the compiler's report. A refusal raises UnsupportedModelChange (what the compiler
-    cannot build is a layout this engine cannot load)."""
+    ``templates``: a directory of device templates (``STOMPD_TEMPLATES``, T110). Returns the
+    compiler's report. A refusal raises UnsupportedModelChange (what the compiler cannot build is
+    a layout this engine cannot load)."""
     exe = _offline_exe("compile", compiler)
+    env = dict(os.environ)
+    if templates is not None and Path(templates).is_dir():
+        env["STOMPD_TEMPLATES"] = str(templates)
     r = subprocess.run([str(exe), "compile", str(hlx), str(base), str(out)], capture_output=True, text=True,
-                       timeout=60, check=False)
+                       timeout=60, check=False, env=env)
     try:
         msg = json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError) as e:
@@ -396,16 +610,20 @@ def device_pos(hlx_path: int, position: int) -> int:
     return 1 + int(position) + 10 * int(hlx_path)
 
 
-def plan_load(preset, chain: dict) -> dict:
+def plan_load(preset, chain: dict, allow_b: tuple = ()) -> dict:
     """Map a Preset onto the pedal's current chain. Pure: no device I/O (unit-tested).
 
     Returns {"targets": {pos: {"model", "cab", "enabled", "params", "cab_params", "slot", "cab_slot"}},
              "bypass": [pos, ...]}; raises UnsupportedModelChange when the layout differs.
+    ``allow_b``: Path B slots the caller knows to be in the layout it wrote whole (the T112 pilot):
+    when both the preset and the pedal have exactly those Path B blocks, with the same models, the
+    load stays in place.
     """
     by_key = {s.key: (i, s) for i, s in enumerate(preset.slots) if s.key}
+    linked = {s.extra.get("@cab") for s in preset.slots if s.extra.get("@cab")}
     targets: dict[int, dict] = {}
     for i, s in enumerate(preset.slots):
-        if s.model_id is None or s.category == "cab" and (s.key or "").startswith("cab"):
+        if s.model_id is None or (s.category == "cab" or s.key in linked) and (s.key or "").startswith("cab"):
             continue
         if s.position is None:
             raise UnsupportedModelChange(f"slot {i} ({s.model_id}) has no @position")
@@ -420,7 +638,9 @@ def plan_load(preset, chain: dict) -> dict:
     dev = _block_slots(chain)
     want_b = sorted(p for p in targets if p > 10)
     have_b = sorted(p for p in dev if p > 10)
-    if want_b or have_b:
+    pilot_ok = (bool(allow_b) and want_b == have_b == sorted(allow_b)
+                and all(dev[p].get("model_id") == targets[p]["model"] for p in want_b))
+    if (want_b or have_b) and not pilot_ok:
         # In place never touches the junctions or Path B's own output, and a bypassed Path B still
         # passes dry signal into the join (SABJ): any Path B on either side is a layout change.
         raise UnsupportedModelChange(f"Path B differs or is in use (preset {want_b}, pedal {have_b}): "
@@ -642,10 +862,13 @@ class StompEngine:
 
     def __init__(self, bridge: StompBridge | None = None, calibration: reamp.Calibration | None = None,
                  session_dir: Path | None = None, whole_preset: str | None = None,
-                 compiler=None, decoder=None, purpose: str | None = None, sentinel=None):
+                 compiler=None, decoder=None, purpose: str | None = None, sentinel=None,
+                 slip_guard: str | None = None):
         """``purpose`` names the session in the shared pedal lock's owner.json (tonematch.pedal_lock).
         ``sentinel``: a :class:`Sentinel`, True, False, or None (``TONEMATCH_STOMP_SENTINEL``;
-        auto = on when ``purpose`` names a benchmark). See :meth:`_sentinel_run`."""
+        auto = on when ``purpose`` names a benchmark). See :meth:`_sentinel_run`.
+        ``slip_guard``: on (default), pairs (two-path passes allowed, unguarded) or off
+        (``TONEMATCH_STOMP_SLIP_GUARD``); see :func:`slip_check`."""
         mode = whole_preset if whole_preset is not None else (os.environ.get(ENV_WHOLE_PRESET) or DEFAULT_WHOLE_MODE)
         if mode not in WHOLE_MODES:
             raise EngineError(f"whole_preset must be one of {WHOLE_MODES}, got {mode!r}")
@@ -712,6 +935,30 @@ class StompEngine:
         self.serial_renders = 0
         self.two_path_skips: list[str] = []
         self.last_paths: dict[str, Audio] = {}
+        # T112: the stream-slip guard (pilot loopback on USB 3/4, re-takes).
+        gmode = (slip_guard if slip_guard is not None else os.environ.get(ENV_SLIP_GUARD) or "on").strip().lower()
+        if gmode not in SLIP_MODES:
+            raise EngineError(f"{ENV_SLIP_GUARD} must be one of {SLIP_MODES}, got {gmode!r}")
+        self.slip_guard = gmode
+        self.slip_retakes = int(os.environ.get(ENV_SLIP_RETAKES) or SLIP_RETAKES)
+        self.slip_threshold_db = SLIP_THRESHOLD_DB
+        self._pilot_on_pedal = False     # the pedal holds the piloted layout of the loaded preset
+        self._target = None              # what the pedal holds (the piloted preset or the preset itself)
+        self.pilot_reason: str | None = None
+        self._pilot_disabled: str | None = None   # set when the device refused the pilot layout once
+        self.keep_takes = False          # diagnostics: keep every take's output and verdict in self.takes
+        self.takes: list[dict] = []
+        self.slip_stats = {"renders": 0, "guarded": 0, "takes": 0, "retakes": 0, "slips": 0, "failed": 0,
+                           "unguarded": 0, "unguarded_why": {}, "pilot_refused": 0, "last": None}
+        # T110: device templates for built slots.
+        tmode = (os.environ.get(ENV_TEMPLATES) or "auto").strip().lower()
+        if tmode not in ("auto", "off"):
+            raise EngineError(f"{ENV_TEMPLATES} must be auto or off, got {tmode!r}")
+        self.template_mode = tmode
+        self.templates_captured: list[str] = []
+        # T111: whole writes for in-place changes on delay/reverb blocks.
+        self.ambient_inplace = os.environ.get(ENV_AMBIENT_INPLACE, "") == "1"
+        self.ambient_whole = 0
         # T108: the session sentinel (rule 4 of stomp-verify-v1).
         self.sentinel = resolve_sentinel(sentinel, purpose)
         self._first_preset = None
@@ -744,13 +991,48 @@ class StompEngine:
             import copy
 
             self._first_preset = copy.deepcopy(preset)   # the sentinel's default reference
+        target, why = self._pilot_target(preset)
+        self.pilot_reason = why
+        if target is not preset:
+            try:
+                self._load_target(target, t_start, allow_b=(PILOT_POS,) if self._pilot_on_pedal else ())
+            except LayoutRefused as e:
+                # The pedal would not take the pilot layout: load the preset alone, unguarded.
+                log.warning("stomp: the pilot layout was refused (%s); loading without the slip guard", e)
+                self.slip_stats["pilot_refused"] += 1
+                self._pilot_on_pedal = False
+                self.pilot_reason = f"pilot layout refused: {e}"
+                self._pilot_disabled = self.pilot_reason   # not tried again in this session
+                target = preset
+            else:
+                self._pilot_on_pedal = True
+                self._target = target
+                self.slot_map = remap_slots(preset, target, self.slot_map)
+                self.preset = preset
+                return
+        self._pilot_on_pedal = False
+        self._load_target(preset, t_start, allow_b=())
+        self._target = preset
+
+    def _pilot_target(self, preset):
+        """(what to write, why no pilot): the piloted preset when the guard is on and it fits."""
+        if self.slip_guard == "off":
+            return preset, "slip guard off"
+        if self._pilot_disabled:
+            return preset, self._pilot_disabled
+        if self.whole_preset == "off" or not self._can_compile():
+            return preset, "no whole-preset writes (the pilot is a layout change)"
+        piloted, why = with_pilot(preset)
+        return (piloted, None) if piloted is not None else (preset, why)
+
+    def _load_target(self, preset, t_start: float, allow_b: tuple = ()) -> None:
         fast = self.readback_every > 1 and self._chain_trusted and self.whole_preset != "always"
         if not fast:
             self._refresh()
         if self.whole_preset == "always":
             return self._load_whole(preset, t_start)
         try:
-            plan = plan_load(preset, self.chain)
+            plan = plan_load(preset, self.chain, allow_b=allow_b)
         except UnsupportedModelChange as e:
             if self.whole_preset == "fallback":
                 if not self._can_compile():
@@ -765,6 +1047,11 @@ class StompEngine:
             # A `model` command resets the block to its catalog defaults before the values are set
             # (2026-10-15: the live delay read back exactly the DL4 defaults). In fallback mode a
             # model change is one whole write instead (0.46 s vs 0.66 s in place, T018s).
+            return self._load_whole(preset, t_start)
+        if (self.whole_preset == "fallback" and not self.ambient_inplace and self._can_compile()
+                and ambient_changes(plan, dev)):
+            # T111: an in-place change on a delay or reverb block is a whole write (see AMBIENT).
+            self.ambient_whole += 1
             return self._load_whole(preset, t_start)
         changed_model = False
         for pos, t in sorted(plan["targets"].items()):
@@ -822,6 +1109,7 @@ class StompEngine:
     def _load_whole(self, preset, t_start: float) -> None:
         """Compile the preset onto a backup of the current edit buffer and write it whole (op 21,
         edit buffer only). See the module docstring."""
+        self._ensure_templates(preset)
         before = _block_slots(self.chain)
         hlx_dict = reamp_hlx_dict(preset, self.cal.input_usb56, sync_snapshots=False)
         synced = snapshot_conflicts(hlx_dict)
@@ -836,7 +1124,10 @@ class StompEngine:
             t0 = time.perf_counter()
             self.bridge.call("backup", path=str(base))
             t1 = time.perf_counter()
-            report = self._compiler(hlx, base, out)
+            if self._custom_compiler:
+                report = self._compiler(hlx, base, out)
+            else:
+                report = self._compiler(hlx, base, out, templates=self._template_dir())
             t2 = time.perf_counter()
             if self._decoder is not None:
                 # Offline, before anything is written: every block value and every snapshot
@@ -935,12 +1226,129 @@ class StompEngine:
             return False
         return True
 
+    # --- device templates (T110) -------------------------------------------------------------
+
+    def _template_dir(self) -> Path:
+        return TEMPLATE_ROOT / str(self.info.get("firmware") or "unknown")
+
+    def _template_index(self) -> dict:
+        p = self._template_dir() / "index.json"
+        try:
+            d = json.loads(p.read_text())
+        except (OSError, ValueError):
+            d = {}
+        d.setdefault("models", {})
+        d.setdefault("refused", {})
+        return d
+
+    def _save_template_index(self, d: dict) -> None:
+        p = self._template_dir() / "index.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(d, indent=1, sort_keys=True))
+
+    def needed_templates(self, preset) -> list[tuple[str, str | None]]:
+        """(model, cab) of every mono block a whole write of ``preset`` would build (a model or cab
+        other than the pedal's at that slot) that has no device template yet."""
+        idx = self._template_index()
+        by_key = {s.key: s for s in preset.slots if s.key}
+        dev = _block_slots(self.chain)
+        out = []
+        for s in _main_blocks(preset):
+            if s.position is None or s.extra.get("@stereo"):
+                continue   # a stereo block resolves to another model number: catalog build as before
+            link = s.extra.get("@cab")
+            cab = by_key[link].model_id if link in by_key else None
+            pos = device_pos(int(s.extra.get("@path", 0)), s.position)
+            cur = dev.get(pos) or {}
+            if cur.get("model_id") == s.model_id and cur.get("paired_id") == cab:
+                continue
+            k = template_key(s.model_id, cab)
+            if k in idx["refused"]:
+                raise ModelRefused(f"the device refuses {s.model_id}" + (f" with {cab}" if cab else "")
+                                   + f" on its own model command ({idx['refused'][k]})")
+            ent = idx["models"].get(k)
+            if ent and (self._template_dir() / ent["file"]).exists():
+                continue
+            if (s.model_id, cab) not in out:
+                out.append((s.model_id, cab))
+        return out
+
+    def _ensure_templates(self, preset) -> None:
+        if self.template_mode == "off" or self._custom_compiler:
+            return
+        need = self.needed_templates(preset)
+        if need:
+            self.capture_templates(need)
+
+    def capture_templates(self, models: list[tuple[str, str | None]]) -> dict:
+        """Let the device build each (model, cab) itself: back the edit buffer up, issue the `model`
+        command on a Path A block slot, back the buffer up again as the template, and finally write
+        the first backup back (the device's own document, same session) and check the chain
+        signature. A model the device refuses is recorded and raised as ModelRefused."""
+        d = self._template_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        idx = self._template_index()
+        self._refresh()
+        before = chain_signature(self.chain)
+        blocks = sorted(p for p in _block_slots(self.chain) if p < 10)
+        pos = blocks[0] if blocks else 1
+        keep = Path(self.session_dir) / f"template_keep_{os.getpid()}.bin"
+        self.bridge.call("backup", path=str(keep))
+        refused, got = [], {}
+        try:
+            for model, cab in models:
+                k = template_key(model, cab)
+                args = {"pos": pos, "model": model}
+                if cab:
+                    args["cab"] = cab
+                try:
+                    self.bridge.call("model", **args)
+                except BridgeError as e:
+                    if "refused" not in str(e):
+                        raise
+                    idx["refused"][k] = str(e)
+                    refused.append(k)
+                    continue
+                ch = self.bridge.call("chain")
+                sl = _block_slots(ch).get(pos) or {}
+                num, cnum = sl.get("model"), sl.get("paired")
+                if sl.get("model_id") != model or num is None:
+                    raise EngineError(f"template capture: slot {pos} holds {sl.get('model_id')} after the "
+                                      f"model command for {model}")
+                name = f"m{int(num)}" + (f"_c{int(cnum)}" if cab and cnum is not None else "") + ".bin"
+                self.bridge.call("backup", path=str(d / name))
+                idx["models"][k] = {"file": name, "number": int(num), "cab_number": None if cnum is None else int(cnum),
+                                    "captured_utc": dt.datetime.now(dt.UTC).isoformat(timespec="seconds")}
+                got[k] = name
+                self.templates_captured.append(k)
+        finally:
+            self._save_template_index(idx)
+            self.bridge.call("restore", path=str(keep), timeout_s=30)
+            self._refresh()
+            keep.unlink(missing_ok=True)
+            if chain_signature(self.chain) != before:
+                raise EngineError("template capture: the edit buffer did not return to its state")
+        if refused:
+            raise ModelRefused(f"the device refuses {refused} on its own model command")
+        return got
+
     def set_params(self, changes: dict[ParamRef, float]) -> None:
         if not changes:
             return
         if self.preset is None:
             raise EngineError("set_params before load()")
         dev = _block_slots(self.chain)
+        if not self.ambient_inplace and self.whole_preset == "fallback" and self._can_compile():
+            amb = []
+            for (slot, _name) in changes:
+                pos_cab = self.slot_map.get(slot)
+                d = dev.get(pos_cab[0]) if pos_cab else None
+                if d and not pos_cab[1] and d.get("enabled") and _category_of(d.get("model_id")) in AMBIENT:
+                    amb.append(slot)
+            if amb:
+                # T111: through load(), which writes a delay/reverb change whole.
+                self.load(self._with_changes(self.preset, changes))
+                return
         for (slot, name), v in changes.items():
             if slot not in self.slot_map:
                 raise EngineError(f"slot {slot} is not on the pedal (not loaded or bypass-only)")
@@ -998,7 +1406,8 @@ class StompEngine:
         t0 = time.perf_counter()
         self._sentinel_busy = True
         keep = {k: getattr(self, k) for k in ("preset", "slot_map", "last_readback", "last_offset", "last_paths",
-                                             "policy_warnings", "_loads_since_readback", "_chain_trusted")}
+                                             "policy_warnings", "_loads_since_readback", "_chain_trusted",
+                                             "_pilot_on_pedal", "_target", "pilot_reason")}
         trip = None
         backup = None
         try:
@@ -1066,12 +1475,54 @@ class StompEngine:
     def _render_paths(self, dry: Audio, paths: tuple[str, ...]) -> dict[str, Audio]:
         """One pedal pass; Path A from USB 1/2 and, when asked, Path B from USB 3/4. Each path is
         trimmed, aligned against that path's own chain (so a two-path pass and a serial render of
-        the same blocks share the jitter reference) and level-matched with the one calibration."""
+        the same blocks share the jitter reference) and level-matched with the one calibration.
+
+        T112: with the pilot on the pedal (a single-path render), USB 3/4 carries the loopback; a take
+        that fails :func:`slip_check` is taken again, up to ``slip_retakes`` times, then StreamSlip."""
         x = np.asarray(dry, dtype=np.float32)
         if x.ndim != 1:
             raise EngineError(f"render() takes mono (n,) float32, got shape {x.shape}")
         if len(x) == 0:
             return {p: x.copy() for p in paths}
+        st = self.slip_stats
+        st["renders"] += 1
+        guarded = paths == ("A",) and self._pilot_on_pedal and self.slip_guard != "off"
+        if not guarded:
+            why = ("two-path pass (USB 3/4 is Path B)" if paths != ("A",) else
+                   self.pilot_reason or "the pedal does not hold the pilot layout")
+            st["unguarded"] += 1
+            st["unguarded_why"][why] = st["unguarded_why"].get(why, 0) + 1
+            out, _, commit = self._render_once(x, paths, guarded=False)
+            commit()
+            return out
+        st["guarded"] += 1
+        verdicts = []
+        for k in range(self.slip_retakes + 1):
+            out, v, commit = self._render_once(x, paths, guarded=True)
+            st["takes"] += 1
+            v["take"] = k
+            verdicts.append(v)
+            if self.keep_takes:
+                self.takes.append({"render": st["renders"], "take": k, "y": out["A"], "verdict": v,
+                                   "offset": self.last_offset})
+            st["last"] = v
+            if v["ok"]:
+                commit()
+                return out
+            if str(v.get("reason", "")).startswith("no loopback"):
+                raise EngineError(f"the slip guard's loopback is silent: {v['reason']}")
+            st["slips"] += 1
+            if k < self.slip_retakes:
+                st["retakes"] += 1
+                log.warning("stomp: stream slip (%s); taking the render again (%d/%d)", v.get("reason"), k + 1,
+                            self.slip_retakes)
+        st["failed"] += 1
+        raise StreamSlip(f"{len(verdicts)} takes failed the loopback check (last: {verdicts[-1].get('reason')})",
+                         {"verdicts": verdicts})
+
+    def _render_once(self, x: np.ndarray, paths: tuple[str, ...], guarded: bool):
+        """One take: (outputs, slip verdict or {}, commit). ``commit()`` stores a first render as the
+        path's alignment reference; it is called only for a take that is kept."""
         tail = self.cal.latency_samples / SAMPLE_RATE + self.TAIL_PAD_S
         key = self._tail_key()
         bound = self._bound_s()
@@ -1080,15 +1531,23 @@ class StompEngine:
             tail += bound   # record this chain's own tail once and measure where it dies
         wait = self._wait_s()
         self.last_wait_s = wait
-        if paths == ("A",):
-            rec, pre = reamp.playrec(x, self.device, pre_s=wait, tail_s=tail)
+        # The marker would sit in a tail recorded to measure its decay: not on probe renders.
+        marker = slip_marker() if guarded and not probe else np.zeros(0, np.float32)
+        sig = np.concatenate([x, marker]) if len(marker) else x
+        if paths == ("A",) and not guarded:
+            rec, pre = reamp.playrec(sig, self.device, pre_s=wait, tail_s=tail)
             recs = {"A": rec}
         else:
-            rec, pre = reamp.playrec(x, self.device, pre_s=wait, tail_s=tail, in_pair=None)
+            rec, pre = reamp.playrec(sig, self.device, pre_s=wait, tail_s=tail, in_pair=None)
             if rec.shape[1] < 4:
-                raise EngineError(f"a two-path pass needs USB inputs 1-4; the device gave {rec.shape[1]}")
+                raise EngineError(f"a two-path pass or the slip guard needs USB inputs 1-4; the device gave "
+                                  f"{rec.shape[1]}")
             recs = {p: rec[:, PATH_PAIRS[p][0] - 1:PATH_PAIRS[p][1]] for p in paths}
         ended = time.monotonic()
+        verdict: dict = {}
+        if guarded:
+            loop = reamp.to_mono(rec[:, PATH_PAIRS["B"][0] - 1:PATH_PAIRS["B"][1]], self.cal.mono)
+            verdict = slip_check(loop, sig, pre, self.cal.latency_samples, threshold_db=self.slip_threshold_db)
         monos = {p: reamp.to_mono(r, self.cal.mono) for p, r in recs.items()}
         if probe:
             self.decay_s[key] = max(measure_decay_s(m, pre + self.cal.latency_samples, len(x), self.DECAY_REL_DB,
@@ -1100,6 +1559,7 @@ class StompEngine:
         j = reamp.MAX_JITTER
         out: dict[str, Audio] = {}
         offsets = {}
+        pending: dict = {}
         for p in paths:
             y_ext = reamp.trim(monos[p], pre, self.cal.latency_samples - j, len(x) + 2 * j, 0)
             # Cancel the 0..1 sample stream-start jitter against this path's first render of this clip.
@@ -1107,7 +1567,7 @@ class StompEngine:
             ref = self._refs.get(rk)
             if ref is None:
                 y, offsets[p] = y_ext[j:j + len(x)].copy(), 0
-                self._refs[rk] = y
+                pending[rk] = y
             else:
                 y, offsets[p] = reamp.align(y_ext, ref, len(x), j)
             y = (y * np.float32(10 ** (self.cal.level_gain_db / 20))).astype(np.float32)
@@ -1118,7 +1578,14 @@ class StompEngine:
                                  "(Input block not on USB 5/6?)")
             out[p] = y
         self.last_offset = offsets[paths[0]]
-        return out
+        if verdict:
+            verdict["offset"] = self.last_offset
+
+        def commit() -> None:
+            for rk, y in pending.items():
+                self._refs.setdefault(rk, y)
+
+        return out, verdict, commit
 
     def _path_key(self, path: str) -> tuple:
         """The blocks of one path, at the slots a single-path load puts them (Path B -10)."""
@@ -1144,6 +1611,12 @@ class StompEngine:
         resolved = self._resolve_variants(variants)
         if not self._dual_possible():
             self.two_path_skips.append("no document write or compiler: serial")
+            self.serial_renders += len(variants)
+            return serial_render_many(self, dry, resolved)
+        if self.slip_guard == "on":
+            # T112: a two-path pass has no loopback (USB 3/4 is Path B), so it cannot be checked for
+            # stream slips; with the guard on every variant renders on its own, guarded.
+            self.two_path_skips.append("slip guard on: serial (a two-path pass has no loopback)")
             self.serial_renders += len(variants)
             return serial_render_many(self, dry, resolved)
         out: list[Audio] = []
@@ -1172,6 +1645,8 @@ class StompEngine:
     def _render_pair(self, dry: Audio, a, b) -> list[Audio]:
         self._sentinel_gate()
         merged = merge_two_path(a, b)
+        self._pilot_on_pedal = False
+        self._target = None
         self._load_whole(merged, time.perf_counter())
         ys = self._render_paths(dry, ("A", "B"))
         self.last_paths = ys
@@ -1306,6 +1781,18 @@ class StompEngine:
         self.load(self.preset)
         return self.model_load_s[-1]
 
+    def stats(self) -> dict:
+        """Session counters: the slip guard (renders, takes, re-takes, slips, unguarded and why),
+        device templates captured, ambient whole writes (T111), two-path passes and the sentinel."""
+        st = dict(self.slip_stats)
+        st["unguarded_why"] = dict(st["unguarded_why"])
+        return {"slip_guard": {"mode": self.slip_guard, "retakes_max": self.slip_retakes,
+                               "threshold_db": self.slip_threshold_db, **st},
+                "templates_captured": list(self.templates_captured), "ambient_whole": self.ambient_whole,
+                "two_path_passes": self.two_path_passes, "serial_renders": self.serial_renders,
+                "whole_writes": len(self.whole_writes),
+                "sentinel": {k: self.sentinel_report.get(k) for k in ("enabled", "checks", "tripped", "reason")}}
+
     def capabilities(self) -> Capabilities:
         models: tuple[str, ...] = ()
         try:
@@ -1318,7 +1805,10 @@ class StompEngine:
         return Capabilities(
             engine="stomp", firmware_version=str(self.info.get("firmware") or ""), models=models, snapshots=3,
             extras={"control_route": "usb", "param_steps": None, "build": self.info.get("build"),
-                    "whole_preset": self.whole_preset, "render_many": "two-path SAB pairs, else serial",
+                    "whole_preset": self.whole_preset,
+                    "render_many": "serial (slip guard on)" if self.slip_guard == "on" else "two-path SAB pairs, else serial",
+                    "slip_guard": self.slip_guard, "templates": self.template_mode,
+                    "ambient_inplace": self.ambient_inplace,
                     "latency_samples": self.cal.latency_samples, "level_gain_db": self.cal.level_gain_db,
                     "input_usb56": self.cal.input_usb56, "original_preset": self.original,
                     "helper": str(helper_path())})

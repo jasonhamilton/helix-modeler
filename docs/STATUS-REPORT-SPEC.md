@@ -851,3 +851,9 @@ The goal is a concise, professional project-health dashboard backed by detailed,
 # Addendum (owner, 2026-10-15): task references
 
 Any report that references a task must give a relative link to that task in the GitHub repository, and every task number must show the task's name on hover. In Markdown: `[T042](../../board/TASKS.md#t042 "Play-along user-DI capture")`. In HTML: `<a href="…#t042" title="Play-along user-DI capture">T042</a>`. Links point at the per-task anchors in `board/TASKS.md` (or `board/CYCLES.md` once archived) defined in `contracts/board.md`.
+
+---
+
+# Addendum (owner, 2026-10-17): local docs site
+
+Whenever the docs are regenerated, also run `.venv/bin/python scripts/local_site.py build`. It renders every Markdown file under `board/`, `docs/` and `contracts/` (plus `README.md`, the status `README.md` and the local analysis READMEs) to HTML under `reports/local/docs/`, writes the landing page `reports/local/index.html` and the link check `reports/local/link_check.txt`. Output is local only (`reports/local/` is gitignored). `scripts/status_report.py` calls it at the end, guarded, so a normal run refreshes it.

@@ -49,6 +49,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
+from tonematch.engines.elastic import atomic_write_json, atomic_write_wav
+
 SR = 48_000
 DATASET = "synthetic-v1"
 SET_DIR = ROOT / "cache" / "synthetic-v1"
@@ -138,7 +140,7 @@ def near_knobs(rng: np.random.Generator, ks: dict[str, int]) -> dict[str, int]:
     return out
 
 
-def build_pools(seed: int = SEED, library=None, catalog=None, tv=None) -> dict:
+def build_pools(seed: int = SEED, library=None, catalog=None, tv=None, categories=None) -> dict:
     """category -> {model: free params}: the seeded pool the search chooses from."""
     from tonematch.catalog import load_catalog, native_unavailable
     from tonematch.engines import native_library as NL
@@ -147,9 +149,10 @@ def build_pools(seed: int = SEED, library=None, catalog=None, tv=None) -> dict:
     idx = NL.load_index()["models"]
     bad = set(native_unavailable())
     tv = {m for m, e in idx.items() if e.get("time_variant")} | bad
+    searchable_tv = set(NL.time_variant_models())
     rng = np.random.default_rng([seed, 1])
     pools: dict = {}
-    for c in CATEGORIES:
+    for c in categories or CATEGORIES:
         names = sorted(m for m, e in idx.items() if e["category"] == c and eligible(m, c, tv)
                        and not NL.is_routing(m))
         usable = {}
@@ -162,8 +165,35 @@ def build_pools(seed: int = SEED, library=None, catalog=None, tv=None) -> dict:
                 usable[m] = fp
         keys = sorted(usable)
         pick = sorted(rng.choice(len(keys), size=min(POOL_PER_CATEGORY, len(keys)), replace=False))
-        pools[c] = {keys[i]: usable[keys[i]] for i in pick}
+        # T148: the search drops every model in NL.time_variant_models() (index flag + the measured
+        # TIME_VARIANT_NATIVE_382, e.g. HD2_DelayADT), so such a model must not be a target. Dropped
+        # AFTER the draw, so every pool without one (v1, v2, v3, devfam, lindev) is unchanged.
+        pools[c] = {keys[i]: usable[keys[i]] for i in pick if keys[i] not in searchable_tv}
     return pools
+
+
+def set_paths(name: str) -> tuple[str, Path]:
+    """Point the module at set `name` (dataset name, cache/<name>/). The default is synthetic-v1."""
+    global DATASET, SET_DIR
+    DATASET, SET_DIR = name, ROOT / "cache" / name
+    return DATASET, SET_DIR
+
+
+def adopt_set_categories(man: dict) -> tuple:
+    """A run on a set made with --categories (e.g. synthetic-devfam) works over that set's categories."""
+    global CATEGORIES
+    if man.get("categories"):
+        CATEGORIES = tuple(man["categories"])
+    return CATEGORIES
+
+
+def used_excerpts(names) -> list[dict]:
+    """DI excerpts (path, start_s) of the A and C clips of the named sets' items."""
+    out = []
+    for n in names:
+        for it in json.loads((ROOT / "cache" / n / "labels.json").read_text()):
+            out += [{"path": d["path"], "start_s": d["start_s"]} for d in it["di"].values()]
+    return out
 
 
 def second_passage(rng, runs, ea, seconds):
@@ -177,26 +207,103 @@ def second_passage(rng, runs, ea, seconds):
     return dict(cands[int(rng.integers(len(cands)))], same_file=same)
 
 
-def generate(seed: int = SEED, out: Path = SET_DIR) -> dict:
+LEGACY_SETS = ("synthetic-v1", "synthetic-v2", "synthetic-devfam", "synthetic-lindev")  # made before the rule
+MAX_KNOB_REDRAWS = 8
+
+
+def make_target_checker():
+    """checker(model, category, free, values, dry) -> reason string if the true preset's render is not a
+    valid target (digital zero, or Native's silence guard), else None. One Native host, level only."""
+    from tonematch.catalog import load_catalog
+
+    catalog, blocks, holder = load_catalog(), {}, {}
+
+    def check(model, category, free, values, dry):
+        if "engine" not in holder:
+            holder["engine"] = make_engine()
+        if model not in blocks:
+            blocks[model] = Block(model, category, free, catalog)
+        eng = holder["engine"]
+        eng.load(blocks[model].with_values(values))
+        try:
+            t = np.asarray(eng.render(dry), np.float32)
+        except Exception as e:
+            if "silence" in str(e).lower():
+                return "silence guard"
+            raise
+        return "digital zero" if not np.any(t) else None
+
+    check.close = lambda: holder["engine"].close() if "engine" in holder else None
+    return check
+
+
+def _verdict(checker, category, model, free, knobs, dry):
+    return checker(model, category, free, {n: grid_value(lo, hi, knobs[n]) for n, lo, hi, _ in free}, dry)
+
+
+def generate(seed: int = SEED, out: Path | None = None, items_per_category: int | None = None,
+             categories: tuple | list | None = None, avoid_sets: tuple | list = (), name: str | None = None,
+             check_targets: bool | None = None, checker=None) -> dict:
+    """check_targets (default: on, except for the legacy sets): render each true preset once and redraw
+    an item whose target is digital zero / trips the silence guard. Redraws use their own RNG stream
+    [seed, 3]: first new knobs for the same model (same DI), then, if that keeps failing, another model
+    of the same category (least used first). Same pool, same avoid-sets; nothing else changes."""
     import helix_trust_set as HT
     import soundfile as sf
 
-    pools = build_pools(seed)
+    out = out or SET_DIR
+    name = name or DATASET
+    ipc = items_per_category or ITEMS_PER_CATEGORY
+    cats = tuple(categories or CATEGORIES)
+    custom = cats != CATEGORIES
+    pools = build_pools(seed, categories=cats if custom else None)
     rng = np.random.default_rng([seed, 2])
-    n_items = ITEMS_PER_CATEGORY * len(CATEGORIES)
+    n_items = ipc * len(cats)
+    avoid = used_excerpts(avoid_sets) if avoid_sets else None
     runs = HT.usable_runs(CLIP_S)
-    exc = HT.pick_excerpts(rng, n_items, CLIP_S)
+    if avoid:
+        runs = [r for r in runs if not HT.overlaps_any(r, avoid, CLIP_S)]
+    exc = HT.pick_excerpts(rng, n_items, CLIP_S, avoid)
     (out / "di").mkdir(parents=True, exist_ok=True)
+    if check_targets is None:
+        check_targets = name not in LEGACY_SETS
+    if check_targets and checker is None:
+        checker = make_target_checker()
+    redraws, rrng = [], np.random.default_rng([seed, 3])
     items = []
-    order = {c: list(rng.permutation(len(pools[c]))) for c in CATEGORIES}
-    for j in range(ITEMS_PER_CATEGORY):
-        for c in CATEGORIES:
+    order = {c: list(rng.permutation(len(pools[c]))) for c in cats}
+    for j in range(ipc):
+        for c in cats:
             i = len(items)
             models = list(pools[c])
             model = models[order[c][j % len(models)]]
             free = pools[c][model]
             ks = draw_knobs(rng, free)
             ea = exc[i]
+            if check_targets:
+                x0, _ = HT.load_excerpt(ea, CLIP_S, REF_LOUD_DBFS)
+                tried = []
+
+                why = _verdict(checker, c, model, free, ks, x0)
+                n_try = 0
+                while why:
+                    tried.append({"model": model, "knobs": ks, "reason": why})
+                    n_try += 1
+                    if n_try >= MAX_KNOB_REDRAWS:  # same model keeps failing: change the model
+                        use = {m: sum(1 for t in items if t["model"] == m) for m in pools[c]}
+                        cand = [m for m in pools[c] if m != model and m not in {t["model"] for t in tried}]
+                        if not cand:
+                            raise SystemExit(f"no valid target for category {c} item {i}")
+                        low = min(use[m] for m in cand)
+                        cand = [m for m in cand if use[m] == low]
+                        model = cand[int(rrng.integers(len(cand)))]
+                        free = pools[c][model]
+                        n_try = 0
+                    ks = draw_knobs(rrng, free)
+                    why = _verdict(checker, c, model, free, ks, x0)
+                if tried:
+                    redraws.append({"id": f"i{i:03d}", "category": c, "rejected": tried, "final_model": model})
+            
             ec = None
             for _ in range(len(exc)):
                 ec = second_passage(rng, runs, ea, CLIP_S)
@@ -214,7 +321,7 @@ def generate(seed: int = SEED, out: Path = SET_DIR) -> dict:
             same_cat = [m for m in models if m != model]
             for m in same_cat:
                 nbrs.append({"label": "same_category", "model": m, "knobs": draw_knobs(rng, pools[c][m])})
-            others = [(oc, om) for oc in CATEGORIES if oc != c for om in pools[oc]]
+            others = [(oc, om) for oc in cats if oc != c for om in pools[oc]]
             while len(nbrs) < N_NEIGHBOURS:
                 oc, om = others[int(rng.integers(len(others)))]
                 nbrs.append({"label": f"random:{oc}", "model": om, "knobs": draw_knobs(rng, pools[oc][om])})
@@ -225,9 +332,9 @@ def generate(seed: int = SEED, out: Path = SET_DIR) -> dict:
     from tonematch.engines import native_library as NL
 
     man = {
-        "name": DATASET, "version": 1, "seed": seed, "sample_rate": SR, "clip_seconds": CLIP_S,
-        "engine": "native", "library_version": NL.VERSION, "categories": list(CATEGORIES),
-        "items": len(items), "items_per_category": ITEMS_PER_CATEGORY,
+        "name": name, "version": 1, "seed": seed, "sample_rate": SR, "clip_seconds": CLIP_S,
+        "engine": "native", "library_version": NL.VERSION, "categories": list(cats),
+        "items": len(items), "items_per_category": ipc,
         "pool": {c: {m: [f[0] for f in fp] for m, fp in p.items()} for c, p in pools.items()},
         "excluded": {"other": "no Native stand-in ruling covers it (DECISIONS 2026-10-16)",
                      "time_variant": "flagged in the library index", "bitcrusher": "Stomp checks it",
@@ -236,11 +343,20 @@ def generate(seed: int = SEED, out: Path = SET_DIR) -> dict:
         "not_varied": sorted(NOT_VARIED), "ref_loud_dbfs": REF_LOUD_DBFS, "neighbours": N_NEIGHBOURS,
         "tolerance": TOLERANCE, "targets_working": TARGETS,
     }
+    if check_targets:
+        man["target_check"] = {"rule": "true preset rendered once on the DI A clip; digital zero or the "
+                               "silence guard -> redrawn (knobs, then model) from RNG stream [seed, 3]",
+                               "redraws": redraws}
+    if avoid_sets:
+        man["avoid_excerpts_of"] = list(avoid_sets)
     out.mkdir(parents=True, exist_ok=True)
     (out / "manifest.json").write_text(json.dumps(man, indent=1))
     (out / "labels.json").write_text(json.dumps(items, indent=1))
-    FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE.write_text(json.dumps(fixture_manifest(man), indent=2) + "\n")
+    if check_targets and hasattr(checker, "close"):
+        checker.close()
+    if name == "synthetic-v1":          # the committable fixture describes the first set only
+        FIXTURE.parent.mkdir(parents=True, exist_ok=True)
+        FIXTURE.write_text(json.dumps(fixture_manifest(man), indent=2) + "\n")
     return man
 
 
@@ -413,6 +529,9 @@ def search_item_ms(engine, blocks: dict[str, Block], section, kit, weights: dict
             "screen_scores": {s.model: s.scores for s in ch.ranked}}
 
 
+SPECIALISTS: tuple[str, ...] = ()      # families whose specialist is on (--specialists); empty = the frozen general method
+SPECIALIST_OPTS: dict = {"time_score_weight": 0.25}   # --time-score-weight (0 = no family score)
+POLICY: dict = {"tau": 0.0, "shortlist_max": 0, "shortlist_hint": 0.3, "gain_drive": False, "rank_slack": 0.0, "gate": 0.0, "keep_top": 0, "drive_seeds": False, "drive_shortlist": False}   # T143: --family-prior / --shortlist / --gain-drive (all off = frozen)
 HYBRID = {"f": 0.5, "k": 5, "fingerprint": False, "scale": 0.8, "level_free": False}   # set by --hybrid-f / --hybrid-k / --hybrid-fingerprint
 
 
@@ -429,9 +548,22 @@ def search_item_hy(engine, blocks: dict[str, Block], section, kit, weights: dict
     meas = measure(section.target, section.dry)
     ranges = {m: dict(b.rng) for m, b in blocks.items()}
     usage = usage_rank(list(blocks), usage_counts(POOL_USAGE))
+    disp = None
+    if SPECIALISTS:       # family dispatch (T122): off by default, so the frozen general method is reproducible
+        from tonematch.search.family_adapters import build_specialists
+        from tonematch.search.specialists import build_dispatch
+        sps = build_specialists(SPECIALISTS, time_score_weight=SPECIALIST_OPTS["time_score_weight"],
+                                gain_drive=POLICY["gain_drive"], mod_shortlist=POLICY["shortlist_max"] > 0,
+                                drive_seeds=POLICY["drive_seeds"], drive_shortlist=POLICY["drive_shortlist"])
+        disp = build_dispatch(SPECIALISTS, section.target, section.dry, [(m, b.category) for m, b in blocks.items()],
+                              cal=cal, ranges=ranges, specialists=sps)
+    from tonematch.search.family_policy import Policy
+    policy = Policy(tau=POLICY["tau"], shortlist_max=POLICY["shortlist_max"], shortlist_hint=POLICY["shortlist_hint"],
+                    rank_slack=POLICY["rank_slack"], gate=POLICY["gate"], keep_top=POLICY["keep_top"])
     ch = choose_models_hybrid(section, engine, kit, model_candidates(blocks), bud, meas=meas, cal=cal, ranges=ranges,
                               f=HYBRID["f"], k=HYBRID["k"], refine_scale=HYBRID["scale"],
-                              broad_kit=getattr(kit, "inner", None) if HYBRID["level_free"] else None, fingerprint=HYBRID["fingerprint"], usage=usage)
+                              broad_kit=getattr(kit, "inner", None) if HYBRID["level_free"] else None, fingerprint=HYBRID["fingerprint"], usage=usage,
+                              dispatch=disp, policy=policy)
     best = ch.best
     b = blocks[best.model]
     vals = best.values if best.values is not None else b.space.from_unit(
@@ -444,7 +576,12 @@ def search_item_hy(engine, blocks: dict[str, Block], section, kit, weights: dict
             "refined": {s.model: float(s.refined) for s in ch.ranked if s.refined is not None},
             "screen_renders": ch.screen_renders, "notes": ch.notes,
             "seeded": ch.seeds, "measured": ch.measured, "probs": meas.probs, "stage_renders": ch.rungs,
-            "hybrid": dict(HYBRID)}
+            "hybrid": dict(HYBRID, **({"policy": dict(POLICY)} if (POLICY["tau"] or POLICY["shortlist_max"] or POLICY["gain_drive"] or POLICY["rank_slack"] or POLICY["gate"] or POLICY["keep_top"]
+                                                           or POLICY["drive_seeds"] or POLICY["drive_shortlist"]) else {})),
+            **({"dispatch": {"families": list(disp.families), "hints": disp.hints, "category_probs": disp.category_probs,
+                             "family_score": disp.kit_family, "detail": disp.detail, "notes": disp.notes,
+                             **({"shortlist": list(disp.shortlist)} if disp.shortlist else {})}}
+               if disp is not None else {})}
 
 
 def search_item(engine, blocks: dict[str, Block], section, kit, weights: dict, budget: int, beam: int,
@@ -477,15 +614,23 @@ def search_item(engine, blocks: dict[str, Block], section, kit, weights: dict, b
             "refined": {m: float(r[0]) for m, r in refined.items()}}
 
 
-def rank1_fields(rows: list[dict]) -> dict:
+def rank1_fields(rows: list[dict], level_range_db: float = 0.0) -> dict:
     """Rank-1 of rows[0] (the truth) against rows[1:] under rule B, through the helper shared with
     loss-trust-check (`tonematch.metrics.trust`): a neighbour that nulls at SAME_SOUND_DB or lower
-    against the truth on the same notes is a tie, not a failure."""
+    against the truth on the same notes is a tie, not a failure. Extended rule B (human 2026-10-18,
+    T146): when the rows carry `gm_null_db` and `gm_gain_db`, a neighbour that nulls at SAME_SOUND_DB
+    or lower after the gain match, with the gain within `level_range_db` (the aligned capture's own
+    jitter), is a tie too."""
     from tonematch.metrics.trust import rank1_rule_b
 
     nb = rows[1:]
-    r = rank1_rule_b(rows[0]["loss"], [x["loss"] for x in nb], [x["null_db"] for x in nb], SAME_SOUND_DB)
+    kw = {}
+    if nb and all("gm_null_db" in x for x in nb):
+        kw = {"gm_null_db": [x["gm_null_db"] for x in nb], "gm_gain_db": [x["gm_gain_db"] for x in nb],
+              "level_range_db": level_range_db}
+    r = rank1_rule_b(rows[0]["loss"], [x["loss"] for x in nb], [x["null_db"] for x in nb], SAME_SOUND_DB, **kw)
     return {"rank1": r.rank1, "rank1_audible": r.rank1_audible, "n_same_sound": r.n_same_sound,
+            "n_level_tie": r.n_level_tie,
             "true_loss_heldout": rows[0]["loss"], "neighbour_rank": r.rank,
             "neighbour_rank_audible": r.rank_audible, "rank1_margin": r.margin,
             "rank1_margin_audible": r.margin_audible}
@@ -499,6 +644,9 @@ def split_level(errs: dict, known_di: bool) -> tuple[dict, dict]:
             {n: e for n, e in errs.items() if n in LEVEL_KNOBS})
 
 
+NEIGHBOUR_BAD_LOSS = 1e9   # = search.loop.BAD: the loss of a distractor Native would not render (T148)
+
+
 def rank1_rows(engine, it: dict, pool: dict, kit, weights, dry: dict, target_a, target_c,
                known_di: bool) -> tuple[list[dict], dict]:
     """Rows for rank1_fields (truth first) plus extra result fields.
@@ -508,12 +656,31 @@ def rank1_rows(engine, it: dict, pool: dict, kit, weights, dry: dict, target_a, 
     DI A passed through `loss_trust_check.aligned_capture`; the truth and neighbours are rendered
     on the same DI A, ties by null against the clean A render. The different-notes (C) rank-1 is
     kept as the `*_diffnotes` diagnostic, not the gate."""
-    from tonematch.metrics.trust import null_db
+    from tonematch.engines.base import EngineError
+    from tonematch.metrics.trust import gain_match, null_db
+
+    failed: list[str] = []
 
     def render(nb, d):
+        """The neighbour's render, or None when Native refuses it (T148: e.g. a Compressor Auto Swell
+        whose Threshold is never reached renders digital zero and trips the silence guard). A
+        distractor that cannot render is a worst-case distractor, never a crashed item."""
         b = pool[nb["model"]]
         engine.load(b.with_values(b.from_knobs(nb["knobs"])))
-        return np.asarray(engine.render(d), np.float32)
+        try:
+            return np.asarray(engine.render(d), np.float32)
+        except EngineError as e:
+            failed.append(f"{nb['label']} {nb['model']} {nb['knobs']}: {e}")
+            return None
+
+    def loss(ref, y):
+        return NEIGHBOUR_BAD_LOSS if y is None else float(kit.score(ref, y, weights=weights).total)
+
+    def zero_if_none(y, like):
+        return np.zeros_like(like) if y is None else y
+
+    def notes() -> dict:
+        return {"neighbour_render_errors": failed} if failed else {}
 
     if not known_di:
         # Scoring on A as well would hand the truth a loss of exactly 0 (same render), so it tests nothing.
@@ -522,10 +689,12 @@ def rank1_rows(engine, it: dict, pool: dict, kit, weights, dry: dict, target_a, 
         for nb in it["neighbours"]:
             y = render(nb, dry["C"])
             rows.append({"label": nb["label"], "model": nb["model"],
-                         "loss": float(kit.score(target_a, y, weights=weights).total),
-                         "null_db": float(null_db(target_c, y))})
-        return rows, {}
+                         "loss": loss(target_a, y),
+                         "null_db": float(null_db(target_c, zero_if_none(y, target_c)))})
+        return rows, notes()
     from loss_trust_check import aligned_capture
+
+    from tonematch.metrics.trust import capture_gain_range_db
 
     cap = aligned_capture(target_a, np.random.default_rng([SEED, 98, int(it["id"][1:])]))
     rows = [{"label": "true", "model": it["model"],
@@ -534,17 +703,29 @@ def rank1_rows(engine, it: dict, pool: dict, kit, weights, dry: dict, target_a, 
              "loss": float(kit.score(target_a, target_c, weights=weights).total), "null_db": 0.0}]
     for nb in it["neighbours"]:
         ya, yc = render(nb, dry["A"]), render(nb, dry["C"])
+        za, zc = zero_if_none(ya, target_a), zero_if_none(yc, target_c)
+        gm, gg = gain_match(target_a, za)
         rows.append({"label": nb["label"], "model": nb["model"],
-                     "loss": float(kit.score(cap, ya, weights=weights).total),
-                     "null_db": float(null_db(target_a, ya))})
+                     "loss": loss(cap, ya),
+                     "null_db": float(null_db(target_a, za)), "gm_null_db": gm, "gm_gain_db": gg})
         diff.append({"label": nb["label"], "model": nb["model"],
-                     "loss": float(kit.score(target_a, yc, weights=weights).total),
-                     "null_db": float(null_db(target_c, yc))})
+                     "loss": loss(target_a, yc),
+                     "null_db": float(null_db(target_c, zc))})
     d = rank1_fields(diff)
-    extra = {"rank1_mode": "known_di_same_notes_aligned", "rank1_diffnotes": d["rank1"],
+    extra = {**notes(), "rank1_mode": "known_di_same_notes_aligned", "rule_b": "extended (T146)",
+             "rule_b_level_range_db": capture_gain_range_db(None),   # the capture above uses the default setting
+             "rank1_diffnotes": d["rank1"],
              "rank1_audible_diffnotes": d["rank1_audible"], "n_same_sound_diffnotes": d["n_same_sound"],
              "neighbour_rank_diffnotes": d["neighbour_rank"]}
     return rows, extra
+
+
+def true_screen_rank(screen: dict, model: str) -> int | None:
+    """1-based rank of the true model in the screen; None when the search never screened it (T148:
+    the hybrid drops time-variant models, so a time-variant target is a miss, not a crash)."""
+    if model not in screen:
+        return None
+    return 1 + sorted(screen.values()).index(screen[model])
 
 
 def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budget, beam, do_rank1,
@@ -564,7 +745,7 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
     true_p = tb.with_values(it["values"])
     engine.load(true_p)
     target_a = np.asarray(engine.render(dry["A"]), np.float32)
-    sec = Section("synthetic-v1", it["id"], target_a, dry["A"])
+    sec = Section(DATASET, it["id"], target_a, dry["A"])
     allowed = {m: b for m, b in pool.items()}
     searcher = search_item_hy if hybrid else search_item_ms if seed_measured else search_item_mc if model_choice else search_item
     s = searcher(engine, allowed, sec, search_kit or kit, weights, budget, beam, int(it["id"][1:]), clip_s)
@@ -575,10 +756,12 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
         "pred_category": pb.category, "pred_model": s["model"], "pred_values": s["values"],
         "model_ok": s["model"] == it["model"], "category_ok": pb.category == it["category"],
         "loss_fit": s["loss_fit"], "screen": s["screen"], "refined": s["refined"],
-        "true_model_screen_rank": 1 + sorted(s["screen"].values()).index(s["screen"][it["model"]]),
+        "true_model_screen_rank": true_screen_rank(s["screen"], it["model"]),
         "search_s": round(t_search, 1),
     }
-    for key in ("seeded", "measured", "probs", "stage_renders", "screen_scores", "hybrid"):
+    if res["true_model_screen_rank"] is None:   # T148: e.g. a time-variant target the search leaves out
+        res["true_model_not_searched"] = True
+    for key in ("seeded", "measured", "probs", "stage_renders", "screen_scores", "hybrid", "dispatch"):
         if key in s:
             res[key] = s[key]
     if res["model_ok"]:
@@ -597,11 +780,11 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
     found_c = np.asarray(engine.render(dry["C"]), np.float32)
     res["loss_heldout"] = float(kit.score(target_c, found_c, weights=weights).total)
     if audio_dir is not None:   # for the human's blind listen (ab_session gate2-demo): new notes only
-        sf.write(str(audio_dir / f"{it['id']}_target.wav"), target_c, SR, subtype="FLOAT")
-        sf.write(str(audio_dir / f"{it['id']}_recovered.wav"), found_c, SR, subtype="FLOAT")
+        atomic_write_wav(audio_dir / f"{it['id']}_target.wav", target_c, SR)
+        atomic_write_wav(audio_dir / f"{it['id']}_recovered.wav", found_c, SR)
     if do_rank1:
         rows, extra = rank1_rows(engine, it, pool, kit, weights, dry, target_a, target_c, known_di)
-        res.update(rank1_fields(rows))
+        res.update(rank1_fields(rows, extra.get("rule_b_level_range_db", 0.0)))
         res.update(extra)
     res["renders"] = engine.renders - r0
     res["wall_s"] = round(now_s() - t0, 1)
@@ -651,6 +834,8 @@ def baseline_item_fields(it: dict, pool: dict, pred_model: str, pred_values: dic
     tb = pool[it["model"]]
     res = {"pred_category": pb.category, "pred_model": pred_model,
            "category_ok": pb.category == it["category"], "model_ok": pred_model == it["model"]}
+    if pred_values is not None:   # output only (gate2_report render-examples renders the guess from this)
+        res["pred_values"] = {n: float(x) for n, x in pred_values.items()}
     if res["model_ok"] and pred_values is not None:
         tn, pn = tb.norm(it["values"]), tb.norm(pred_values)
         res["param_abs_err"] = {n: abs(tn[n] - pn[n]) for n in tn}
@@ -680,7 +865,7 @@ def _scores(engine, kit, weights, target, dry, presets) -> list[float]:
 
 
 def run_baseline_item(engine, kind: str, it: dict, pool: dict, kit, weights, budget: int, clip_s: float,
-                      do_rank1: bool, known_di: bool = False) -> dict:
+                      do_rank1: bool, known_di: bool = False, audio_dir=None) -> dict:
     import soundfile as sf
 
     t0 = now_s()
@@ -704,7 +889,8 @@ def run_baseline_item(engine, kind: str, it: dict, pool: dict, kit, weights, bud
         res["loss_fit"] = sc[bi]
         al = baseline_item_fields(it, pool, m_all, mid_values(pool[m_all]))
         res["all"] = {"pred_model": m_all, "pred_category": al["pred_category"],
-                      "category_ok": al["category_ok"], "model_ok": al["model_ok"], "loss_fit": sc[ba]}
+                      "category_ok": al["category_ok"], "model_ok": al["model_ok"], "loss_fit": sc[ba],
+                      "pred_values": al["pred_values"]}
         tn = tb.norm(it["values"])                          # settings error: the TRUE model at middle
         res["param_mid_abs_err"], lvl = split_level({n: abs(v - 0.5) for n, v in tn.items()}, known_di)
         if known_di:
@@ -728,9 +914,12 @@ def run_baseline_item(engine, kind: str, it: dict, pool: dict, kit, weights, bud
     engine.load(pool[pm].with_values(pv))
     found_c = np.asarray(engine.render(dry["C"]), np.float32)
     res["loss_heldout"] = float(kit.score(target_c, found_c, weights=weights).total)
+    if audio_dir is not None:   # same files as the search run's --save-audio: new notes (DI C) only
+        atomic_write_wav(audio_dir / f"{it['id']}_target.wav", target_c, SR)
+        atomic_write_wav(audio_dir / f"{it['id']}_recovered.wav", found_c, SR)
     if do_rank1:   # a property of the score, not of the search: the true preset vs 24 neighbours
         rows, extra = rank1_rows(engine, it, pool, kit, weights, dry, target_a, target_c, known_di)
-        res.update(rank1_fields(rows))
+        res.update(rank1_fields(rows, extra.get("rule_b_level_range_db", 0.0)))
         res.update(extra)
     res["renders"] = engine.renders - r0
     res["wall_s"] = round(now_s() - t0, 1)
@@ -807,15 +996,200 @@ def write_baseline_ledger(summary: dict, dataset: str, notes: str, wall: float) 
     return rows
 
 
+# --------------------------------------------------------------------------- elastic jobs (T138)
+
+def results_on_disk(items: list[dict], run_dir: Path) -> list[dict]:
+    out = []
+    for it in items:
+        try:
+            out.append(json.loads((run_dir / f"{it['id']}.json").read_text()))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def work_items(items: list[dict], run_dir: Path, process, report, a, *, sleep=time.sleep) -> int:
+    """Claim, process and write items one at a time until none is left to claim.
+
+    ``process(it) -> result`` renders; this loop owns the claim, the atomic write and the stop checks.
+    A standalone process (or a ``--shard``) waits for items other processes hold and takes over stale
+    ones; a supervised worker (``--as-worker``) leaves when nothing is claimable, and stops after its
+    current item when asked (stop file, SIGTERM, or its supervisor gone). Returns items processed."""
+    from tonematch.engines.elastic import ClaimQueue, StopWatch, item_done
+
+    redo_since = getattr(a, "redo_since", None) or (time.time() if a.redo else None)
+    queue = ClaimQueue(run_dir)
+    worker = bool(getattr(a, "as_worker", False))
+    watch = StopWatch(run_dir, getattr(a, "supervisor_pid", None)) if worker else None
+    busy = {"in_item": False}
+    if watch is not None:
+        (run_dir / ".workers").mkdir(exist_ok=True)
+        watch.install_signals(lambda: busy["in_item"])
+    done_n = 0
+    while True:
+        if watch is not None and watch.should_stop():
+            print("worker: stop requested; leaving between items", flush=True)
+            break
+        todo = [it["id"] for it in items if not item_done(run_dir, it["id"], redo_since)]
+        if not todo:
+            break
+        claim = queue.claim_next(todo)
+        if claim is None:
+            if worker:
+                break
+            sleep(5.0)
+            continue
+        by_id = {it["id"]: it for it in items}
+        try:
+            if item_done(run_dir, claim.id, redo_since):  # finished between the scan and the claim
+                continue
+            busy["in_item"] = True
+            it = by_id[claim.id]
+            r = process(it)
+            atomic_write_json(run_dir / f"{it['id']}.json", r, indent=1)  # last: this is "done"
+            busy["in_item"] = False
+            report(it, r)
+            done_n += 1
+        finally:
+            busy["in_item"] = False
+            claim.release()
+    return done_n
+
+
+def write_worker_stats(run_dir: Path, **stats) -> None:
+    d = run_dir / ".workers"
+    d.mkdir(exist_ok=True)
+    atomic_write_json(d / f"{os.getpid()}.stats.json", stats)
+
+
+def merged_worker_stats(run_dir: Path) -> tuple[dict | None, float]:
+    """Sum the numeric native_stats of every worker that ran, and the longest engine open time."""
+    nstats, t_open = None, 0.0
+    for f in sorted((run_dir / ".workers").glob("*.stats.json")):
+        try:
+            d = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        t_open = max(t_open, float(d.get("t_open") or 0.0))
+        for k, v in (d.get("native_stats") or {}).items():
+            nstats = {} if nstats is None else nstats
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                nstats.setdefault(k, v)
+            else:
+                nstats[k] = nstats.get(k, 0) + v
+    return nstats, t_open
+
+
+def strip_flags(argv: list[str], flags: dict[str, int]) -> list[str]:
+    """Remove ``--flag value`` pairs (``flags``: name -> number of values) from an argv list."""
+    out, i = [], 0
+    while i < len(argv):
+        name = argv[i].split("=", 1)[0]
+        if name in flags:
+            i += 1 if "=" in argv[i] else 1 + flags[name]
+            continue
+        out.append(argv[i])
+        i += 1
+    return out
+
+
+def cmd_supervise(a) -> int:
+    """``run --workers auto|N``: a supervisor that renders nothing and keeps as many workers running
+    as the host scaler grants this job (elastic.Supervisor), then writes the usual summary."""
+    import signal as _signal
+
+    from tonematch.engines import host_budget as hb
+    from tonematch.engines.elastic import ClaimQueue, Supervisor, item_done
+
+    man = json.loads((SET_DIR / "manifest.json").read_text())
+    adopt_set_categories(man)
+    labels = json.loads((SET_DIR / "labels.json").read_text())
+    shard = tuple(int(x) for x in a.shard.split("/")) if a.shard else None
+    items = select_items(labels, a.items, a.ids, shard)
+    run_dir = SET_DIR / "runs" / a.tag
+    run_dir.mkdir(parents=True, exist_ok=True)
+    t_start = time.time()
+    redo_since = t_start if a.redo else None
+    cfg = hb.Config.load()
+    max_workers = len(items) if str(a.workers) != "auto" else cfg.max_hosts
+    if str(a.workers) != "auto":
+        max_workers = max(1, min(int(a.workers), len(items)))
+    os.environ["TONEMATCH_RUN_TAG"] = f"{a.set}-{a.tag}" + (f"-{a.baseline}" if a.baseline else "")
+    os.environ["TONEMATCH_JOB_PRIORITY"] = a.priority
+    job = hb.default_job()
+
+    def left() -> int:
+        return sum(1 for it in items if not item_done(run_dir, it["id"], redo_since))
+
+    argv = strip_flags(list(a.argv_raw), {"--workers": 1, "--priority": 1, "--redo-since": 1,
+                                          "--supervisor-pid": 1}) + ["--as-worker"]
+    argv += ["--supervisor-pid", str(os.getpid())]
+    if redo_since:
+        argv += ["--redo-since", repr(redo_since)]
+    n = 0
+
+    def spawn():
+        nonlocal n
+        n += 1
+        with open(run_dir / f"worker{os.getpid()}-{n}.log", "ab") as log:
+            return subprocess.Popen([sys.executable, str(Path(__file__).resolve()), *argv], stdout=log,
+                                    stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                    start_new_session=True, cwd=str(ROOT))
+
+    todo = left()
+    print(f"supervisor: {len(items)} items, {todo} to do, up to {max_workers} workers, priority {a.priority}, "
+          f"job {job}; workers' logs in {run_dir}/worker*.log", flush=True)
+    if hb.enabled():
+        hb.notice_once()
+        lease = hb.acquire(job, min(max_workers, max(todo, 1)), floor=0, demand_only=True,
+                           priority=a.priority, label="supervisor", timeout=0,
+                           info={"workers": 0, "left": todo, "done": len(items) - todo, "total": len(items),
+                                 "priority": a.priority, "supervisor": True})
+        budget = hb.get_budget()
+    else:
+        lease, budget = hb.Lease(None, "off", job, max_workers, 0, max_workers), None
+    sup = Supervisor(run_dir=run_dir, left=left, total=len(items), spawn=spawn, lease=lease,
+                     max_workers=max_workers, queue=ClaimQueue(run_dir), budget=budget, priority=a.priority)
+
+    def on_term(signum, frame):
+        print("supervisor: SIGTERM; stopping workers after their current items", flush=True)
+        sup.terminate()
+
+    _signal.signal(_signal.SIGTERM, on_term)
+    _signal.signal(_signal.SIGINT, on_term)
+    finished = sup.run()
+    if not finished:
+        print(f"supervisor: stopped early, {left()} items left; run again with the same --tag to continue")
+        return 143
+    wall = time.time() - t_start
+    results = results_on_disk(items, run_dir)
+    nstats, t_open = merged_worker_stats(run_dir)
+    if a.baseline:
+        _w, admitted, wlabel = load_weights(a.weights)
+        summ = summarize_baseline(results, {c: man["pool"][c] for c in CATEGORIES}, labels)
+        summ.update({"weights": wlabel, "admitted": admitted, "budget": a.budget})
+        atomic_write_json(run_dir / f"summary_shard{a.shard.replace('/', 'of') if a.shard else 'all'}.json",
+                          summ, indent=1)
+        print(json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in summ.items()}, indent=1))
+        return 0
+    return finish_run(a, man, labels, items, run_dir, results, wall, t_open, nstats, shard)
+
+
 def cmd_baseline(a) -> int:
     man = json.loads((SET_DIR / "manifest.json").read_text())
+    adopt_set_categories(man)
     labels = json.loads((SET_DIR / "labels.json").read_text())
     shard = tuple(int(x) for x in a.shard.split("/")) if a.shard else None
     items = select_items(labels, a.items, a.ids, shard)
     weights, admitted, wlabel = load_weights(a.weights)
     running = machine_hosts()
     print(f"native_host processes before start: {running}; this run opens 1", flush=True)
-    if running + 1 > MAX_MACHINE_HOSTS:
+    from tonematch.engines import host_budget as hb  # T133: the scaler waits instead of refusing
+
+    if hb.enabled():
+        print("host budget on: the engine waits for a slot (python -m tonematch.engines.host_budget status)",
+              flush=True)
+    elif running + 1 > MAX_MACHINE_HOSTS:  # TONEMATCH_HOST_BUDGET=off: the old refusal, unchanged
         print(f"refusing: {running} native_host processes already running (limit {MAX_MACHINE_HOSTS})",
               file=sys.stderr)
         return 3
@@ -831,40 +1205,46 @@ def cmd_baseline(a) -> int:
     run_dir = SET_DIR / "runs" / a.tag
     run_dir.mkdir(parents=True, exist_ok=True)
     kit = LossKit()
-    engine = make_engine()
     print(f"baseline {a.baseline}: {len(items)} items, budget {a.budget}, weights: {wlabel}", flush=True)
-    results = []
+    holder = {}
+
+    def process(it):
+        if "engine" not in holder:
+            holder["engine"] = make_engine()
+        try:
+            return run_baseline_item(holder["engine"], a.baseline, it, pool, kit, weights, a.budget,
+                                     man["clip_seconds"], a.baseline == "middle" and not a.no_rank1,
+                                     a.known_di or admitted,
+                                     audio_dir=run_dir if getattr(a, "save_audio", False) else None)
+        except Exception as e:  # noqa: BLE001 - recorded, counted as a miss
+            return {"id": it["id"], "category": it["category"], "model": it["model"], "baseline": a.baseline,
+                    "category_ok": False, "model_ok": False, "error": f"{type(e).__name__}: {e}",
+                    "renders": 0, "wall_s": 0.0}
+
+    def report(it, r):
+        print(f"{it['id']} {it['category']:6s} {it['model'][4:]:28s} -> {(r.get('pred_model') or '?')[4:]:28s} "
+              f"cat {'ok' if r['category_ok'] else 'NO'} model {'ok' if r['model_ok'] else 'NO'} "
+              f"{r.get('renders', 0)} renders {r.get('wall_s', 0)} s", flush=True)
+
     try:
-        for it in items:
-            f = run_dir / f"{it['id']}.json"
-            if f.exists() and not a.redo:
-                results.append(json.loads(f.read_text()))
-                continue
-            try:
-                r = run_baseline_item(engine, a.baseline, it, pool, kit, weights, a.budget,
-                                      man["clip_seconds"], a.baseline == "middle" and not a.no_rank1,
-                                      a.known_di or admitted)
-            except Exception as e:  # noqa: BLE001 - recorded, counted as a miss
-                r = {"id": it["id"], "category": it["category"], "model": it["model"], "baseline": a.baseline,
-                     "category_ok": False, "model_ok": False, "error": f"{type(e).__name__}: {e}",
-                     "renders": 0, "wall_s": 0.0}
-            f.write_text(json.dumps(r, indent=1))
-            results.append(r)
-            print(f"{it['id']} {it['category']:6s} {it['model'][4:]:28s} -> {(r.get('pred_model') or '?')[4:]:28s} "
-                  f"cat {'ok' if r['category_ok'] else 'NO'} model {'ok' if r['model_ok'] else 'NO'} "
-                  f"{r.get('renders', 0)} renders {r.get('wall_s', 0)} s", flush=True)
+        work_items(items, run_dir, process, report, a)
     finally:
-        engine.close()
+        if "engine" in holder:
+            holder["engine"].close()
+    if getattr(a, "as_worker", False):
+        return 0
+    results = results_on_disk(items, run_dir)
     summ = summarize_baseline(results, {c: man["pool"][c] for c in CATEGORIES}, labels)
     summ.update({"weights": wlabel, "admitted": admitted, "budget": a.budget})
-    (run_dir / f"summary_shard{a.shard.replace('/', 'of') if a.shard else 'all'}.json").write_text(
-        json.dumps(summ, indent=1))
+    atomic_write_json(run_dir / f"summary_shard{a.shard.replace('/', 'of') if a.shard else 'all'}.json", summ,
+                      indent=1)
     print(json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in summ.items()}, indent=1))
     return 0
 
 
 def cmd_baseline_summarize(a) -> int:
     man = json.loads((SET_DIR / "manifest.json").read_text())
+    adopt_set_categories(man)
     labels = json.loads((SET_DIR / "labels.json").read_text())
     run_dir = SET_DIR / "runs" / a.tag
     keep = {x["id"] for x in select_items(labels, a.items, a.ids, None)}
@@ -935,7 +1315,8 @@ def select_items(labels: list[dict], count: int | None, ids: list[str] | None, s
     if ids:
         return [x for x in labels if x["id"] in ids]
     by = {c: [x for x in labels if x["category"] == c] for c in CATEGORIES}
-    order = [by[c][j] for j in range(ITEMS_PER_CATEGORY) for c in CATEGORIES if j < len(by[c])]
+    order = [by[c][j] for j in range(max([ITEMS_PER_CATEGORY] + [len(v) for v in by.values()]))
+             for c in CATEGORIES if j < len(by[c])]
     if count:
         order = order[:count]
     if shard:
@@ -996,18 +1377,33 @@ def write_ledger(summary: dict, dataset: str, notes: str, wall: float) -> list[s
 
 
 def cmd_run(a) -> int:
+    if getattr(a, "workers", None):
+        return cmd_supervise(a)
     if getattr(a, "baseline", None):
         return cmd_baseline(a)
     man = json.loads((SET_DIR / "manifest.json").read_text())
+    adopt_set_categories(man)
     labels = json.loads((SET_DIR / "labels.json").read_text())
     shard = tuple(int(x) for x in a.shard.split("/")) if a.shard else None
     items = select_items(labels, a.items, a.ids, shard)
     weights, admitted, wlabel = load_weights(a.weights)
+    global SPECIALISTS
+    from tonematch.search.specialists import FAMILIES
+    SPECIALISTS = tuple(FAMILIES) if "all" in (a.specialists or []) else tuple(a.specialists or ())
+    SPECIALIST_OPTS["time_score_weight"] = a.time_score_weight
+    POLICY.update(tau=a.family_prior, shortlist_max=a.shortlist, shortlist_hint=a.shortlist_hint, gain_drive=a.gain_drive,
+                   rank_slack=a.rank_slack, gate=a.prior_gate, keep_top=a.keep_top,
+                   drive_seeds=a.drive_seeds, drive_shortlist=a.drive_shortlist)
     HYBRID.update(f=a.hybrid_f, k=a.hybrid_k, fingerprint=a.hybrid_fingerprint, scale=a.hybrid_scale,
                   level_free=a.hybrid_level_free)
     running = machine_hosts()
     print(f"native_host processes before start: {running}; this run opens 1", flush=True)
-    if running + 1 > MAX_MACHINE_HOSTS:
+    from tonematch.engines import host_budget as hb  # T133: the scaler waits instead of refusing
+
+    if hb.enabled():
+        print("host budget on: the engine waits for a slot (python -m tonematch.engines.host_budget status)",
+              flush=True)
+    elif running + 1 > MAX_MACHINE_HOSTS:  # TONEMATCH_HOST_BUDGET=off: the old refusal, unchanged
         print(f"refusing: {running} native_host processes already running (limit {MAX_MACHINE_HOSTS})",
               file=sys.stderr)
         return 3
@@ -1029,38 +1425,59 @@ def cmd_run(a) -> int:
     known_di = MS.is_known_di_mode(weights, admitted, flag=bool(getattr(a, "known_di", False)))
     search_kit = MS.LevelGuardKit(kit, known_di=True) if known_di else None
     t0 = now_s()
-    engine = make_engine()
-    t_open = now_s() - t0
+    holder = {}
+
+    def get_engine():
+        if "engine" not in holder:
+            t1 = now_s()
+            holder["engine"] = make_engine()
+            holder["t_open"] = now_s() - t1
+            print(f"engine open in {holder['t_open']:.1f} s; machine now {machine_hosts()} native_host; "
+                  f"{len(items)} items, search budget {a.budget} renders, weights: {wlabel}", flush=True)
+        return holder["engine"]
+
+    def process(it):
+        engine = get_engine()
+        try:
+            return run_item(engine, it, blocks_by_cat, catalog, kit, weights, a.budget, a.beam,
+                            not a.no_rank1, man["clip_seconds"], a.model_choice or a.seed_measured,
+                            search_kit=search_kit, known_di=known_di, seed_measured=a.seed_measured,
+                            hybrid=a.hybrid,
+                            audio_dir=run_dir if getattr(a, "save_audio", False) else None)
+        except Exception as e:  # noqa: BLE001 - recorded, counted as a miss
+            return {"id": it["id"], "category": it["category"], "model": it["model"], "category_ok": False,
+                    "model_ok": False, "error": f"{type(e).__name__}: {e}", "renders": 0, "wall_s": 0.0}
+
+    def report(it, r):
+        print(f"{it['id']} {it['category']:6s} {it['model'][4:]:28s} -> "
+              f"{(r.get('pred_model') or '?')[4:]:28s} cat {'ok' if r['category_ok'] else 'NO'} "
+              f"model {'ok' if r['model_ok'] else 'NO'} mae "
+              f"{r.get('param_mae_item', float('nan')):.3f} rank1 {r.get('rank1', '-')} "
+              f"{r.get('renders', 0)} renders {r.get('wall_s', 0)} s", flush=True)
+
     nstats = None
-    print(f"engine open in {t_open:.1f} s; machine now {machine_hosts()} native_host; {len(items)} items, "
-          f"search budget {a.budget} renders, weights: {wlabel}", flush=True)
-    results = []
     try:
-        for it in items:
-            f = run_dir / f"{it['id']}.json"
-            if f.exists() and not a.redo:
-                results.append(json.loads(f.read_text()))
-                continue
-            try:
-                r = run_item(engine, it, blocks_by_cat, catalog, kit, weights, a.budget, a.beam,
-                             not a.no_rank1, man["clip_seconds"], a.model_choice or a.seed_measured,
-                             search_kit=search_kit, known_di=known_di, seed_measured=a.seed_measured,
-                             hybrid=a.hybrid,
-                             audio_dir=run_dir if getattr(a, "save_audio", False) else None)
-            except Exception as e:  # noqa: BLE001 - recorded, counted as a miss
-                r = {"id": it["id"], "category": it["category"], "model": it["model"], "category_ok": False,
-                     "model_ok": False, "error": f"{type(e).__name__}: {e}", "renders": 0, "wall_s": 0.0}
-            f.write_text(json.dumps(r, indent=1))
-            results.append(r)
-            print(f"{it['id']} {it['category']:6s} {it['model'][4:]:28s} -> "
-                  f"{(r.get('pred_model') or '?')[4:]:28s} cat {'ok' if r['category_ok'] else 'NO'} "
-                  f"model {'ok' if r['model_ok'] else 'NO'} mae "
-                  f"{r.get('param_mae_item', float('nan')):.3f} rank1 {r.get('rank1', '-')} "
-                  f"{r.get('renders', 0)} renders {r.get('wall_s', 0)} s", flush=True)
+        work_items(items, run_dir, process, report, a)
     finally:
-        nstats = engine.native_stats()  # T103: canary + in-run sentinel counts
-        engine.close()
+        if "engine" in holder:
+            nstats = holder["engine"].native_stats()  # T103: canary + in-run sentinel counts
+            holder["engine"].close()
+    t_open = holder.get("t_open", 0.0)
+    if getattr(a, "as_worker", False):
+        write_worker_stats(run_dir, native_stats=nstats, t_open=t_open)
+        return 0
     wall = now_s() - t0
+    return finish_run(a, man, labels, items, run_dir, results_on_disk(items, run_dir), wall, t_open, nstats, shard,
+                      weights=weights, admitted=admitted, wlabel=wlabel, known_di=known_di)
+
+
+def finish_run(a, man, labels, items, run_dir, results, wall, t_open, nstats, shard, *, weights=None,
+               admitted=None, wlabel=None, known_di=None) -> int:
+    """Summary, regression check and ledger rows, from the item files on disk."""
+    if weights is None:
+        weights, admitted, wlabel = load_weights(a.weights)
+        import match_song as MS
+        known_di = MS.is_known_di_mode(weights, admitted, flag=bool(getattr(a, "known_di", False)))
     full = len(items) == len(labels) and not shard
     dataset = DATASET if full else f"{DATASET}-n{len(items)}" + (f"-shard{a.shard.replace('/', 'of')}" if shard else "")
     pools = {c: man["pool"][c] for c in CATEGORIES}
@@ -1091,6 +1508,7 @@ def cmd_summarize(a) -> int:
     if getattr(a, "baseline", None):
         return cmd_baseline_summarize(a)
     man = json.loads((SET_DIR / "manifest.json").read_text())
+    adopt_set_categories(man)
     labels = json.loads((SET_DIR / "labels.json").read_text())
     run_dir = SET_DIR / "runs" / a.tag
     results = [json.loads(p.read_text()) for p in sorted(run_dir.glob("i*.json"))]
@@ -1103,6 +1521,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     g = sub.add_parser("generate")
     g.add_argument("--seed", type=int, default=SEED)
+    g.add_argument("--items-per-category", type=int, default=None, help=f"default {ITEMS_PER_CATEGORY}")
+    g.add_argument("--categories", nargs="+", default=None, choices=CATEGORIES, help="default: all eight")
+    g.add_argument("--avoid-sets", nargs="+", default=[],
+                   help="sets whose DI excerpts (A and C) no item of this set may overlap")
+    g.add_argument("--no-check-targets", action="store_true",
+                   help="skip the digital-zero redraw rule (only to reproduce the legacy sets)")
     r = sub.add_parser("run")
     r.add_argument("--items", type=int, default=None, help="first N items in category round-robin order")
     r.add_argument("--ids", nargs="+", default=None)
@@ -1121,6 +1545,30 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--hybrid", action="store_true",
                    help="Gate 2 hybrid: broad space-filling draws over all pool models (seed-centred where "
                         "measured), top-K narrowing, successive halving with banded CMA-ES (same budget)")
+    r.add_argument("--specialists", nargs="*", default=None, choices=["all", "gain", "linear", "dynamics", "time", "mod"],
+                   help="family dispatch (T122): turn the specialists of these families on (hybrid only). Default: none, "
+                        "the frozen general method")
+    r.add_argument("--time-score-weight", type=float, default=0.25,
+                   help="weight of the time family term added to the score when the time specialist is on (0 = none; 0.25 is "
+                        "the largest weight that passed the trust bar, DECISIONS 2026-10-17 T122)")
+    r.add_argument("--family-prior", type=float, default=0.0, metavar="TAU",
+                   help="T143: category prior tau * -ln P(family) added to the narrowing and the final order (0 = off, the frozen method)")
+    r.add_argument("--prior-gate", type=float, default=0.0, metavar="H",
+                   help="T143: the family prior acts only when some family hint is at least H, penalising by tau * ln(best hint / own hint) (0 = the plain -ln hint prior)")
+    r.add_argument("--keep-top", type=int, default=0, metavar="N",
+                   help="T143: the N best models by raw broad score always stay in the refine set")
+    r.add_argument("--shortlist", type=int, default=0, metavar="N",
+                   help="T143: force the specialist's first N shortlisted models (mod: nearest in the calibration table) into the refine set")
+    r.add_argument("--shortlist-hint", type=float, default=0.3, help="T143: ... when the family hint is at least this")
+    r.add_argument("--rank-slack", type=float, default=0.0, metavar="X",
+                   help="T143: a winning shortlisted (mod) model is replaced by the specialist's best-ranked refined model of "
+                        "its category with loss within X times the winner's (0 = off)")
+    r.add_argument("--drive-seeds", action="store_true",
+                   help="T143: knob seeds for drive models from the drive calibration table (scripts/drive_calibrate.py)")
+    r.add_argument("--drive-shortlist", action="store_true",
+                   help="T143: the drive table's nearest drive models join the shortlist")
+    r.add_argument("--gain-drive", action="store_true",
+                   help="T143: drives are finalists of the gain family's GP-EI refiner (best gain model + best of the other gain category)")
     r.add_argument("--hybrid-f", type=float, default=0.5, help="fraction of the budget for the broad stage")
     r.add_argument("--hybrid-k", type=int, default=5, help="models kept after the broad stage")
     r.add_argument("--hybrid-scale", type=float, default=0.8,
@@ -1135,6 +1583,14 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--no-rank1", action="store_true")
     r.add_argument("--ledger", action="store_true")
     r.add_argument("--redo", action="store_true")
+    r.add_argument("--workers", default=None, metavar="auto|N",
+                   help="run as a supervisor that keeps as many workers as the host scaler grants this job "
+                        "(auto), or at most N; items are claimed one by one, so the job grows and shrinks")
+    r.add_argument("--priority", choices=("high", "normal"), default="normal",
+                   help="a high job gets hosts first; normal jobs share the rest and shrink for it")
+    r.add_argument("--as-worker", action="store_true", help=argparse.SUPPRESS)
+    r.add_argument("--supervisor-pid", type=int, default=None, help=argparse.SUPPRESS)
+    r.add_argument("--redo-since", type=float, default=None, help=argparse.SUPPRESS)
     r.add_argument("--baseline", choices=BASELINES, default=None,
                    help="run a baseline instead of the search: middle (all knobs at the middle) or random "
                         "(random model and settings, --budget draws); labelled with the weights used")
@@ -1149,11 +1605,17 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--budget", type=int, default=300)
     s.add_argument("--ledger", action="store_true")
     s.add_argument("--note", default="")
+    for p_ in (g, r, s):
+        p_.add_argument("--set", default="synthetic-v1", help="set name: cache/<NAME>/, dataset NAME")
     a = ap.parse_args(argv)
+    a.argv_raw = list(sys.argv[1:] if argv is None else argv)
+    set_paths(a.set)
     if a.cmd == "generate":
-        man = generate(a.seed)
+        man = generate(a.seed, items_per_category=a.items_per_category, categories=a.categories,
+                       avoid_sets=a.avoid_sets, name=a.set,
+                       check_targets=False if a.no_check_targets else None)
         print(f"{man['items']} items, pool {sum(len(p) for p in man['pool'].values())} models, "
-              f"wrote {SET_DIR} and {FIXTURE}")
+              f"wrote {SET_DIR}" + (f" and {FIXTURE}" if a.set == "synthetic-v1" else ""))
         return 0
     return {"run": cmd_run, "summarize": cmd_summarize}[a.cmd](a)
 

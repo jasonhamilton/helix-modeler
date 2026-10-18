@@ -1,5 +1,5 @@
 {
- "cycle": "Cycle 4 (mode 2), refresh after the 2026-10-17 work: Gate 2 attempt 1 (not passed), native and Stomp verification, T105-T115",
+ "cycle": "Cycle 4 (mode 2), refresh after Gate 2 attempt 2 (not passed, 6 of 7): T117, T122, T134, T138-T141",
  "generated_for": "tone-matcher-lead",
  "discrepancies": [
   "T018 (the original 'spike awaiting go') is still an open line on the board but was superseded by T018n (Native, done) and T018s (Stomp, in progress): its scope is built, so the line is stale. Registry feature task lists use T018n and T018s.",
@@ -15,7 +15,8 @@
   "data/presets was not gitignored until 2026-10-17 (data/presets and data/ir are now ignored).",
   "Gate 2 checklist items in board/GATES.md stay unticked after attempt 1 on purpose: the rank-1 and model/settings criteria passed, but the gate needs every criterion in one attempt, and category accuracy and model non-inferiority failed (ledger 2026-10-17T20:18:47+00:00).",
   "Verified suite result given for this report: commit 68f0310, ruff clean, 750 passed, 28 skipped on the committed set; this report was generated without --run-checks because the lead is running the full suite separately.",
-  "Several 2026-10-17 stomp-verify-v1 ledger rows are labelled T105 and were corrected to T108 by the row at 2026-10-17T17:38:50+00:00 (the board was renumbered while it ran)."
+  "Several 2026-10-17 stomp-verify-v1 ledger rows are labelled T105 and were corrected to T108 by the row at 2026-10-17T17:38:50+00:00 (the board was renumbered while it ran).",
+  "Gate 2 checklist items in board/GATES.md stay unticked after attempt 2 on purpose: ranking the true preset first failed (0.9375 against 0.95), ledger 2026-10-18T02:33:52."
  ],
  "features": [
   {
@@ -961,7 +962,7 @@
    ],
    "todo": [
     "Propose admission for the separated-song case with drive as the named weak category",
-    "Option C: note-proof terms for the no-DI case (Gate 3)",
+    "Option C: note-proof terms for the no-DI case (Gate 4)",
     "Option D: learned guitar embedding (deferred)",
     "Freeze Gate 2 thresholds with benchmark"
    ],
@@ -1149,10 +1150,13 @@
     "T096b",
     "T105",
     "T113",
-    "T114"
+    "T114",
+    "T122",
+    "T134",
+    "T140"
    ],
    "blockers": [
-    "Gate 2 attempt 1 failed category accuracy and model non-inferiority; per-family specialists (modulation, then time-based, then amp) and a fresh synthetic-v2 are needed."
+    "Gate 2 attempt 2 failed ranking the true preset first (0.9375 against 0.95); modulation and drive are weak; attempt 3 needs a fresh sealed set."
    ],
    "implemented": [
     {
@@ -1230,7 +1234,7 @@
     "Run attempt 2 on synthetic-v2 under the frozen rule"
    ],
    "needs_human": [
-    "Listen blind to the DS-Sample candidates when a session is prepared (the informal preference does not count for Gate 3)"
+    "Listen blind to the DS-Sample candidates when a session is prepared (the informal preference does not count for Gate 4)"
    ],
    "decisions": [
     "Search passes provisional weights explicitly (DECISIONS 2026-10-14 cycle 3 loss kit)",
@@ -1491,7 +1495,7 @@
    "id": "listening",
    "name": "Blind listening sessions and export",
    "purpose": "Prepare level-matched, randomised blind A/B or MUSHRA sessions so the human, who is the final judge, can rate matches against references and baselines.",
-   "done_when": "A blind-ab-session script builds a session folder with the answer key kept out, the human has rated the 20-song set, results are ingested as ledger rows, and Gate 3 has the human's sign-off.",
+   "done_when": "A blind-ab-session script builds a session folder with the answer key kept out, the human has rated the 20-song set, results are ingested as ledger rows, and Gate 4 has the human's sign-off.",
    "status": "prototype",
    "progress_note": "Two informal human listening sessions exist as ledger rows (not blind, one song, not scored by any agent). The blind A/B tool (T107) is built with 7 tests; no session has been prepared or rated, and the 20-song set does not exist.",
    "functionality": "No blind session can be prepared yet. Informal listening happened outside the tool: the human compared the target stem, two matches, the start chain and the raw DI for one section of one song, and played one preset live on the Stomp. Update: scripts/ab_session.py (build, score, gate2-demo) now exists with 7 tests; no session has been prepared or rated.",
@@ -1526,7 +1530,7 @@
    ],
    "challenges": [
     {
-     "finding": "The human preferred the loss's runner-up (rank 2) on the one song tried, and found the delay far too wet on the pedal before the snapshot fix: the ear and the metric already disagree. These are single informal sessions, not blind and not Gate 3 evidence.",
+     "finding": "The human preferred the loss's runner-up (rank 2) on the one song tried, and found the delay far too wet on the pedal before the snapshot fix: the ear and the metric already disagree. These are single informal sessions, not blind and not Gate 4 evidence.",
      "source": "ledger 2026-10-15T19:10:17 and 19:20:34"
     },
     {
@@ -1536,10 +1540,10 @@
    ],
    "todo": [
     "Assemble the 20-song set and the nearest-community-preset baselines",
-    "Prepare Gate 3 session, ingest ratings as ledger rows"
+    "Prepare Gate 4 session, ingest ratings as ledger rows"
    ],
    "needs_human": [
-    "Rate blind sessions when they exist (Gate 3 sign-off)"
+    "Rate blind sessions when they exist (Gate 4 sign-off)"
    ],
    "decisions": [
     "Comparison ends in a blind human listen (DECISIONS 2026-10-13 planning)"
@@ -1655,7 +1659,7 @@
    "purpose": "Install and run on Windows, macOS and Linux with whichever GPU backend is present, and ship releases others can use.",
    "done_when": "A clean install works on all three OSes in CI, GPU backends are packaged, Native on Linux works through Wine and yabridge or is documented as unsupported, and a release package exists.",
    "status": "prototype",
-   "progress_note": "Dev-environment notes, a GPU backend detector and a Linux-only CI for tests and lint exist; the backend is verified only as CPU and MPS on one arm64 Mac. No Windows or Linux run, no packaging, and the pyproject has no entry points. The project licence is now MIT.",
+   "progress_note": "Dev-environment notes, a GPU backend detector and a Linux-only CI for tests and lint exist; the backend is verified only as CPU and MPS on one arm64 Mac. No Windows or Linux run, no packaging, and the pyproject has no entry points. The project licence is now MIT. 2026-10-17: elastic job runner (T138) and Native host cap raised to 8.",
    "functionality": "pip install -e .[dev] works on this Mac; detect_backend picks cpu or mps; CI runs ruff and pytest on Ubuntu with Python 3.11 only.",
    "health": "partial",
    "evidence": [
@@ -1670,7 +1674,8 @@
     "platform"
    ],
    "tasks": [
-    "T007"
+    "T007",
+    "T138"
    ],
    "blockers": [
     "No Windows or Linux machine available for H10, H11 or Wine tests; the Native drop route and the Stomp control route are macOS-only."
@@ -1977,7 +1982,7 @@
    "id": "chain-builder",
    "name": "Chain builder",
    "purpose": "Turn the analysis (blocks present, common patterns, per-slot model shortlists) into a whole chain and a preset file.",
-   "done_when": "Runs on a real engine and beats the nearest community preset on real songs (Gate 3).",
+   "done_when": "Runs on a real engine and beats the nearest community preset on real songs (Gate 4).",
    "status": "prototype",
    "progress_note": "Built (T105) with fake engines only: presence, top structures from the chain prior, per-slot shortlist, coordinate descent and joint refine, halving across structures. A real run needs a block-library adapter, block-serial rendering in the render pool and the presence estimate keys.",
    "functionality": "Assembles candidate chains using block-serial composition of single-block templates.",
@@ -2082,33 +2087,51 @@
    "name": "Per-family specialists",
    "purpose": "One method per effect family (gain, linear, dynamics, time-based, modulation) with its own measurements, search and budget share.",
    "done_when": "Each specialist beats the general method on its family at the same budget, judged by a paired comparison, and Gate 2 passes on a fresh set.",
-   "status": "designing",
-   "progress_note": "Decided by the human on 2026-10-17. Nothing built. Order from attempt 1: modulation, then time-based (reverb and delay), then amp.",
-   "functionality": "None yet.",
+   "status": "working",
+   "progress_note": "Five families have a specialist plugged in through a dispatcher (T117 linear, T122 time-based, mod, amp, gain; T134 and T140 adapters). Each was adopted only after beating the general method on development items. In Gate 2 attempt 2 on sealed synthetic-v2 the combined method raised category to 0.865 and model to 0.760, but modulation (model 4 of 12) and drive (6 of 12) remain weak and the gate failed on ranking the true preset first (0.9375). Dynamics is a stub. Synthetic evidence only; no ear.",
+   "functionality": "--specialists all routes each family to its specialist and refiner.",
    "health": "partial",
    "evidence": [
     {
-     "level": "none",
-     "refs": []
+     "level": "synthetic",
+     "refs": [
+      "ledger 2026-10-18T02:33:52 gate2_v2_attempt2",
+      "tests/test_family_adapters.py",
+      "tests/test_specialists.py",
+      "tests/test_linear_specialist.py",
+      "tests/test_time_specialist.py"
+     ]
     }
    ],
-   "owners": [],
-   "tasks": [],
+   "owners": [
+    "search",
+    "tone-metrics"
+   ],
+   "tasks": [
+    "T117",
+    "T122",
+    "T134",
+    "T140"
+   ],
    "blockers": [
-    "Needs a fresh synthetic-v2 set so the second attempt is not tuned to the first."
+    "Modulation and drive specialists are weak; the score misses gain-stage neighbours (rank-1 0.9375 against 0.95)."
    ],
    "implemented": [],
    "challenges": [],
    "todo": [
-    "Modulation specialist (rate, depth, phase-invariant score)",
-    "Time-based specialist",
-    "Amp specialist",
-    "Fresh synthetic-v2"
+    "Gain-stage score term",
+    "Stronger drive and modulation specialists",
+    "Dynamics specialist",
+    "Fresh sealed synthetic-v3"
    ],
    "needs_human": [],
    "decisions": [],
    "risks": [],
    "key_files": [
+    "docs/notes/family-specialists.md",
+    "src/tonematch/search/specialists.py",
+    "src/tonematch/search/family_adapters.py",
+    "src/tonematch/metrics/linear_specialist.py",
     "docs/DECISIONS.md"
    ],
    "ledger": []

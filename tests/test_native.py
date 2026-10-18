@@ -205,12 +205,34 @@ def test_silence_stays_silent_and_level_is_fixed(delay_engine):
 
 @needs_host
 def test_silent_output_raises():
-    e = nat.NativeEngine("builtin:Gain?gain_db=-200")
+    e = nat.NativeEngine("builtin:Gain?gain_db=-300")
     try:
         with pytest.raises(EngineError, match="silence"):
             e.render(nat.test_signal(0.2))
     finally:
         e.close()
+
+
+@needs_host
+def test_very_quiet_output_is_not_silence():
+    """T139: a real setting can render 80-115 dB below its DI (synthetic-v2 i062, Preamp US Double
+    Vib at Drive 0.17 Master 0.14: -106.4 dBFS from a -27.3 dBFS DI). That is a quiet render, not
+    a dead host. The stand-in is JUCE's Gain, which is exact zero at -100 dB and below, so -90 dB on
+    the -31.6 dBFS test signal (about -121.6 dBFS out, under the old -100 dBFS guard)."""
+    e = nat.NativeEngine("builtin:Gain?gain_db=-90")
+    try:
+        x = nat.test_signal(0.2)
+        y = e.render(x)
+        assert nat._rms_db(y) < -110
+        assert -91 < nat._rms_db(y) - nat._rms_db(x) < -89
+    finally:
+        e.close()
+
+
+def test_silence_guard_threshold():
+    """T139: the guard separates digital zero from Native's quietest measured real render."""
+    assert nat.NativeEngine.SILENT_OUT_DB < -141.1 - 60
+    assert nat.NativeEngine.SILENT_OUT_DB > nat._rms_db(np.zeros(16, np.float32)) + 30
 
 
 @needs_host

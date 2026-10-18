@@ -18,6 +18,7 @@ This repo builds the HX Stomp Tone Matcher. Read `docs/PLAN.md` for what and why
 - **Benchmark regression freezes merges.** Compare to the previous ledger row for the same `kind` and `dataset` before claiming improvement.
 - **The ear is the final judge.** Prepare listening sessions; never score them yourself.
 - **Hardware time is scarce.** Batch anything that needs the pedal and leave it on its original preset afterwards.
+- **Leave no orphans.** Run `python scripts/proc_check.py` before starting heavy work and after any run ends or is killed. `--kill` stops orphaned pool workers and Native hosts from this repo. Never use a pattern `pkill`; stop only PIDs you started or ones `proc_check` flags.
 - Update `board/TASKS.md` when you start and finish a task. Write decisions to `docs/DECISIONS.md`, never only in chat.
 
 ## Environment

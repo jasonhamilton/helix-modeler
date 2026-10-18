@@ -13,10 +13,12 @@ dependencies = [
   "numpy>=1.26",
   "soundfile>=0.12",
   "scipy>=1.11",
+  # Windows has no os.getloadavg: psutil emulates it and measures CPU utilisation (T149); BSD-3
+  "psutil>=5.9; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5", "pip-licenses>=4"]
+dev = ["pytest>=8", "ruff>=0.5", "pip-licenses>=4", "markdown>=3.5"]
 # native: GPLv3. Imported ONLY by tonematch.engines.native_host, which runs as a child process
 # (licence boundary). May live in a separate venv via TONEMATCH_NATIVE_PYTHON. DawDreamer is the
 # fallback host (MIDI CC route), not added until needed.

@@ -150,6 +150,7 @@ def _extra_key(node: dict, extra: int) -> str | None:
 
 
 _STEREO_ONLY: dict[str, frozenset] = {}
+_CAT_PARAMS: dict[str, dict] = {}   # filled with _STEREO_ONLY
 
 
 def stereo_only_params(model_id: str | None) -> frozenset:
@@ -158,23 +159,46 @@ def stereo_only_params(model_id: str | None) -> frozenset:
     if not model_id:
         return frozenset()
     if not _STEREO_ONLY:
+        _CAT_PARAMS.clear()
         try:
             from tonematch.catalog import load_catalog
 
             for mid, m in load_catalog()["models"].items():
                 _STEREO_ONLY[mid] = frozenset(k for k, p in (m.get("params") or {}).items()
                                               if isinstance(p, dict) and p.get("stereo_only"))
+                _CAT_PARAMS[mid] = m.get("params") or {}
         except Exception:  # noqa: BLE001 - no catalog: nothing is excused, every missing value fails
             _STEREO_ONLY["_"] = frozenset()
     return _STEREO_ONLY.get(model_id, frozenset())
 
 
+def catalog_default_ok(model_id: str | None, pid: str, v) -> bool:
+    """True when ``v`` is the catalog default of ``model_id``'s parameter ``pid``.
+
+    T110 (fw 3.80): the device stores NonLinear's TempoSync2 and SyncSelect2, but the helper's
+    symbol list (HX Edit's) does not name them, so a readback cannot see them by name. A device-
+    built block (stompd-compile templates) holds them at their defaults; a file that names them at
+    the default is info, any other value still fails (it cannot be set)."""
+    if not model_id:
+        return False
+    stereo_only_params(model_id)   # loads both catalog caches
+    cp = (_CAT_PARAMS.get(model_id) or {}).get(pid)
+    if not isinstance(cp, dict) or "default" not in cp:
+        return False
+    w, d = _num(v), _num(cp["default"])
+    return w is not None and d is not None and abs(w - d) <= 1e-6 * max(1.0, abs(d))
+
+
 def _compare_params(where: str, node: dict, want: dict, dev_params: list[dict], diff: ReadbackDiff) -> None:
     seen = set()
+    # The trailing extra value is the cab's mic or the delay's/reverb's trails; values between the
+    # symbol list and it are values the symbol list does not name (NonLinear on fw 3.80, T110).
+    last_extra = max((int(p["extra"]) for p in dev_params or [] if p.get("sym") is None and p.get("id") is None
+                      and "extra" in p), default=0)
     for p in dev_params or []:
         pid = p.get("sym") or p.get("id")
         if pid is None and "extra" in p:
-            pid = _extra_key(node, int(p["extra"]))
+            pid = _extra_key(node, 0) if int(p["extra"]) == last_extra else None
             if pid is None:
                 diff.unspecified.append(f"{where}: extra value {p['extra']} = {p['value']} (file names none)")
                 continue
@@ -198,6 +222,10 @@ def _compare_params(where: str, node: dict, want: dict, dev_params: list[dict], 
         if pid not in seen and _num(v) is not None:
             if pid in mono_skip:
                 diff.unspecified.append(f"{where}.{pid} = {v}: stereo-only, the mono block has no such value")
+                continue
+            if catalog_default_ok(node.get("@model"), pid, v):
+                diff.unspecified.append(f"{where}.{pid} = {v}: not named by the helper's symbol list; "
+                                        "the catalog default, as the device builds it")
                 continue
             diff.missing.append(f"{where}.{pid}: in the file, no such parameter on the device")
 

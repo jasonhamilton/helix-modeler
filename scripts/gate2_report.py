@@ -33,6 +33,8 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 SET_REL = Path("cache") / "synthetic-v1"
+SET_REL_V2 = Path("cache") / "synthetic-v2"
+SET_REL_V3 = Path("cache") / "synthetic-v3"
 OUT_REL = Path("reports") / "local" / "gate2"
 SR = 48000
 N_DEV = 16
@@ -50,6 +52,18 @@ STAGE_TAGS = [("v3_dev16_before", "Ours: first version (pool pass)", "s0"),
 # "full": the Gate 2 run over all 96 items. "dev": the dev16 method chosen by the rule written in DECISIONS.md
 # (T114, iteration 3) BEFORE that iteration ran. Nothing is picked by looking at the results.
 DESIGNATED = {"full": "gate2_full_hybrid", "dev": "h3_f40_k4_lf"}
+# The two Gate 2 attempts (DECISIONS 2026-10-17). Attempt 2 is the headline; attempt 1 stays as the earlier attempt.
+# Attempt 2 ran on the sealed set synthetic-v2 with no dev16 tuning: all 96 items are untuned.
+ATTEMPTS = {
+    "v1": {"set_rel": SET_REL, "set": "synthetic-v1", "full": DESIGNATED["full"], "dev": DESIGNATED["dev"],
+           "middle": "v3_base_middle", "random": "v3_base_random", "stages": True, "n": 1},
+    "v2": {"set_rel": SET_REL_V2, "set": "synthetic-v2", "full": "gate2_v2_attempt2", "dev": None,
+           "middle": "v2_base_middle", "random": "v2_base_random", "stages": False, "n": 2},
+    # Attempt 3 (DECISIONS 2026-10-18): sealed synthetic-v3, rank-1 under the extended rule B, no tuning items. Spent on its one run.
+    "v3": {"set_rel": SET_REL_V3, "set": "synthetic-v3", "full": "gate2_v3_attempt3", "dev": None,
+           "middle": "v3_base_middle", "random": "v3_base_random", "stages": False, "n": 3},
+}
+LATER = ("v2", "v3")        # attempts that ran with the specialists on and no dev16 tuning
 # Tuning history: (folder, name, eligibility). Shown in a table, never used as the headline.
 TUNING_HISTORY = [
     ("h1_f50_k5", "Iteration 1 (hybrid, f 0.5, K 5)", "ineligible: over budget (313 to 339 renders against 300)"),
@@ -65,7 +79,12 @@ HEAT_ORDER = tuple(c for _, _, cats in FAMILIES for c in cats)
 # planned / building / adopted. "adopted" only after the adoption rule is met on a family (see the specialists section).
 # "in use" = already part of the general method (time-based measured seeding, T113, inside the hybrid);
 # "planned" = specialist not started. Set by the lead (2026-10-17).
-SPECIALIST_STATUS = {"gain": "planned", "linear": "planned", "dynamics": "planned", "time": "in use", "mod": "planned"}
+# Updated by the lead's brief for Gate 2 attempt 2 (2026-10-17): `--specialists all` switched on gain (amp specialist with
+# its refiner), linear (cab + EQ screen, seeds, refiner), time (family score 0.25) and mod (screen and seeds only).
+SPECIALIST_STATUS = {"gain": "in use", "linear": "in use", "dynamics": "planned", "time": "in use", "mod": "in use"}
+SPECIALIST_NOTE = {"gain": "amp specialist with its own refiner", "linear": "cab and EQ screen, seeds and refiner",
+                   "dynamics": "stub only; no compressor specialist yet", "time": "echo and decay seeds plus a family score",
+                   "mod": "seeds and screen only; no family score"}
 ANCHOR = "Gate 2 pass rule FROZEN"
 AUDIO_SECONDS = 5.0
 AUDIO_LIMIT = 16
@@ -286,9 +305,10 @@ def run_meta(run_dir: Path, items: dict) -> dict:
             "budget": next((s.get("budget") for s in sums if s.get("budget")), None)}
 
 
-def discover(root: Path) -> dict:
+def discover(root: Path, attempt: str = "v1") -> dict:
     """Find the methods. Returns {'labels', 'dev_ids', 'all_ids', 'methods', 'other'}."""
-    set_dir = root / SET_REL
+    cfg = ATTEMPTS[attempt]
+    set_dir = root / cfg["set_rel"]
     labels = read_json(set_dir / "labels.json") or []
     all_ids = [x["id"] for x in labels]
     dev_ids = [f"i{k:03d}" for k in range(N_DEV)]
@@ -307,7 +327,7 @@ def discover(root: Path) -> dict:
     methods = []
     used = set()
     for base, label in (("middle", "Middle of every knob"), ("random", "Random walk, 300 tries")):
-        pref = f"v3_base_{base}"
+        pref = cfg[base]
         cands = [r for r in found.values() if kind_of(r) == base]
         pick = found.get(pref) if pref in found and kind_of(found[pref]) == base else None
         if pick is None and cands:
@@ -316,20 +336,21 @@ def discover(root: Path) -> dict:
             used.add(pick["tag"])
             methods.append(_method(pick, base, base, label, COL[base], dev_ids, all_ids))
     ours = {t: r for t, r in found.items() if kind_of(r) == "ours"}
-    for tag, label, col in STAGE_TAGS:
+    for tag, label, col in (STAGE_TAGS if cfg["stages"] else []):
         if tag in ours:
             used.add(tag)
             methods.append(_method(ours[tag], "ours", "stage", label, COL[col], dev_ids, all_ids))
-    dev_tag, full_tag = DESIGNATED["dev"], DESIGNATED["full"]
-    if dev_tag in ours:
+    dev_tag, full_tag = cfg["dev"], cfg["full"]
+    if dev_tag and dev_tag in ours:
         used.add(dev_tag)
         methods.append(_method(ours[dev_tag], "ours", "hybrid", f"Ours: chosen dev method ({dev_tag})", COL["hyb"],
                                dev_ids, all_ids))
     if full_tag in found and found[full_tag]["items"]:
         used.add(full_tag)
-        methods.append(_method(found[full_tag], "ours", "full", f"Ours: full run ({full_tag})", COL["full"], dev_ids, all_ids))
+        methods.append(_method(found[full_tag], "ours", "full", f"Ours: full run ({full_tag})" if attempt == "v1"
+                               else f"Ours: attempt {cfg['n']} ({full_tag})", COL["full"], dev_ids, all_ids))
     tuning = [_method(found[t], "ours", "tuning", name, COL["hyb"], dev_ids, all_ids)
-              for t, name, _ in TUNING_HISTORY if t in found]
+              for t, name, _ in (TUNING_HISTORY if cfg["stages"] else []) if t in found]
     spec: dict[str, list[dict]] = {}
     for t, r in found.items():
         for key, _, _ in FAMILIES:
@@ -346,6 +367,8 @@ def discover(root: Path) -> dict:
     # not of the method, so a baseline column showing it would read as "the baseline finds the true preset"
     # (human question, 2026-10-17). Baselines show no rank-1; the score's rank-1 is reported once.
     for m in methods:
+        # keep the raw figure for the report's own explanation (the middle baseline gets the same rank-1 as ours)
+        m["rank1_raw"] = {i: it["rank1_audible"] for i, it in m["items"].items() if "rank1_audible" in it}
         if m["kind"] in ("middle", "random"):
             m["items"] = {i: {k: v for k, v in it.items() if k not in ("rank1", "rank1_audible")}
                           for i, it in m["items"].items()}
@@ -530,8 +553,9 @@ def method_rows(methods: list[dict], ids, key: str, src_note: str):
     return rows
 
 
-def results_panel(methods: list[dict], ids, scope_name: str, wait_label: str | None = None) -> str:
-    src = f"run files under cache/synthetic-v1/runs/ ({scope_name})"
+def results_panel(methods: list[dict], ids, scope_name: str, wait_label: str | None = None,
+                  set_name: str = "synthetic-v1") -> str:
+    src = f"run files under cache/{set_name}/runs/ ({scope_name})"
     charts = [
         ("Picked the right kind of effect", "category", 1.0, BARS["category"], "target 0.85",
          "share of items (higher is better)", False),
@@ -547,6 +571,8 @@ def results_panel(methods: list[dict], ids, scope_name: str, wait_label: str | N
     cards = []
     for title, key, vmax, tgt, tl, axis, lower in charts:
         rows = method_rows(methods, ids, key, src)
+        if key == "rank1":   # a property of the score: baselines carry no figure, so do not draw a "waiting" bar for them
+            rows = [r for r in rows if r["value"] is not None] or rows
         if wait_label:
             rows.append({"label": wait_label, "sub": "", "value": None, "color": COL["full"],
                          "tip": "waiting for the full run"})
@@ -705,29 +731,93 @@ def verify_rows(ledger: list[dict], dataset: str) -> dict:
 
 # --------------------------------------------------------------------------- audio
 
-def find_audio_pairs(root: Path, found: dict, methods: list[dict]) -> list[dict]:
+def find_audio_pairs(root: Path, found: dict, methods: list[dict], attempt: str = "v1") -> list[dict]:
     pairs = []
-    labels_by_tag = {m["tag"]: m["label"] for m in methods}
+    prefix = f"Attempt {ATTEMPTS[attempt]['n']}: "
+    labels_by_tag = {m["tag"]: prefix + m["label"] for m in methods}
     for tag, run in sorted(found.items()):
         for tgt in sorted(run["dir"].glob("*_target.wav")):
             rec = tgt.with_name(tgt.name.replace("_target.wav", "_recovered.wav"))
             if rec.exists():
-                pairs.append({"id": tgt.name[:-11], "run": tag, "method": labels_by_tag.get(tag, tag),
-                              "target": tgt, "guess": rec, "source": "search run (--save-audio)"})
+                pairs.append({"id": tgt.name[:-11], "run": tag, "method": labels_by_tag.get(tag, prefix + tag),
+                              "target": tgt, "guess": rec, "source": "search run (--save-audio)", "attempt": attempt})
     rdir = root / OUT_REL / "rendered"
-    if rdir.is_dir():
+    if rdir.is_dir() and attempt == "v1":
         for tgt in sorted(rdir.glob("*/*/*_target.wav")):
             rec = tgt.with_name(tgt.name.replace("_target.wav", "_recovered.wav"))
             if rec.exists():
                 pairs.append({"id": tgt.name[:-11], "run": tgt.parent.parent.name,
                               "method": f"{tgt.parent.parent.name} / {tgt.parent.name}",
-                              "target": tgt, "guess": rec, "source": "render-examples"})
+                              "target": tgt, "guess": rec, "source": "render-examples", "attempt": attempt})
     return pairs
 
 
+def choose_players_v3(pairs: list[dict], M3: dict, limit: int = 20) -> dict:
+    """Players for attempt 3: its rank-1 misses (ours, then the middle baseline), every delay miss, then clear wins. -> {(run, id): why}"""
+    ours_tag = M3["full"]["tag"]
+    have = {(p["run"], p["id"]) for p in pairs}
+    chosen: dict[tuple[str, str], str] = {}
+
+    def add(tag, i, why):
+        if len(chosen) < limit and (tag, i) in have and (tag, i) not in chosen:
+            chosen[(tag, i)] = why
+
+    miss = [e["id"] for e in rank1_misses(M3)]
+    for i in miss:
+        add(ours_tag, i, "rank-1 miss")
+    if M3.get("middle"):
+        for i in miss:
+            add(M3["middle"]["tag"], i, "rank-1 miss, middle-of-every-knob baseline")
+    for r in delay_rows(M3):
+        add(ours_tag, r["id"], f"delay miss: {pretty_model(r['model'])} named as {pretty_model(r['pred'])}")
+    wins = [e["id"] for e in pick_examples(M3["full"]["items"], {}) if e["group"] == "win"]
+    delay_wins = [i for i, it in sorted(M3["full"]["items"].items()) if it.get("category") == "delay" and it.get("model_ok")]
+    for i in delay_wins[:2]:
+        add(ours_tag, i, "delay win")
+    for i in wins:
+        add(ours_tag, i, "clear win")
+    return chosen
+
+
+def choose_players(pairs: list[dict], M2: dict | None, limit: int = AUDIO_LIMIT, v1_players: int = 6,
+                   M3: dict | None = None) -> list[dict]:
+    """Mark which pairs get a player on the page. Attempt 2: our recovered sound on the rank-1 miss items, the middle
+    baseline on the same items, then some of our clear wins. Attempt 1: the first few. Every pair still gets its stereo file."""
+    if M3 and M3.get("full"):
+        why = choose_players_v3(pairs, M3)
+        return [({**p, "player": (p["run"], p["id"]) in why, "why": why.get((p["run"], p["id"]), "")}
+                 if p.get("attempt") == "v3" else {**p, "player": False}) for p in pairs]
+    want: list[tuple[str, str]] = []
+    if M2 and M2.get("full"):
+        miss = [e["id"] for e in rank1_misses(M2)]
+        ours_tag = M2["full"]["tag"]
+        mid_tag = M2["middle"]["tag"] if M2.get("middle") else None
+        want += [(ours_tag, i) for i in miss] + ([(mid_tag, i) for i in miss] if mid_tag else [])
+        wins = [e["id"] for e in pick_examples(M2["full"]["items"], {}) if e["group"] == "win"]
+        want += [(ours_tag, i) for i in wins]
+    chosen = []
+    for tag, i in want:
+        if len(chosen) >= limit:
+            break
+        if (tag, i) not in chosen and any(p["run"] == tag and p["id"] == i for p in pairs):
+            chosen.append((tag, i))
+    n1 = 0
+    out = []
+    for p in pairs:
+        if p.get("attempt") == "v2":
+            p = {**p, "player": (p["run"], p["id"]) in chosen}
+        else:
+            p = {**p, "player": n1 < v1_players}
+            n1 += 1
+        out.append(p)
+    return out
+
+
 def copy_audio(pairs: list[dict], out: Path, limit: int = AUDIO_LIMIT) -> list[dict]:
-    """Loudness-match each pair to -23 LUFS (shared excerpt, one gain rule) and write mono 16-bit WAVs.
-    Reuses scripts/ab_session helpers. Returns the pairs that were written."""
+    """Loudness-match each pair to -23 LUFS (shared excerpt, one gain rule) and write mono 16-bit WAVs,
+    plus a stereo comparison file for EVERY pair: target on the LEFT channel, recovered on the RIGHT
+    (human, 2026-10-17), under audio/<method>/stereo_L-target_R-recovered/. Reuses scripts/ab_session
+    helpers. Returns the pairs that got players in the page (the first `limit`)."""
     try:
         import ab_session as AB
         import soundfile as sf
@@ -739,18 +829,24 @@ def copy_audio(pairs: list[dict], out: Path, limit: int = AUDIO_LIMIT) -> list[d
     if adir.exists():
         shutil.rmtree(adir)
     done = []
-    for k, p in enumerate(pairs[:limit]):
+    for k, p in enumerate(pairs):
         try:
             x, y = load_audio(p["target"]), load_audio(p["guess"])
             x, y = AB.trim_pair(x, y, AUDIO_SECONDS)
             x, y, info = AB.match_loudness(x, y)
+            xm, ym = np.ascontiguousarray(x.mean(axis=0)), np.ascontiguousarray(y.mean(axis=0))
             sub = adir / re.sub(r"[^A-Za-z0-9_.-]+", "_", p["method"])
-            sub.mkdir(parents=True, exist_ok=True)
+            lr_dir = sub / "stereo_L-target_R-recovered"
+            lr_dir.mkdir(parents=True, exist_ok=True)
+            lp = lr_dir / f"{p['id']}_L-target_R-recovered.wav"
+            sf.write(str(lp), np.stack([xm, ym], axis=1), SR, subtype="PCM_16")
+            if not p.get("player", k < limit):
+                continue
             tp, gp = sub / f"{p['id']}_target.wav", sub / f"{p['id']}_guess.wav"
-            sf.write(str(tp), np.ascontiguousarray(x.mean(axis=0)), SR, subtype="PCM_16")
-            sf.write(str(gp), np.ascontiguousarray(y.mean(axis=0)), SR, subtype="PCM_16")
+            sf.write(str(tp), xm, SR, subtype="PCM_16")
+            sf.write(str(gp), ym, SR, subtype="PCM_16")
             done.append({**p, "target_rel": tp.relative_to(out).as_posix(), "guess_rel": gp.relative_to(out).as_posix(),
-                         "lufs": info["lufs_out"]})
+                         "lr_rel": lp.relative_to(out).as_posix(), "lufs": info["lufs_out"]})
         except Exception as exc:  # noqa: BLE001 - skip an unreadable pair, keep the rest
             print(f"gate2_report: audio pair {p['id']} skipped: {exc}", file=sys.stderr)
     return done
@@ -818,11 +914,15 @@ GLOSSARY = [
     ("Score (loss), mrstft_v2", "A number for how different two recordings sound. Lower means closer. 0 is identical."),
     ("Rank-1", "Whether the score rates the true preset as closer to the target than every wrong neighbour. If not, searching harder cannot help."),
     ("Rule B", "A neighbour that is inaudibly different from the truth (the two cancel to -30 dB or better) counts as a tie, not as the score failing."),
+    ("Extended rule B", "Added by the human before attempt 3: a neighbour that differs from the truth only in volume, by no more than the 3 dB random volume change the test recordings carry, is also a tie. Attempts 1 and 2 keep their figures under the old rule."),
     ("Held-out / new notes", "A different passage of the same guitar recording that the search never saw. It shows whether the guess sounds right beyond the notes it was fitted on."),
     ("Settings error (MAE)", "Mean absolute error: the average gap between true and guessed knob positions, as a share of the knob's range. 0 is perfect. Guessing the middle gives about 0.2."),
     ("Baseline", "A simple method we must beat to show that the search adds value."),
     ("Random walk", "A baseline with no search intelligence: 300 tries, each a model picked at random from the 47-model test pool (the true model is always in it) with every knob set at random; each try is rendered and scored with the admitted score, and the best-scoring try is kept. The score does the choosing, so this is not a single random guess: a single guess is right 1 time in 8 for the category (12.5 %) and 1 time in 47 for the exact model (2.1 %). With 300 tries over 47 models each model is tried about 6 times, so the true model is almost always among the tries and the score usually picks it. That is why the random walk scores high here: the test pool is small. It shows what a trustworthy score achieves by luck alone."),
-    ("Dev vs test", "Dev items (the first 16, i000 to i015) are used to tune the method. Only the full 96, including the other 80, can count as evidence."),
+    ("Attempts 1, 2 and 3", "Gate 2 has been tried up to three times. Attempt 1 ran on the first test set (synthetic-v1) and missed the rule. Attempt 2 ran once on a second, sealed set (synthetic-v2) with a specialist method for each family of effects and missed one check of seven. Attempt 3 ran once on a third sealed set (synthetic-v3), with the rank-1 check amended by the human (extended rule B). The sets differ, so the attempts are a before-and-after, not a paired test."),
+    ("Specialist", "A search method built for one family of effects (gain, linear, time-based, modulation, dynamics) that measures what matters for that family and seeds or refines the search accordingly."),
+    ("Known-input case", "Gate 2 gives the search the same clean guitar recording that made the target, so only the preset differs. Real songs give no such recording."),
+    ("Dev vs test", "On the first test set, dev items (the first 16, i000 to i015) were used to tune the method; only the full 96, including the other 80, could count as evidence. The second test set (attempt 2) had no tuning items: all 96 are untuned."),
     ("Fingerprint", "A short list of settings each model is tried at, chosen so different models sound different from each other."),
     ("Seeding", "Measuring the target first (echo time, reverb length, tremolo speed) and starting the search near those values."),
     ("CMA-ES", "A search method that tries a cloud of guesses, keeps the best and moves the cloud toward them. It needs no gradients."),
@@ -857,8 +957,8 @@ def flow_picture() -> str:
             + pic_step(cmp_, "5. Compare", "Right kind? Right model? Knobs close? Same on new notes?") + "</div>")
 
 
-def build_model(root: Path) -> dict:
-    d = discover(root)
+def build_model(root: Path, attempt: str = "v1") -> dict:
+    d = discover(root, attempt)
     ledger = load_ledger(root)
     methods = d["methods"]
     total = len(d["all_ids"])
@@ -866,10 +966,15 @@ def build_model(root: Path) -> dict:
     full = next((m for m in methods if m["role"] == "full"), None)
     dev = next((m for m in methods if m["role"] == "hybrid"), None)
     return {"d": d, "ledger": ledger, "methods": methods, "total": total, "middle": kinds.get("middle"),
-            "random": kinds.get("random"), "full": full, "dev": dev}
+            "random": kinds.get("random"), "full": full, "dev": dev, "attempt": attempt,
+            "set": ATTEMPTS[attempt]["set"]}
 
 
 def section_headline(M: dict) -> str:
+    if M["attempt"] == "v3":
+        return section_headline_v3(M)
+    if M["attempt"] == "v2":
+        return section_headline_v2(M)
     d = M["d"]
     rnd = M["random"]
     full, dev = M["full"], M["dev"]
@@ -894,6 +999,20 @@ def section_headline(M: dict) -> str:
             f"our chosen dev method (<code>{esc(ours['tag'])}</code>, picked by the rule written down before it ran) names the exact "
             f"model for {mb['model_hits']} of {mb['n']} items, random walk for {mr['model_hits']} of {mr['n']}{mid_txt}. "
             f"{state} Those 16 items were used to tune the method, so this is a progress check and not the Gate 2 result.</p>")
+
+
+def section_headline_v2(M: dict) -> str:
+    full = M["full"]
+    if not (full and full["scope"] == "full" and M["random"]):
+        return "<p class='lede'>Attempt 2 (<code>gate2_v2_attempt2</code>) has not finished all 96 items, so nothing is decided.</p>"
+    ev = evaluate_pass(full["items"], M["random"]["items"], M["total"], M["d"]["all_ids"])
+    n_ok, n_all = count_checks(ev)
+    mo = metrics("ours", full["items"], M["d"]["all_ids"])
+    word = "met all the checks (needs human sign-off)" if ev["all_ok"] else f"did <strong>not pass</strong> ({n_ok} of {n_all} checks met)"
+    return (f"<p class='lede'><strong>In one sentence.</strong> {chip('full', 'attempt 2, full 96, untuned')} On a fresh sealed set, the "
+            f"search with a specialist for each kind of effect named the exact model for {mo['model_hits']} of {mo['n']} items and "
+            f"{word}: the frozen rule's rank-1 check on the judging score fell short. "
+            "Attempt 1 is kept lower down as the earlier attempt. <a href='#attempt2'>Jump to the result</a>.</p>")
 
 
 # --------------------------------------------------------------------------- tuning history and families
@@ -1036,6 +1155,9 @@ FAMILY_CARDS = {
 def spec_compare(M: dict, fam: str, view: dict) -> str:
     """Specialist runs for a family against the general method, on the same items and the same budget."""
     runs = M["d"]["spec"].get(fam, [])
+    if not runs and M["attempt"] in LATER:
+        return ("<p class='muted'>No separate per-family run. The specialists ran together inside attempt 2, so the "
+                "result-by-family table above is the evidence.</p>")
     if not runs:
         return "<p class='muted'>No specialist runs yet. When a run tagged <code>spec_" + fam + "</code> appears it is compared here automatically.</p>"
     cats = next(c for k, _, c in FAMILIES if k == fam)
@@ -1067,7 +1189,58 @@ def spec_compare(M: dict, fam: str, view: dict) -> str:
             "(see the rule above); this table is the first look.</p>")
 
 
-def section_specialists(M: dict) -> str:
+def family_attempt_rows(M: dict) -> dict | None:
+    """Per-family result of an attempt's full run: {family: {"n", "model_hits", "category_hits", "rnd_model", "mid_model"}}."""
+    full = M.get("full") if M else None
+    if not full or full["scope"] != "full":
+        return None
+    ids = M["d"]["all_ids"]
+    out = {}
+    fo = family_metrics("ours", full["items"], ids)
+    fr = family_metrics("random", M["random"]["items"], ids) if M["random"] else {}
+    fm = family_metrics("middle", M["middle"]["items"], ids) if M["middle"] else {}
+    for key, _, _ in FAMILIES:
+        e = fo[key]
+        out[key] = {"n": e.get("n", 0), "model_hits": e.get("model_hits", 0), "category_hits": e.get("category_hits", 0),
+                    "rnd_model": fr.get(key, {}).get("model_hits"), "mid_model": fm.get(key, {}).get("model_hits")}
+    return out
+
+
+def family_result_table(M2: dict, M1: dict | None) -> str:
+    """Attempt 2 per family (headline), with attempt 1 beside it for the same families."""
+    a2 = family_attempt_rows(M2)
+    a1 = family_attempt_rows(M1) if M1 else None
+    if not a2:
+        return ""
+    rows = []
+    for key, name, cats in FAMILIES:
+        e2 = a2[key]
+        e1 = a1[key] if a1 else None
+        cell1 = f"{e1['model_hits']}/{e1['n']}, {e1['category_hits']}/{e1['n']}" if e1 and e1["n"] else "-"
+        rows.append(f"<tr><th scope='row'>{esc(name)} <small>({esc(', '.join(cats))})</small></th>"
+                    f"<td>{esc(SPECIALIST_STATUS.get(key, 'planned'))}: {esc(SPECIALIST_NOTE.get(key, ''))}</td>"
+                    f"<td><strong>{e2['model_hits']}/{e2['n']}</strong></td><td><strong>{e2['category_hits']}/{e2['n']}</strong></td>"
+                    f"<td>{e2['rnd_model']}/{e2['n']}</td><td>{e2['mid_model']}/{e2['n']}</td><td>{cell1}</td></tr>")
+    fell = [f"{name} ({a1[key]['model_hits']} to {a2[key]['model_hits']} right models)" for key, name, _ in FAMILIES
+            if a1 and a1[key]["n"] and a2[key]["model_hits"] < a1[key]["model_hits"]]
+    rose = [f"{name} ({a1[key]['model_hits']} to {a2[key]['model_hits']})" for key, name, _ in FAMILIES
+            if a1 and a1[key]["n"] and a2[key]["model_hits"] > a1[key]["model_hits"]]
+    trend = ("<p><strong>Plainly.</strong> "
+             + (f"Right-model counts rose for {esc('; '.join(rose))}. " if rose else "")
+             + (f"They <strong>fell</strong> for {esc('; '.join(fell))}. " if fell else "")
+             + "The per-category table above shows which categories moved. "
+               "The comparison is across different test sets, so it is a direction, not proof.</p>") if a1 else ""
+    return ("<h3>Result by family: attempt 2, the run with specialists switched on</h3>"
+            "<p>" + chip("full", "attempt 2, all 96 untuned items") + " Each cell counts items. Attempt 1 is beside it (its "
+            "specialists were off, apart from the time-based seeding that was already part of the general method). "
+            "These are different test sets, so read the change as a direction, not a paired result.</p>"
+            "<div class='scroll'><table><thead><tr><th>Family</th><th>Specialist in attempt 2</th><th>Right model</th>"
+            "<th>Right kind</th><th>Random walk, right model</th><th>Middle, right model</th>"
+            "<th>Attempt 1: right model, right kind</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div>" + trend)
+
+
+def section_specialists(M: dict, M1: dict | None = None) -> str:
     view = family_view(M)
     scope_name = "all 96 items" if view["complete"] else "dev16 (16 tuning items)"
     parts = ["<h2 id='specialists'>3a. A specialist for each kind of effect</h2>",
@@ -1078,12 +1251,17 @@ def section_specialists(M: dict) -> str:
              "The human asked for this on 2026-10-17 (<code>docs/DECISIONS.md</code>, &ldquo;a specialist per effect family&rdquo;).</p>",
              "<h3>The adoption rule</h3><p>A specialist is tuned on the dev items only. It is adopted for a family only if it "
              "beats the general method on that family at the same budget of 300 renders. Until then the general method stays in "
-             "charge of that family. Nothing is adopted yet.</p>"]
+             "charge of that family. "
+             + ("For Gate 2 attempt 2 the lead switched on the specialists for gain, linear, time-based and modulation "
+                "(modulation: seeds and screen only) in one combined run. That run is judged by the Gate 2 rule as a whole; "
+                "it is not the per-family adoption test, so the family table below is a first look, not an adoption.</p>"
+                if M["attempt"] in LATER else "Nothing is adopted yet.</p>")]
     # chart
     series = view["series"]
     if not view["ours"]:
         parts.append("<p>" + chip("wait", "waiting for the designated run") + " No results by family yet.</p>")
     else:
+        parts.append(family_result_table(M, M1))
         parts.append(f"<h3>How each method does, by family</h3><p>{scope_chip('full' if view['complete'] else 'dev16')} "
                      f"Scope: {esc(scope_name)}. Families marked <strong>next specialist to build</strong> are the two where our "
                      "designated method is weakest (lowest share of right models, then right categories). "
@@ -1106,7 +1284,7 @@ def section_specialists(M: dict) -> str:
                     v = e.get(key) if e.get("n") else None
                     bars.append({"color": m["color"], "value": v,
                                  "tip": f"{m['label']}, {fname} family: {fmt(v, 3)} over {e.get('n', 0)} items. "
-                                        f"Source: run files under cache/synthetic-v1/runs/ ({scope_name})"})
+                                        f"Source: run files under cache/{M['set']}/runs/ ({scope_name})"})
                 groups.append({"label": fname, "sub": f"({n_f} items)", "bars": bars, "weak": fkey in weak})
             parts.append(f"<figure><figcaption>{esc(title)}</figcaption>"
                          f"{svg_family_bars(groups, vmax, title + ', by family', axis)}</figure>")
@@ -1128,17 +1306,20 @@ def section_specialists(M: dict) -> str:
         c = FAMILY_CARDS[fkey]
         status = SPECIALIST_STATUS.get(fkey, "planned")
         kind = {"adopted": "pass", "in use": "pass", "building": "dev"}.get(status, "wait")
-        ev = "".join(f"<li>{esc(t)} <small class='muted'>(source: <code>{esc(s)}</code>)</small></li>" for t, s in c["evidence"])
+        ev = "".join(f"<li>{esc(t)} <small class='muted'>(source: <code>{esc(s_.replace('synthetic-v1', M['set']))}</code>)</small></li>"
+                     for t, s_ in c["evidence"])
         if view["ours"]:
             rows = " ; ".join(esc(m["label"].split(" (")[0]) + f": {fm[fkey]['model_hits']}/{fm[fkey]['n']}"
                               for m, fm in view["series"] if fm[fkey].get("n"))
             ev += (f"<li>Right model on {esc(scope_name)}: {rows or 'no items'} "
                    f"<small class='muted'>(source: run files)</small></li>")
         nxt = "<p>" + chip("dev", "next specialist to build") + "</p>" if fkey in weak else ""
+        note = SPECIALIST_NOTE.get(fkey, "") if M["attempt"] in LATER else ""
+        status_txt = f"{status} ({note})" if note else status
         extra = {"gain": "; also fuzz and preamp in the real block list", "dynamics": "; also gate in the real block list"}.get(fkey, "")
         cat_txt = ", ".join(cats)
         parts.append(f"<article class='card pc'><h4>{esc(fname)} <small>(synthetic set: {esc(cat_txt)}{esc(extra)})</small></h4>"
-                     f"<p>Status: {chip(kind, status)}</p>{nxt}"
+                     f"<p>Status: {chip(kind, status_txt)}</p>{nxt}"
                      f"<p><strong>What it does.</strong> {esc(c['does'])}</p>"
                      f"<p><strong>What we measure.</strong> {esc(c['uses'])}</p>"
                      f"<p><strong>Search strategy.</strong> {esc(c['search'])}</p>"
@@ -1147,6 +1328,361 @@ def section_specialists(M: dict) -> str:
     parts.append("</div>")
     return "".join(parts)
 
+
+
+# --------------------------------------------------------------------------- attempt 2 (headline) and the comparison
+
+KNOWN_DI_NOTE = ("Gate 2 tests the known-input case: the search is given the very same clean guitar recording (the DI) that made "
+                 "the target, so the only thing that differs is the preset. Later gates do not give it that. Gate 3 supplies only a "
+                 "separate dry sample with different notes, and Gate 4 (real songs) has no clean guitar at all, only a guitar "
+                 "separated from the mix. So even a Gate 2 pass would not show that a song can be matched.")
+
+
+KNOWN_DI_LEDE = f"<p class='lede'><strong>Known-input case.</strong> {esc(KNOWN_DI_NOTE)}</p>"
+
+
+def rank1_misses(M: dict) -> list[dict]:
+    """Items of the full run whose true preset the score did not rank first (rule B), with what the middle baseline did."""
+    full, mid = M["full"], M["middle"]
+    out = []
+    for i in sorted(full["items"]):
+        it = full["items"][i]
+        if it.get("rank1_audible") is False:
+            out.append({"id": i, "category": it.get("category"), "model": it.get("model"), "model_ok": bool(it.get("model_ok")),
+                        "neighbour_rank": it.get("neighbour_rank_audible"),
+                        "middle_miss": (mid or {}).get("rank1_raw", {}).get(i) is False})
+    return out
+
+
+def texts_failed(ev: dict) -> list[str]:
+    return [c["text"] if c["key"] != "rank1" else "rank1" for c in ev["checks"] if c["ok"] is False]
+
+
+def rank1_rate_raw(m: dict | None) -> float | None:
+    vals = list((m or {}).get("rank1_raw", {}).values())
+    return float(np.mean(vals)) if vals else None
+
+
+def section_attempt2(M2: dict, M1: dict | None, rule_text: str, ev2: dict, latest: bool = True) -> str:
+    d = M2["d"]
+    all_ids = d["all_ids"]
+    full, rnd, mid = M2["full"], M2["random"], M2["middle"]
+    base = [m for m in (mid, rnd) if m]
+    n_ok, n_all = count_checks(ev2)
+    verdict_txt = ("not decided" if not ev2["complete"] else "criteria all met, needs human sign-off" if ev2["all_ok"]
+                   else f"NOT PASSED, {n_ok} of {n_all} checks met")
+    parts = [f"<h2 id='attempt2'>Gate 2 attempt 2 ({'latest' if latest else 'earlier attempt'}): {esc(verdict_txt)}</h2>"]
+    mo, mr = metrics("ours", full["items"], all_ids), metrics("random", rnd["items"], all_ids)
+    mm = metrics("middle", mid["items"], all_ids) if mid else {}
+    by = {c["key"]: c for c in ev2["checks"]}
+    miss = rank1_misses(M2)
+    r1_ours, r1_mid = mo.get("rank1"), rank1_rate_raw(mid)
+    parts.append(
+        "<p class='lede'><strong>In plain English.</strong> "
+        + chip("fail" if ev2["complete"] and not ev2["all_ok"] else "wait", verdict_txt)
+        + f" Attempt 2 ran our search on a fresh, sealed set of 96 known presets (<code>{esc(M2['set'])}</code>), run once with "
+        f"the pass rule already frozen. It named the exact model for {mo['model_hits']} of {mo['n']} (random walk {mr['model_hits']}, "
+        f"middle-of-every-knob {mm.get('model_hits', 'n/a')})"
+        + (", and its model accuracy is not worse than the random walk's, which attempt 1 could not show. "
+           if by["vs_random_model"]["ok"] else ". ")
+        + f"{n_ok} of the {n_all} checks are met. "
+        + (f"The one that is not is the <strong>rank-1 check</strong>: the judging score put the true "
+           f"preset first on {fmt(r1_ours, 4)} of the items ({len(all_ids) - len(miss)} of {len(all_ids)}) against a bar of 0.95. "
+           if texts_failed(ev2) == ["rank1"] else
+           f"Not met: {esc('; '.join(texts_failed(ev2)))}. ")
+        + ("The rule is unchanged and nothing was re-scored. Whether to try again is the human's decision.</p>" if latest else
+           "The rule was unchanged and nothing was re-scored. This figure stays under the old rank-1 rule (see the attempt 3 section). "
+           "Attempt 3 followed on a fresh set.</p>"))
+    parts.append("<h3>The seven checks</h3>")
+    parts.append(pass_table(ev2, None, M2, v2=True))
+    parts.append("<h3>The frozen rule, word for word</h3><p>Quoted from <code>docs/DECISIONS.md</code>; it was written before "
+                 "any full run and has not been changed. Its text names synthetic-v1 because it was written for attempt 1; attempt 2 "
+                 "applied it unchanged to synthetic-v2 (DECISIONS, &ldquo;Gate 2 attempt 2 configuration&rdquo;). Its fifth point, about the "
+                 "80 items outside dev16, has no meaning on v2:</p>"
+                 f"<blockquote>{esc(rule_text) if rule_text else 'The frozen-rule section was not found in docs/DECISIONS.md.'}</blockquote>")
+    # rank-1 miss
+    parts.append("<h3>The one missed check: rank-1 is a check on the score, not on the search</h3>")
+    parts.append(
+        "<p><strong>What rank-1 asks.</strong> We hand the score the true preset and a set of close neighbours (nearby settings and "
+        "models) and ask it which one sounds closest to the target. If it does not pick the true preset, the score is "
+        "a poor judge in that spot, and no amount of searching can fix a poor judge.</p>"
+        "<p><strong>Why it is the score, not the search.</strong> The rank-1 test never uses the search's answer. The "
+        f"middle-of-every-knob baseline, which does no searching at all, gets exactly the same figure: "
+        f"{num(fmt(r1_mid, 4), 'v2_base_middle item files, rank1_audible before the report strips it from baselines')} "
+        f"against ours {num(fmt(r1_ours, 4), 'gate2_v2_attempt2 item files, rank1_audible')}. "
+        "That is why the baseline columns elsewhere on this page show no rank-1 figure.</p>")
+    if miss:
+        rows = []
+        for e in miss:
+            rows.append(f"<tr><td><code>{esc(e['id'])}</code></td><td>{esc(e['category'])}</td><td>{esc(pretty_model(e['model']))}</td>"
+                        f"<td>{'yes' if e['model_ok'] else 'no'}</td><td>{esc(e['neighbour_rank'])}</td>"
+                        f"<td>{'yes' if e['middle_miss'] else 'no'}</td></tr>")
+        found = sum(1 for e in miss if e["model_ok"])
+        same = sum(1 for e in miss if e["middle_miss"])
+        gain_n = sum(1 for e in miss if FAMILY_OF.get(e["category"]) == "gain")
+        parts.append(
+            f"<p><strong>The {len(miss)} items.</strong> The search still found the right model on {found} of the {len(miss)}, and the "
+            f"middle baseline's score also failed on {same} of the {len(miss)}. The pattern is gain-stage neighbours: {gain_n} of the {len(miss)} "
+            "are drive or amp, where a nearby gain or drive setting scores as well as the truth, so the score cannot tell them apart. "
+            f"The rest: {esc(', '.join(e['category'] for e in miss if FAMILY_OF.get(e['category']) != 'gain'))}.</p>"
+            "<div class='scroll'><table class='mini'><thead><tr><th>Item</th><th>Kind</th><th>True model</th>"
+            "<th>Search found the right model?</th><th>Where the true preset ranked (1 = first)</th>"
+            "<th>Middle baseline's score also missed?</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div>")
+    parts.append("<details><summary>Technical detail</summary><p>Rank-1 under rule B, known-DI mode (<code>rank1_mode</code> "
+                 "<code>known_di_same_notes_aligned</code>): the true preset against its neighbours on the same notes, "
+                 "<code>mrstft_v2</code> alone at weight 1.0; a neighbour that nulls at -30 dB or better against the truth is a tie. "
+                 "Source: <code>rank1_audible</code> in each item file; ledger rows 2026-10-18T02:33:52 (benchmark); "
+                 "docs/DECISIONS.md, &ldquo;Gate 2 attempt 2 result&rdquo;.</p></details>")
+    # all 96
+    parts.append("<h3>All 96 items, next to both baselines</h3><p>" + chip("full", "full 96, never tuned on")
+                 + " Same 96 items for every bar. The dashed line is the Gate 2 target. Every item was untuned: attempt 2 "
+                   "had no tuning items.</p>")
+    parts.append(results_panel(base + [full], all_ids, "all 96", set_name=M2["set"]))
+    rows96 = [{"label": m["label"], "metrics": metrics(m["kind"], m["items"], all_ids)} for m in base + [full]]
+    parts.append("<h3>By category, grouped by family of effect</h3><p>Each cell is how many of that category's 12 items were right. Darker is better. "
+                 "Drive and modulation are the weak spots.</p>")
+    parts.append(heatmap(rows96, "model", "Attempt 2: exact model (twelve items per category)"))
+    parts.append(heatmap(rows96, "category", "Attempt 2: right kind of effect (twelve items per category)"))
+    parts.append("<h3>What this does and does not show</h3><ul>"
+                 f"<li>{esc(KNOWN_DI_NOTE)}</li>"
+                 "<li><strong>Split-80 means nothing here.</strong> There was no dev16 tuning on v2, so the 80-versus-96 check has "
+                 "nothing to catch. It is not evidence in either direction.</li>"
+                 + ("<li><strong>v2 is now seen.</strong> Attempt 3 needs a fresh sealed set (synthetic-v3, avoiding v1, v2 and devfam). "
+                    "Nothing on v2 can be re-scored to pass.</li>" if latest else
+                    "<li><strong>v2 is spent.</strong> Attempt 3 ran on a fresh sealed set, synthetic-v3. Nothing on v2 can be re-scored to pass.</li>")
+                 + 
+                 "<li><strong>Ear not yet consulted.</strong> No listening session has been scored; the audio below is for you to "
+                 "listen to.</li></ul>")
+    return "".join(parts)
+
+
+# --------------------------------------------------------------------------- attempt 3 (headline)
+
+RULE_B_AMENDMENT = (
+    "The rank-1 check asks whether our judging score prefers the true preset over close neighbours. Before attempt 3 the human "
+    "amended it (DECISIONS, 2026-10-18, &ldquo;rule B extended&rdquo;). Two settings that differ only in volume used to count against "
+    "the score, because the test recordings are given a random volume change of up to 3 dB and so a louder or quieter copy of the "
+    "truth could look closer than the truth itself; nobody can tell such copies apart by ear. Now a neighbour counts as a tie when "
+    "it cancels the truth to -30 dB or better, either as it is or after a volume match within that 3 dB range. Every other bar is "
+    "unchanged. The figures for attempts 1 and 2 stay as they were recorded, under the old rule.")
+
+
+def delay_rows(M: dict) -> list[dict]:
+    """Delay items our full run got wrong: what the true model was and what we named instead."""
+    out = []
+    for i in sorted(M["full"]["items"]):
+        it = M["full"]["items"][i]
+        if it.get("category") == "delay" and not it.get("model_ok") and "error" not in it:
+            out.append({"id": i, "model": it.get("model"), "pred": it.get("pred_model"), "pred_category": it.get("pred_category"),
+                        "category_ok": bool(it.get("category_ok"))})
+    return out
+
+
+def section_headline_v3(M: dict) -> str:
+    full = M["full"]
+    if not (full and full["scope"] == "full" and M["random"]):
+        return "<p class='lede'>Attempt 3 (<code>gate2_v3_attempt3</code>) has not finished all 96 items, so nothing is decided.</p>"
+    ev = evaluate_pass(full["items"], M["random"]["items"], M["total"], M["d"]["all_ids"])
+    n_ok, n_all = count_checks(ev)
+    mo = metrics("ours", full["items"], M["d"]["all_ids"])
+    if ev["all_ok"]:
+        word = f"<strong>met all {n_all} checks</strong> of the frozen rule. Gate 2 is passed only when the human signs it"
+    else:
+        word = f"did <strong>not pass</strong> ({n_ok} of {n_all} checks met)"
+    return (f"<p class='lede'><strong>In one sentence.</strong> {chip('full', 'attempt 3, full 96, untuned')} On a third, fresh sealed set, "
+            f"the search named the exact model for {mo['model_hits']} of {mo['n']} items and {word}. "
+            "Attempts 1 and 2 are kept lower down as earlier attempts. <a href='#attempt3'>Jump to the result</a>.</p>")
+
+
+def section_attempt3(M3: dict, M2: dict | None, M1: dict | None, rule_text: str, ev3: dict,
+                     ev2: dict | None, ev1: dict | None) -> str:
+    d = M3["d"]
+    all_ids = d["all_ids"]
+    full, rnd, mid = M3["full"], M3["random"], M3["middle"]
+    base = [m for m in (mid, rnd) if m]
+    n_ok, n_all = count_checks(ev3)
+    ok_all = bool(ev3["complete"] and ev3["all_ok"])
+    if not ev3["complete"]:
+        verdict_txt = "not decided"
+    elif ok_all:
+        verdict_txt = f"All {n_all} checks met, awaiting the human's sign-off"
+    else:
+        verdict_txt = f"NOT PASSED, {n_ok} of {n_all} checks met"
+    parts = [f"<h2 id='attempt3'>Gate 2 attempt 3 (latest): {esc(verdict_txt)}</h2>"]
+    mo, mr = metrics("ours", full["items"], all_ids), metrics("random", rnd["items"], all_ids)
+    mm = metrics("middle", mid["items"], all_ids) if mid else {}
+    miss = rank1_misses(M3)
+    fam = family_metrics("ours", full["items"], all_ids)
+    weakest = weakest_families(fam, 1)
+    dly = delay_rows(M3)
+    delay_hits = mo["by_category"]["delay"]["model"]
+    parts.append(
+        "<p class='lede'><strong>In plain English.</strong> "
+        + chip("pass" if ok_all else "fail" if ev3["complete"] else "wait", verdict_txt)
+        + f" Attempt 3 ran our search once on a third fresh, sealed set of 96 known presets (<code>{esc(M3['set'])}</code>), with the "
+        f"pass rule frozen and its rank-1 check amended as described below. It named the exact model for {mo['model_hits']} of {mo['n']} "
+        f"(random walk {mr['model_hits']}, middle-of-every-knob {mm.get('model_hits', 'n/a')}). {n_ok} of the {n_all} judged checks are met"
+        + (". The gate is <strong>not passed yet</strong>: it counts only when the human signs it off. " if ok_all else ". ")
+        + f"The weakest kind of effect is now <strong>delay</strong>: the exact model was right on {delay_hits} of 12 delay items, "
+        "and most of those misses name one delay model in place of another.</p>")
+    parts.append("<h3>The seven checks</h3>")
+    parts.append(pass_table(ev3, None, M3, v2=True))
+    parts.append("<h3>What changed in the rule, in plain words</h3><p>" + RULE_B_AMENDMENT + "</p>"
+                 "<p><strong>Not re-scored.</strong> Attempts 1 and 2 are shown on this page with the figures recorded at the time. "
+                 "Where a re-scored figure is ever shown, it is labelled as such.</p>")
+    parts.append("<h3>The frozen rule, word for word</h3><p>Quoted from <code>docs/DECISIONS.md</code>; written before any full run. Its text "
+                 "names synthetic-v1 and the old rank-1 reading because it was written for attempt 1; attempt 3 applied it unchanged "
+                 "except for the rank-1 amendment above. Its fifth point (the 80 items outside dev16) has no meaning on v3, which had "
+                 "no tuning items, and is not counted as evidence:</p>"
+                 f"<blockquote>{esc(rule_text) if rule_text else 'The frozen-rule section was not found in docs/DECISIONS.md.'}</blockquote>")
+    # three attempts side by side
+    names = {"category": "Right kind of effect", "model": "Right model", "mae": "Settings error (lower is better)",
+             "rank1": "Score ranks the true preset first", "vs_random_model": "Model accuracy against random walk (difference)",
+             "vs_random_mae": "Settings error against random walk (difference; below 0 is better)"}
+    bars = {"category": ">= 0.85", "model": ">= 0.60", "mae": "<= 0.15", "rank1": ">= 0.95",
+            "vs_random_model": "CI low >= -0.05", "vs_random_mae": "CI high < 0"}
+    evs = [("Attempt 1 (old rank-1 rule)", ev1), ("Attempt 2 (old rank-1 rule)", ev2), ("Attempt 3 (extended rule B)", ev3)]
+
+    def cell(ev, key):
+        c = next((x for x in (ev or {}).get("checks", []) if x["key"] == key), None)
+        if not c or c["value"] is None:
+            return "<td>-</td><td>-</td>"
+        v = f"{c['value']:+.3f}" if key.startswith("vs_") else f"{c['value']:.3f}"
+        return f"<td>{esc(v)}</td><td>{ok_chip(c['ok'])}</td>"
+
+    rows = [f"<tr><th scope='row'>{esc(nm)}</th><td>{esc(bars[k])}</td>" + "".join(cell(e, k) for _, e in evs) + "</tr>"
+            for k, nm in names.items()]
+    cnt = " ".join(f"{lbl.split(' (')[0]}: {a} of {b}." for lbl, e in evs if e for a, b in [count_checks(e)])
+    parts.append("<h3>The three attempts side by side</h3><div class='scroll'><table><thead><tr><th>Check</th><th>Bar</th>"
+                 + "".join(f"<th colspan='2'>{esc(lbl)}</th>" for lbl, _ in evs) + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+                 f"<p>Checks met (of those judged): {esc(cnt)} The three sets of 96 items are different, so this is a before-and-after, "
+                 "not a paired test. The rank-1 row changed meaning between attempt 2 and attempt 3 (the amendment above), so do not read its rise as "
+                 "a better score alone.</p>")
+    if miss:
+        mrows = "".join(f"<tr><td><code>{esc(e['id'])}</code></td><td>{esc(e['category'])}</td><td>{esc(pretty_model(e['model']))}</td>"
+                        f"<td>{'yes' if e['model_ok'] else 'no'}</td><td>{esc(e['neighbour_rank'])}</td></tr>" for e in miss)
+        parts.append(f"<h3>The {len(miss)} rank-1 misses</h3><p>The score ranked the true preset first on {len(all_ids) - len(miss)} of "
+                     f"{len(all_ids)} items. The misses are listed so nothing is hidden; the bar of 0.95 allows at most 4.</p>"
+                     "<div class='scroll'><table class='mini'><thead><tr><th>Item</th><th>Kind</th><th>True model</th>"
+                     "<th>Search found the right model?</th><th>Where the true preset ranked (1 = first)</th></tr></thead>"
+                     f"<tbody>{mrows}</tbody></table></div>")
+    parts.append("<h3>All 96 items, next to both baselines</h3><p>" + chip("full", "full 96, never tuned on")
+                 + " Same 96 items for every bar. The dashed line is the Gate 2 target. Every item was untuned.</p>")
+    parts.append(results_panel(base + [full], all_ids, "all 96", set_name=M3["set"]))
+    # per-family chart
+    series = [(m, family_metrics(m["kind"], m["items"], all_ids)) for m in base + [full]]
+    groups = []
+    for fkey, fname, cats in FAMILIES:
+        n_f = next((fm[fkey]["n"] for m, fm in series if m is full), 0)
+        bars_ = []
+        for m, fm in series:
+            e = fm[fkey]
+            v = e.get("model") if e.get("n") else None
+            bars_.append({"color": m["color"], "value": v,
+                          "tip": f"{m['label']}, {fname} family: right model {fmt(v, 3)} over {e.get('n', 0)} items. "
+                                 f"Source: run files under cache/{M3['set']}/runs/"})
+        groups.append({"label": fname, "sub": f"({', '.join(cats)}; {n_f} items)", "bars": bars_, "weak": fkey in weakest})
+    legend = "".join(f"<span><span class='dot' style='background:{m['color']}'></span>{esc(m['label'])}</span> &nbsp; " for m, _ in series)
+    parts.append("<h3>By family of effect: exact model right</h3><p class='legend'>" + legend + "</p>"
+                 "<figure><figcaption>Share of items where the exact model was named (higher is better)</figcaption>"
+                 + svg_family_bars(groups, 1.0, "Attempt 3: exact model, by family", "share of items") + "</figure>")
+    # per category, with attempt 2 beside it
+    crow, cat_groups = [], []
+    bycat = {m["kind"]: metrics(m["kind"], m["items"], all_ids)["by_category"] for m in base + [full]}
+    by2 = metrics("ours", M2["full"]["items"], M2["d"]["all_ids"])["by_category"] if M2 and M2.get("full") else None
+    for c in HEAT_ORDER:
+        b3 = bycat["ours"][c]
+        b2 = by2[c] if by2 else None
+        flag = " <strong>(weakest)</strong>" if c == "delay" else ""
+        rnd_c, mid_c = bycat.get("random", {}).get(c), bycat.get("middle", {}).get(c)
+        crow.append(f"<tr><th scope='row'>{esc(c)}{flag} <small>({esc(FAMILY_NAME[FAMILY_OF[c]])})</small></th>"
+                    f"<td><strong>{b3['model']}/{b3['n']}</strong></td><td>{b3['category']}/{b3['n']}</td>"
+                    f"<td>{rnd_c['model'] if rnd_c else '-'}/{b3['n']}</td><td>{mid_c['model'] if mid_c else '-'}/{b3['n']}</td>"
+                    f"<td>{(str(b2['model']) + '/' + str(b2['n'])) if b2 else '-'}</td></tr>")
+        cat_groups.append({"label": c, "sub": f"({b3['model']}/{b3['n']})", "weak": c == "delay",
+                           "bars": [{"color": m["color"],
+                                     "value": (bycat[m["kind"]][c]["model"] / bycat[m["kind"]][c]["n"]) if bycat[m["kind"]][c]["n"] else None,
+                                     "tip": f"{m['label']}, {c}: right model. Source: run files under cache/{M3['set']}/runs/"}
+                                    for m in base + [full]]})
+    parts.append("<figure><figcaption>By category: exact model right, 12 items each</figcaption>"
+                 + svg_family_bars(cat_groups, 1.0, "Attempt 3: exact model, by category", "share of items") + "</figure>")
+    parts.append("<div class='scroll'><table><thead><tr><th>Category</th><th>Right model, attempt 3</th><th>Right kind, attempt 3</th>"
+                 "<th>Random walk, right model</th><th>Middle, right model</th><th>Attempt 2 right model (different set)</th></tr></thead>"
+                 f"<tbody>{''.join(crow)}</tbody></table></div>")
+    if dly:
+        swaps = [r for r in dly if r["pred_category"] == "delay"]
+        drows = "".join(f"<tr><td><code>{esc(r['id'])}</code></td><td>{esc(pretty_model(r['model']))}</td>"
+                        f"<td>{esc(pretty_model(r['pred']))}</td><td>{esc(r['pred_category'])}</td></tr>" for r in dly)
+        parts.append(f"<h3>The biggest problem now: delay</h3><p>Delay is the weakest kind: {12 - len(dly)} of 12 right models. Of the "
+                     f"{len(dly)} misses, {len(swaps)} named a different delay model (a swap within the family) and {len(dly) - len(swaps)} named a "
+                     "different kind of effect. A swap between two delays may still sound close, which is a question for the ear: "
+                     "the audio section below has the delay misses with the target on the left channel and our guess on the right.</p>"
+                     "<div class='scroll'><table class='mini'><thead><tr><th>Item</th><th>True model</th><th>Our guess</th>"
+                     f"<th>Kind of our guess</th></tr></thead><tbody>{drows}</tbody></table></div>")
+    parts.append("<h3>What this does and does not show</h3><ul>"
+                 f"<li>{esc(KNOWN_DI_NOTE)}</li>"
+                 "<li><strong>The rank-1 rule was amended before this attempt.</strong> That is the human's ruling, recorded before the run. "
+                 "Attempts 1 and 2 would have different rank-1 figures under it; they are not re-scored here.</li>"
+                 "<li><strong>Split-80 carries no information on v3.</strong> There were no tuning items. It is shown and not counted as evidence.</li>"
+                 "<li><strong>Three sealed sets are spent</strong> (v1, then v2, then v3). v3 is seen now and is not a test set any more.</li>"
+                 "<li><strong>Ear not yet consulted.</strong> No listening session has been scored; the audio below is for you to listen to.</li>"
+                 "<li><strong>Not passed until you sign.</strong> The gate row in the ledger is written only with the human's sign-off.</li></ul>")
+    return "".join(parts)
+
+
+def section_compare(M2: dict, M1: dict, ev2: dict, ev1: dict | None) -> str:
+    """Attempt 1 (earlier) against attempt 2, per check and per category. Different sets: not a paired result."""
+    parts = ["<h2 id='compare'>Attempt 1 versus attempt 2</h2>",
+             "<p>Attempt 1 (<code>synthetic-v1</code>, run <code>gate2_full_hybrid</code>) was the earlier try and missed the "
+             "rule. Attempt 2 (<code>synthetic-v2</code>, run <code>gate2_v2_attempt2</code>) added the family specialists. "
+             "They used <strong>different sets of 96 items</strong>, so this is a before-and-after, not a paired test.</p>"]
+    if not ev1 or not ev1["complete"]:
+        parts.append("<p>" + chip("wait", "attempt 1 full run not found") + "</p>")
+        return "".join(parts)
+    names = {"category": "Right kind of effect", "model": "Right model", "mae": "Settings error (lower is better)",
+             "rank1": "Score ranks the true preset first (rule B)", "vs_random_model": "Model accuracy against random walk (difference)",
+             "vs_random_mae": "Settings error against random walk (difference; below 0 is better)",
+             "split80": "The 80 items outside dev16 agree with the 96"}
+    bars = {"category": ">= 0.85", "model": ">= 0.60", "mae": "<= 0.15", "rank1": ">= 0.95",
+            "vs_random_model": "CI low >= -0.05", "vs_random_mae": "CI high < 0", "split80": "within each CI"}
+    b1 = {c["key"]: c for c in ev1["checks"]}
+    b2 = {c["key"]: c for c in ev2["checks"]}
+    def val(c, key):
+        if not c or c["value"] is None:
+            return "-"
+        return f"{c['value']:+.3f}" if key.startswith("vs_") else f"{c['value']:.3f}"
+
+    rows = []
+    for k, name in names.items():
+        c1, c2 = b1.get(k), b2.get(k)
+
+        v2chip = chip("wait", "no information on v2") if k == "split80" else ok_chip(c2["ok"] if c2 else None)
+        rows.append(f"<tr><th scope='row'>{esc(name)}</th><td>{esc(bars[k])}</td><td>{esc(val(c1, k))}</td>"
+                    f"<td>{ok_chip(c1['ok'] if c1 else None)}</td><td>{esc(val(c2, k))}</td><td>{v2chip}</td></tr>")
+    n1, t1 = count_checks(ev1)
+    n2, t2 = count_checks(ev2)
+    parts.append("<h3>Per check</h3><div class='scroll'><table><thead><tr><th>Check</th><th>Bar</th><th>Attempt 1</th><th>Verdict</th>"
+                 "<th>Attempt 2</th><th>Verdict</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+                 f"<p>Checks met: attempt 1 {n1} of {t1}, attempt 2 {n2} of {t2}.</p>")
+    m1, m2 = metrics("ours", M1["full"]["items"], M1["d"]["all_ids"]), metrics("ours", M2["full"]["items"], M2["d"]["all_ids"])
+    r1, r2 = metrics("random", M1["random"]["items"], M1["d"]["all_ids"]), metrics("random", M2["random"]["items"], M2["d"]["all_ids"])
+    parts.append("<p>" + f"Category {fmt(m1['category'], 3)} to {fmt(m2['category'], 3)}, model {fmt(m1['model'], 3)} to "
+                 f"{fmt(m2['model'], 3)}, rank-1 {fmt(m1['rank1'], 4)} to {fmt(m2['rank1'], 4)} (bar 0.95). Different sets, so "
+                 "part of any change may be which items were drawn.</p>")
+    crow = []
+    for c in HEAT_ORDER:
+        a, b = m1["by_category"][c], m2["by_category"][c]
+        ra, rb = r1["by_category"][c], r2["by_category"][c]
+        crow.append(f"<tr><th scope='row'>{esc(c)} <small>({esc(FAMILY_NAME[FAMILY_OF[c]])})</small></th>"
+                    f"<td>{a['model']}/{a['n']}</td><td><strong>{b['model']}/{b['n']}</strong></td>"
+                    f"<td>{a['category']}/{a['n']}</td><td><strong>{b['category']}/{b['n']}</strong></td>"
+                    f"<td>{ra['model']}/{ra['n']}</td><td>{rb['model']}/{rb['n']}</td></tr>")
+    parts.append("<h3>Per category (twelve items each)</h3><div class='scroll'><table><thead><tr><th>Category</th>"
+                 "<th>Right model, attempt 1</th><th>Right model, attempt 2</th><th>Right kind, attempt 1</th>"
+                 "<th>Right kind, attempt 2</th><th>Random walk model, attempt 1</th><th>Random walk model, attempt 2</th></tr></thead>"
+                 f"<tbody>{''.join(crow)}</tbody></table></div>")
+    return "".join(parts)
 
 
 def section_what(M) -> str:
@@ -1159,7 +1695,7 @@ def section_what(M) -> str:
               "(clip C) of the same recording. See <code>docs/notes/synthetic-benchmark-design.md</code>.</p></details>")
 
 
-def section_method(M, rule_text: str) -> str:
+def section_method(M, rule_text: str, rule_shown_above: bool = False) -> str:
     parts = ["<h2 id='method'>2. Methodology</h2>"]
     items = [
         ("The synthetic set: 96 items, 8 categories",
@@ -1167,7 +1703,9 @@ def section_method(M, rule_text: str) -> str:
          "Each has randomly chosen but plausible knob settings. Because we chose them, we know the right answer.",
          "Pool: 6 models per category (48 in total), each item's true model is in the pool, so blind guessing the model within a known category is right 1 time in 6. "
          "Time-variant and unavailable blocks are excluded. Parameters sit on the 127-step grid of the template range; output-level knobs are not varied. "
-         "Set generated by <code>scripts/synthetic_v1.py generate</code> (seed 20261016)."),
+         "Set generated by <code>scripts/synthetic_v1.py generate</code> (seed 20261016). Attempt 2 used a second sealed set, "
+         "<code>synthetic-v2</code> (seed 20261017, avoiding v1's excerpts), with the same categories, the same pool sizes and the same "
+         "rules."),
         ("The known DI",
          "A DI is a guitar recording with no amp or effects. Every test uses the same clean guitar playing, so the only thing that differs between the target and our guess is the preset. "
          "That removes the problem of guessing what the guitarist played.",
@@ -1196,72 +1734,88 @@ def section_method(M, rule_text: str) -> str:
     ]
     for t, plain, tech in items:
         parts.append(f"<h3>{esc(t)}</h3><p>{plain}</p><details><summary>Technical detail</summary><p>{tech}</p></details>")
+    if rule_shown_above:
+        parts.append("<h3>The frozen pass rule</h3><p>Written down <em>before</em> the full run, so nobody can move the goalposts. "
+                     "It is quoted word for word in the attempt 2 section above (<a href='#attempt2'>jump</a>) and has not changed.</p>")
+        return "".join(parts)
     parts.append("<h3>The frozen pass rule</h3><p>We wrote the pass rule down <em>before</em> the full run, so nobody can move the goalposts after seeing results. "
                  "It is quoted word for word from <code>docs/DECISIONS.md</code>:</p>")
     parts.append(f"<blockquote>{esc(rule_text) if rule_text else 'The frozen-rule section was not found in docs/DECISIONS.md.'}</blockquote>")
     return "".join(parts)
 
 
-def section_results(M) -> tuple[str, dict]:
+def section_results(M, earlier: bool = False) -> tuple[str, dict]:
+    """Gate evidence first (the full 96-item run against both baselines, then the 80 untuned items),
+    tuning history last. A dev16 preview appears only while no full run exists (human, 2026-10-17:
+    a 'latest' dev16 figure beside the verdict read as the gate result)."""
     d = M["d"]
     dev_ids = d["dev_ids"]
-    ms = M["methods"]
-    parts = ["<h2 id='results'>3. Results at a glance</h2>"]
-    stage = [m for m in ms if m["kind"] != "ours" or m["role"] != "full"]
-    parts.append("<h3>Same 16 tuning items, every method</h3>"
-                 "<p>" + chip("dev", "dev16 only: tuning items, not gate evidence")
-                 + " Every bar below uses the identical 16 items (i000 to i015), so they compare like with like. "
-                   "The dashed line is the Gate 2 target. Hover or focus a bar for its source.</p>")
-    parts.append(results_panel(stage, dev_ids, "dev16"))
-    parts.append("<p class='muted'>Rank-1 describes the judging score, not the search, so it is the same for every method by design. "
-                 "The middle baseline's settings error is measured on the true model at the middle (no model guess is involved).</p>")
-    parts.append(tuning_history(M))
-    # full-set panel
-    full = M["full"]
     all_ids = d["all_ids"]
+    ms = M["methods"]
+    full = M["full"]
+    rnd = M["random"]
     base = [m for m in ms if m["kind"] in ("middle", "random")]
+    stage = [m for m in ms if m["kind"] != "ours" or m["role"] != "full"]
+    have_full = bool(full and full["scope"] == "full")
+    parts = ["<h2 id='results'>3. Results of attempt 1 (the earlier attempt)</h2>" if earlier
+             else "<h2 id='results'>3. Results at a glance</h2>"]
+    if earlier:
+        parts.append("<p class='lede'>" + chip("dev", "earlier attempt") + " Everything in this section is <strong>attempt 1</strong> on "
+                     "<code>synthetic-v1</code>. The latest result is the attempt 2 section near the top of this page.</p>")
+    # 1. the verdict
+    ev = evaluate_pass(full["items"], rnd["items"], M["total"], all_ids) if (full and rnd) else None
+    prev = None
+    parts.append("<h3>The Gate 2 pass rule</h3>")
+    if not (ev and ev["complete"]):
+        if M["dev"] and rnd:
+            prev = (M["dev"], evaluate_pass(M["dev"]["items"], rnd["items"], 10**9, all_ids))
+        parts.append("<p>" + chip("wait", "waiting for the full run") + " The rule can only be judged on all 96 items. "
+                     "The last column shows the chosen method on the 16 tuning items for orientation; it is a preview, not evidence.</p>")
+    else:
+        parts.append("<p>" + chip("full", "full 96") + " Judged on all 96 items of the gate run. Every number in this table comes "
+                     "from that run; tuning-item numbers are shown only in the tuning history further down.</p>")
+    parts.append(pass_table(ev, prev, M))
+    # 2. all 96
     parts.append("<h3>All 96 items</h3>")
-    if full and full["scope"] == "full":
-        parts.append("<p>" + chip("full", "full 96") + " The complete gate run.</p>")
+    if have_full:
+        parts.append("<p>" + chip("full", "full 96") + " The complete gate run, next to both baselines on the same 96 items. "
+                     "The dashed line is the Gate 2 target.</p>")
         parts.append(results_panel(base + [full], all_ids, "all 96"))
+        test80 = [i for i in all_ids if i not in set(dev_ids)]
+        parts.append("<h3>The 80 items never used for tuning</h3><p>Items i016 to i095 were never used to tune, so these are the honest numbers.</p>")
+        parts.append(results_panel(base + [full], test80, "80 items i016 to i095"))
+        rows96 = [{"label": m["label"], "metrics": metrics(m["kind"], m["items"], all_ids)} for m in base + [full]]
+        parts.append("<h3>By category, grouped by family of effect (all 96)</h3><p>Each cell is how many of that category's 12 items were right. Darker is better.</p>")
+        parts.append(heatmap(rows96, "model", "Exact model, all 96 (twelve items per category)"))
+        parts.append(heatmap(rows96, "category", "Right kind of effect, all 96 (twelve items per category)"))
     else:
         note = f"the full run is partial: {full['scope']}" if full else "waiting for the full run"
         parts.append(f"<p>{chip('wait', 'waiting for the full run')} The baselines are complete; our bar appears here when "
                      f"the 96-item run finishes ({esc(note)}).</p>")
         parts.append(results_panel(base, all_ids, "all 96", wait_label="Ours: full 96 run"))
-    if full and full["scope"] == "full":
-        test80 = [i for i in all_ids if i not in set(dev_ids)]
-        parts.append("<h3>The 80 items outside dev16</h3><p>Items i016 to i095 were never used to tune, so these are the honest numbers.</p>")
-        parts.append(results_panel(base + [full], test80, "80 items i016 to i095"))
-    # per category
-    parts.append("<h3>By category, grouped by family of effect</h3><p>Columns are grouped by the family of effect they belong to (see the next section). Each cell is how many items of that category were right (so a cell like 1/2 means one of two). Darker is better. "
-                 "On dev16 there are only two items per category, so one item moves a cell a lot.</p>")
+    parts.append("<p class='muted'>The judging score's rank-1 is a property of the score, not of a method, so it is shown once "
+                 "for our runs and not for the baselines. The middle baseline's settings error is measured on the true model at "
+                 "the middle (no model guess is involved).</p>")
+    # 3. tuning history, clearly secondary
+    parts.append("<h3>Tuning history: the same 16 tuning items, every method</h3>"
+                 "<p>" + chip("dev", "dev16 only: tuning items, not gate evidence")
+                 + " How the method was developed. These 16 items (i000 to i015) were used to choose the method, so they "
+                   "flatter it; the gate result above is what counts.</p>")
+    parts.append(results_panel(stage, dev_ids, "dev16"))
+    parts.append(tuning_history(M))
     rows = [{"label": m["label"], "metrics": metrics(m["kind"], m["items"], dev_ids)} for m in stage]
     parts.append(heatmap(rows, "model", "Exact model, dev16 (two items per category)"))
     parts.append(heatmap(rows, "category", "Right kind of effect, dev16 (two items per category)"))
-    if full and full["scope"] == "full":
-        rows96 = [{"label": m["label"], "metrics": metrics(m["kind"], m["items"], all_ids)} for m in base + [full]]
-        parts.append(heatmap(rows96, "model", "Exact model, all 96 (twelve items per category)"))
-        parts.append(heatmap(rows96, "category", "Right kind of effect, all 96 (twelve items per category)"))
-    # pass rule checklist
-    rnd = M["random"]
-    ev = None
-    parts.append("<h3>The Gate 2 pass rule</h3>")
-    if full and rnd:
-        ev = evaluate_pass(full["items"], rnd["items"], M["total"], all_ids)
-    # latest dev preview
-    prev = None
-    if M["dev"] and rnd:
-        pm = M["dev"]
-        prev = (pm, evaluate_pass(pm["items"], rnd["items"], 10**9, all_ids))
-    if not (ev and ev["complete"]):
-        parts.append("<p>" + chip("wait", "waiting for the full run") + " The rule can only be judged on all 96 items. "
-                     "The last column shows the latest dev16 run for orientation; it is a preview and not evidence.</p>")
-    parts.append(pass_table(ev, prev, M))
     return "".join(parts), {"eval": ev, "preview": prev}
 
 
-def pass_table(ev, prev, M) -> str:
+def count_checks(ev) -> tuple[int, int]:
+    """(checks met, checks judged) for a complete evaluation; the pass-rule logic itself is unchanged."""
+    cs = [c for c in (ev or {}).get("checks", []) if c["ok"] is not None]
+    return sum(1 for c in cs if c["ok"]), len(cs)
+
+
+def pass_table(ev, prev, M, v2: bool = False) -> str:
     keys = ["category", "model", "mae", "rank1", "vs_random_model", "vs_random_mae", "split80"]
     texts = {"category": ("Right kind of effect (category)", ">= 0.85"), "model": ("Right model", ">= 0.60"),
              "mae": ("Settings error on right-model items", "<= 0.15"),
@@ -1272,15 +1826,21 @@ def pass_table(ev, prev, M) -> str:
     by_full = {c["key"]: c for c in ev["checks"]} if ev else {}
     by_prev = {c["key"]: c for c in prev[1]["checks"]} if prev else {}
     head = ("<thead><tr><th>Rule</th><th>Bar</th><th>Full 96</th><th>Verdict</th>"
-            f"<th>Latest dev16 run{(' (' + esc(prev[0]['tag']) + ')') if prev else ''} <small>preview</small></th></tr></thead>")
+            + (f"<th>Chosen method on tuning items ({esc(prev[0]['tag'])}) <small>preview</small></th>" if prev else "")
+            + "</tr></thead>")
     body = []
     for k in keys:
         t, bar = texts[k]
         c = by_full.get(k)
         p = by_prev.get(k)
-        val = "-" if not c or c["value"] is None else num(f"{c['value']:+.3f}" if k.startswith("vs_") else f"{c['value']:.3f}",
+        val = "-" if not c or c["value"] is None else num(f"{c['value']:+.3f}" if k.startswith("vs_")
+                                                           else f"{c['value']:.4f}" if k == "rank1" else f"{c['value']:.3f}",
                                                            src_title("full run item files", "paired bootstrap 5000, seed 20261017"))
         verdict_html = ok_chip(c["ok"] if c else None)
+        if v2 and k == "split80":
+            # v2 had no dev16 tuning: all 96 items are untuned, so comparing 80 of them with the 96 tells us nothing.
+            verdict_html = chip("wait", f"counted as pass, but no information on {M['set'][-2:]}" if M else "counted as pass, but no information",
+                                "v2 had no tuning items; all 96 are untuned, so this check cannot fail in a meaningful way")
         pv = "-"
         if p and p["value"] is not None:
             pv = num(f"{p['value']:+.3f}" if k.startswith("vs_") else f"{p['value']:.3f}",
@@ -1288,9 +1848,21 @@ def pass_table(ev, prev, M) -> str:
         elif p and p["note"]:
             pv = esc(p["note"])
         note = f"<br><small class='muted'>{esc(c['note'])}</small>" if c and c.get("note") else ""
-        body.append(f"<tr><th scope='row'>{esc(t)}{note}</th><td>{esc(bar)}</td><td>{val}</td><td>{verdict_html}</td><td>{pv}</td></tr>")
-    overall = ok_chip(ev["all_ok"] if ev else None, "Gate 2 not decided") if ev is None or not ev["complete"] else \
-        (chip("pass", "Gate 2 criteria all met (needs human sign-off)") if ev["all_ok"] else chip("fail", "Gate 2 criteria not all met"))
+        if v2 and k == "split80":
+            note = (f"<br><small class='muted'>Attempt {ATTEMPTS[M['attempt']]['n'] if M else 2} used no tuning items (no dev16 tuning). All 96 are untuned, so "
+                    "the 80 and the 96 are the same kind of item and this line is not evidence. It is shown only because the "
+                    "recorded count of seven checks includes it.</small>")
+        body.append(f"<tr><th scope='row'>{esc(t)}{note}</th><td>{esc(bar)}</td><td>{val}</td><td>{verdict_html}</td>"
+                    + (f"<td>{pv}</td>" if prev else "") + "</tr>")
+    n_ok, n_all = count_checks(ev)
+    if ev is None or not ev["complete"]:
+        overall = ok_chip(None, "Gate 2 not decided")
+    elif ev["all_ok"]:
+        overall = chip("pass", "Gate 2 criteria all met (needs human sign-off)")
+    elif v2:
+        overall = chip("fail", f"Gate 2 NOT PASSED: {n_ok} of {n_all} checks met")
+    else:
+        overall = chip("fail", f"Gate 2 criteria not all met ({n_ok} of {n_all} checks)")
     return (f'<div class="scroll"><table class="pass">{head}<tbody>{"".join(body)}</tbody></table></div>'
             f"<p>Overall: {overall} <small class='muted'>The gate row itself is written only with the human's sign-off.</small></p>")
 
@@ -1320,14 +1892,40 @@ def section_examples(M, ex_ctx) -> str:
 def section_audio(M, pairs, ab_link: str) -> str:
     parts = ["<h2 id='audio'>5. Audio comparisons</h2>",
              "<p>Press play to hear the target (the real preset) against our recovered guess, both on <strong>new notes</strong> the search never heard. "
-             "Each pair is matched to the same loudness (-23 LUFS) so the louder one does not seem better.</p>"]
+             "Each pair is matched to the same loudness (-23 LUFS) so the louder one does not seem better.</p>",
+             "<p><strong>Side-by-side files:</strong> every item also has a stereo file with the target on the <strong>left</strong> "
+             "channel and our recovered sound on the <strong>right</strong>, for listening on headphones. They are in "
+             "<code>reports/local/gate2/audio/&lt;run&gt;/stereo_L-target_R-recovered/</code> (all items, not only the ones with players below).</p>"]
     if pairs:
+        last = None
+        newest = "v3" if any(q.get("attempt") == "v3" for q in pairs) else "v2"
         for p in pairs:
-            parts.append(f'<div class="card"><strong>{esc(p["id"])}</strong> <small>{esc(p["method"])} '
-                         f'(source: {esc(p["source"])})</small><div class="pair">'
+            att = p.get("attempt", "v1")
+            grp = f"Attempt {ATTEMPTS[att]['n']} ({'latest' if att == newest else 'earlier attempt'})"
+            if grp != last and any(q.get("attempt") in LATER for q in pairs):
+                parts.append(f"<h3>{grp}</h3>")
+                if att == "v3":
+                    parts.append("<p class='muted'>Players: our recovered sound on the rank-1 miss items (with the middle-of-every-knob baseline "
+                                 "on the same items), every delay miss, two delay wins, then some of our clear wins. Each is labelled with why it "
+                                 "is here. All 96 items for ours and for both baselines are in the stereo files "
+                                 "(target left, recovered right).</p>")
+                elif att == "v2" and newest == "v3":
+                    parts.append("<p class='muted'>No players for the earlier attempts on this page once attempt 3 exists; their stereo files "
+                                 "(target left, recovered right) are still written for every item.</p>")
+                elif att == "v2":
+                    parts.append("<p class='muted'>Players: our recovered sound on the six rank-1 miss items, the middle-of-every-knob "
+                                 "baseline on the same six (its model pick with every knob at the middle), then some of our clear wins. "
+                                 "All 96 items for ours and for both baselines are in the stereo files.</p>")
+                last = grp
+            if not p.get("target_rel"):
+                continue
+            parts.append(f'<div class="card"><strong>{esc(p["id"])}</strong> '
+                         + (f'{chip("dev", p["why"])} ' if p.get("why") else "")
+                         + f'<small>{esc(p["method"])} (source: {esc(p["source"])})</small><div class="pair">'
                          f'<div><div class="muted">Target (the real preset)</div><audio controls preload="none" src="{esc(p["target_rel"])}"></audio></div>'
                          f'<div><div class="muted">Recovered (our guess)</div><audio controls preload="none" src="{esc(p["guess_rel"])}"></audio></div>'
-                         "</div></div>")
+                         + (f'<div><div class="muted">Side by side: target LEFT, recovered RIGHT (headphones)</div><audio controls preload="none" src="{esc(p["lr_rel"])}"></audio></div>' if p.get("lr_rel") else "")
+                         + "</div></div>")
     else:
         parts.append("<div class='card'>" + chip("wait", "no audio rendered yet") +
                      "<p>No <code>&lt;item&gt;_target.wav</code> and <code>&lt;item&gt;_recovered.wav</code> exist yet in any run folder "
@@ -1524,6 +2122,25 @@ def section_other() -> str:
 
 
 def section_next(M) -> str:
+    if M["attempt"] == "v3":
+        return ("<h2 id='next'>8. What happens next</h2><ol>"
+                "<li><strong>The human signs Gate 2, or does not.</strong> All seven checks are met on synthetic-v3, but the gate row is written "
+                "only with the human's sign-off.</li>"
+                "<li><strong>Listen first if you want to.</strong> The audio below has the target on the left channel and our guess on the right, "
+                "for wins and for the misses, especially delay. The blind A/B tool is the honest test.</li>"
+                "<li><strong>The next target is delay.</strong> It is the weakest kind of effect (5 of 12 right models), mostly swaps between delay models.</li>"
+                "<li><strong>Gate 3</strong> moves to real pedals and then real songs, where the search no longer gets the clean guitar.</li></ol>"
+                "<p>Sources: <code>docs/DECISIONS.md</code> (&ldquo;Gate 2 attempt 3 result&rdquo;), <code>board/GATES.md</code>.</p>")
+    if M["attempt"] == "v2":
+        return ("<h2 id='next'>8. What happens next</h2><ol>"
+                "<li><strong>Gate 2 is not passed.</strong> The rule is unchanged and nothing on v2 is re-scored; v2 is now seen.</li>"
+                "<li><strong>Attempt 3 needs a fresh sealed set</strong> (<code>synthetic-v3</code>, avoiding v1, v2 and devfam).</li>"
+                "<li><strong>Before attempt 3:</strong> a gain-stage term for the score that passes the score trust check on gain neighbours "
+                "(tone-metrics), plus specialist work for modulation and drive (drive is in the gain family).</li>"
+                "<li><strong>The human decides the order.</strong></li>"
+                "<li><strong>Listen.</strong> The audio below has the target on the left channel and our guess on the right; "
+                "the blind A/B tool is the honest test.</li></ol>"
+                "<p>Sources: <code>docs/DECISIONS.md</code> (&ldquo;Gate 2 attempt 2 result&rdquo;), <code>board/GATES.md</code>.</p>")
     full = M["full"]
     state = ("The full run is " + (f"{esc(full['scope'])}." if full else "not started."))
     return ("<h2 id='next'>8. What happens next</h2><ol>"
@@ -1537,22 +2154,29 @@ def section_next(M) -> str:
             "Sources: <code>board/GATES.md</code>, <code>docs/PLAN.md</code>, <code>docs/TONE-COMPARISON.md</code>.</p>")
 
 
-def section_runs(M) -> str:
+def section_runs(M, *older) -> str:
     rows = []
-    for m in M["methods"]:
-        mm = metrics(m["kind"], m["items"])
-        rows.append(f"<tr><td>{esc(m['label'])}</td><td><code>{esc(m['tag'])}</code></td><td>{scope_chip(m['scope'])}</td>"
-                    f"<td>{mm['n']}</td><td>{'yes' if m['admitted'] else 'no (provisional)'}</td><td>{esc(m['budget'] or '?')}</td></tr>")
-    for r in M["d"]["other"]:
-        rows.append(f"<tr><td>earlier / diagnostic run</td><td><code>{esc(r['tag'])}</code></td><td>{chip('dev', 'not used above')}</td>"
-                    f"<td>{len(r['items'])}</td><td>{'yes' if r['admitted'] else 'no (provisional)'}</td><td>{esc(r['budget'] or '?')}</td></tr>")
+    for mm_ in [M] + [o for o in older if o is not None and o is not M]:
+        att = f"attempt {ATTEMPTS[mm_['attempt']]['n']}"
+        for m in mm_["methods"]:
+            mt = metrics(m["kind"], m["items"])
+            rows.append(f"<tr><td>{att}: {esc(m['label'])}</td><td><code>{esc(m['tag'])}</code></td><td>{scope_chip(m['scope'])}</td>"
+                        f"<td>{mt['n']}</td><td>{'yes' if m['admitted'] else 'no (provisional)'}</td><td>{esc(m['budget'] or '?')}</td></tr>")
+        for r in mm_["d"]["other"]:
+            rows.append(f"<tr><td>{att}: earlier / diagnostic run</td><td><code>{esc(r['tag'])}</code></td><td>{chip('dev', 'not used above')}</td>"
+                        f"<td>{len(r['items'])}</td><td>{'yes' if r['admitted'] else 'no (provisional)'}</td><td>{esc(r['budget'] or '?')}</td></tr>")
     return ("<details><summary>Every run found, and what it was used for</summary><div class='scroll'><table>"
             "<thead><tr><th>Role</th><th>Folder</th><th>Scope</th><th>Items</th><th>Admitted score</th><th>Budget</th></tr></thead>"
             f"<tbody>{''.join(rows)}</tbody></table></div></details>")
 
 
 def render_page(root: Path, pairs: list[dict]) -> str:
-    M = build_model(root)
+    M1 = build_model(root, "v1")
+    M2 = build_model(root, "v2")
+    M3 = build_model(root, "v3")
+    has2 = bool(M2["full"] and M2["random"])
+    has3 = bool(M3["full"] and M3["random"] and M3["full"]["scope"] == "full")
+    M = M3 if has3 else M2 if has2 else M1       # the headline attempt
     rule = frozen_rule_text(root)
     now = dt.datetime.now(dt.UTC)
     newest = max([m["mtime"] for m in M["methods"]] or [0])
@@ -1561,20 +2185,39 @@ def render_page(root: Path, pairs: list[dict]) -> str:
     ab_page = ab / "gate2-demo" / "index.html"
     ab_link = ('<a href="../ab/gate2-demo/index.html">Open the blind A/B page</a>.' if ab_page.exists()
                else "No session has been built yet: run <code>python scripts/ab_session.py gate2-demo</code> after the examples are rendered.")
-    res_html, _ = section_results(M)
-    body = [section_headline(M), section_what(M), section_method(M, rule), res_html, section_specialists(M), section_runs(M),
-            section_examples(M, None), section_audio(M, pairs, ab_link), section_why(M), section_other(), section_next(M),
-            "<h2 id='glossary'>Glossary</h2>", glossary_html()]
-    nav = "".join(f'<a href="#{a}">{t}</a>' for a, t in (("what", "What it tests"), ("method", "Methodology"), ("results", "Results"), ("specialists", "Specialists"),
-                                                         ("examples", "Examples"), ("audio", "Audio"), ("why", "Why these models"),
-                                                         ("other", "Other strategies"), ("next", "Next"), ("glossary", "Glossary")))
+    res_html, ctx1 = section_results(M1, earlier=has2)
+    if has2:
+        ev2 = evaluate_pass(M2["full"]["items"], M2["random"]["items"], M2["total"], M2["d"]["all_ids"])
+        ev1 = ctx1["eval"]
+        if has3:
+            ev3 = evaluate_pass(M3["full"]["items"], M3["random"]["items"], M3["total"], M3["d"]["all_ids"])
+            top = [section_headline(M3), KNOWN_DI_LEDE, section_attempt3(M3, M2, M1, rule, ev3, ev2, ev1),
+                   section_attempt2(M2, M1, rule, ev2, latest=False), section_compare(M2, M1, ev2, ev1)]
+        else:
+            top = [section_headline(M2), KNOWN_DI_LEDE, section_attempt2(M2, M1, rule, ev2), section_compare(M2, M1, ev2, ev1)]
+        tail = [section_what(M), section_method(M, rule, rule_shown_above=True), res_html, section_specialists(M2, M1),
+                section_runs(*([M3] if has3 else []), M2, M1), section_examples(M, None), section_audio(M, pairs, ab_link), section_why(M1),
+                section_other(), section_next(M)]
+        nav_items = ((("attempt3", "Attempt 3"),) if has3 else ()) + (("attempt2", "Attempt 2"), ("compare", "Attempt 1 vs 2"), ("what", "What it tests"), ("method", "Methodology"),
+                     ("results", "Attempt 1 results"), ("specialists", "Specialists"), ("examples", "Examples"), ("audio", "Audio"),
+                     ("why", "Why these models"), ("other", "Other strategies"), ("next", "Next"), ("glossary", "Glossary"))
+    else:
+        top = [section_headline(M1)]
+        tail = [section_what(M1), section_method(M1, rule), res_html, section_specialists(M1), section_runs(M1),
+                section_examples(M1, None), section_audio(M1, pairs, ab_link), section_why(M1), section_other(), section_next(M1)]
+        nav_items = (("what", "What it tests"), ("method", "Methodology"), ("results", "Results"), ("specialists", "Specialists"),
+                     ("examples", "Examples"), ("audio", "Audio"), ("why", "Why these models"),
+                     ("other", "Other strategies"), ("next", "Next"), ("glossary", "Glossary"))
+    body = top + tail + ["<h2 id='glossary'>Glossary</h2>", glossary_html()]
+    nav = "".join(f'<a href="#{a}">{t}</a>' for a, t in nav_items)
+    sets = ("cache/synthetic-v3/runs/, " if has3 else "") + "cache/synthetic-v2/runs/ or cache/synthetic-v1/runs/" if has2 else "cache/synthetic-v1/runs/"
     return ("<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<meta name='color-scheme' content='light dark'><title>Gate 2: can the search recover a known preset?</title>"
             f"<style>{CSS}</style></head><body><header><h1>Gate 2: can the search recover a known preset?</h1>"
             f"<p class='muted'>Local report for the human. Last updated {now.strftime('%Y-%m-%d %H:%M UTC')}; newest run file {esc(newest_s)}. "
             "Regenerated by <code>scripts/gate2_report.py</code> (and by <code>scripts/status_report.py</code>). Not committed.</p>"
             f"<nav aria-label='sections'>{nav}</nav></header><main>{''.join(body)}</main>"
-            "<footer>Every number comes from a run file under <code>cache/synthetic-v1/runs/</code> or a row of <code>ledger/runs.csv</code>; "
+            f"<footer>Every number comes from a run file under <code>{sets}</code> or a row of <code>ledger/runs.csv</code>; "
             "hover or focus a number or bar for its source. Works offline: no scripts, no web fonts.</footer></body></html>")
 
 
@@ -1583,8 +2226,13 @@ def render_page(root: Path, pairs: list[dict]) -> str:
 def build(root: Path = ROOT, out: Path | None = None, audio: bool = True) -> Path:
     out = out or (root / OUT_REL)
     out.mkdir(parents=True, exist_ok=True)
-    M = build_model(root)
-    pairs = find_audio_pairs(root, M["d"]["found"], M["methods"])
+    M1, M2, M3 = build_model(root, "v1"), build_model(root, "v2"), build_model(root, "v3")
+    has2 = bool(M2["full"] and M2["random"])
+    has3 = bool(M3["full"] and M3["random"] and M3["full"]["scope"] == "full")
+    pairs = (find_audio_pairs(root, M3["d"]["found"], M3["methods"], "v3") if has3 else []) \
+        + (find_audio_pairs(root, M2["d"]["found"], M2["methods"], "v2") if has2 else []) \
+        + find_audio_pairs(root, M1["d"]["found"], M1["methods"], "v1")
+    pairs = choose_players(pairs, M2 if has2 else None, M3=M3 if has3 else None)
     written = copy_audio(pairs, out) if (audio and pairs) else []
     page = render_page(root, written)
     path = out / "index.html"
@@ -1606,7 +2254,8 @@ def cmd_render_examples(a) -> int:
               file=sys.stderr)
         return 3
     root = ROOT
-    run_dir = root / SET_REL / "runs" / a.run
+    set_rel = ATTEMPTS[a.attempt]["set_rel"]
+    run_dir = root / set_rel / "runs" / a.run
     items = load_items(run_dir)
     if not items:
         print(f"no item files in {run_dir}", file=sys.stderr)
@@ -1627,8 +2276,8 @@ def cmd_render_examples(a) -> int:
     from tonematch.catalog import load_catalog
     from tonematch.engines import native_library as NL
 
-    man = json.loads((root / SET_REL / "manifest.json").read_text())
-    labels = {x["id"]: x for x in json.loads((root / SET_REL / "labels.json").read_text())}
+    man = json.loads((root / set_rel / "manifest.json").read_text())
+    labels = {x["id"]: x for x in json.loads((root / set_rel / "labels.json").read_text())}
     catalog = load_catalog()
     blocks = {}
     for c in S.CATEGORIES:
@@ -1672,7 +2321,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out", type=Path, default=None)
     b.add_argument("--no-audio", action="store_true")
     r = sub.add_parser("render-examples", help="re-render target and guess with Native (refuses while Native is busy)")
-    r.add_argument("--run", required=True, help="run folder tag under cache/synthetic-v1/runs")
+    r.add_argument("--attempt", choices=sorted(ATTEMPTS), default="v1", help="v1 = synthetic-v1 (default), v2, v3")
+    r.add_argument("--run", required=True, help="run folder tag under cache/<set>/runs")
     r.add_argument("--items", default="", help="comma list of item ids (default: first 6 of the run)")
     r.add_argument("--methods", default="ours,middle", help="comma list from ours,middle")
     a = ap.parse_args(argv)

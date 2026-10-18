@@ -31,6 +31,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--models", nargs="*", default=None, help="default: the delay, reverb and mod models of the synthetic-v1 pool")
     ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument("--set", default="synthetic-v1", help="take the pool from cache/<SET>/manifest.json")
+    ap.add_argument("--merge", action="store_true",
+                    help="keep the entries already in --out and add the models not in it (or all of --models)")
     a = ap.parse_args(argv)
     import helix_trust_set as HT
     import synthetic_v1 as S
@@ -39,16 +42,23 @@ def main(argv=None) -> int:
     from tonematch.engines import native_library as NL
     from tonematch.search.measured_seed import calibrate_model, save_calibration
 
+    S.set_paths(a.set)
     man = json.loads((S.SET_DIR / "manifest.json").read_text())
     cat = load_catalog()
+    have = {}
+    if a.merge and Path(a.out).exists():
+        have = json.loads(Path(a.out).read_text())
     models = {}
     for c in ("delay", "reverb", "mod"):
-        for m in man["pool"][c]:
-            if a.models is None or m in a.models:
+        for m in man["pool"].get(c, {}):
+            if (a.models is None and m not in have) or (a.models is not None and m in a.models):
                 models[m] = S.Block(m, c, S.free_params(m, NL.template_for(m), cat, c), cat)
+    if not models:
+        print("nothing to calibrate")
+        return 0
     dry, _g = HT.load_excerpt({**CAL_DI}, S.CLIP_S, S.REF_LOUD_DBFS)
     engine = S.make_engine()
-    out, t0, renders = {}, time.time(), 0
+    out, t0, renders = {k: v for k, v in have.items() if k != "_meta"}, time.time(), 0
     try:
         for m, b in models.items():
             def render(values, b=b):
@@ -62,7 +72,7 @@ def main(argv=None) -> int:
                       for g in out[m]], flush=True)
     finally:
         engine.close()
-    out["_meta"] = {"di": CAL_DI, "renders": renders, "wall_s": round(time.time() - t0, 1),
+    out["_meta"] = {**({} if not have else {"earlier": have.get("_meta")}), "di": CAL_DI, "renders": renders, "wall_s": round(time.time() - t0, 1),
                     "library_version": NL.VERSION, "grid": [0.1, 0.3, 0.5, 0.7, 0.9]}
     save_calibration(out, a.out)
     print(f"{renders} renders, {time.time() - t0:.0f} s -> {a.out}")

@@ -736,9 +736,16 @@ def onset_latency(impulse_response: np.ndarray, rel_db: float = -40.0) -> int:
 
 
 def null_db(a: np.ndarray, b: np.ndarray) -> float:
-    """Residual of a - b relative to a, in dB (more negative = closer)."""
-    num = float(np.sum((a.astype(np.float64) - b) ** 2))
-    den = float(np.sum(a.astype(np.float64) ** 2)) or 1e-30
+    """Residual of a - b relative to a, in dB (more negative = closer).
+
+    +inf when either signal holds a NaN or inf (T132): a non-finite render never nulls. Before,
+    ``max(nan, 1e-30)`` gave NaN, every ``> threshold`` check was False, and the in-run sentinel
+    passed a NaN-poisoned host."""
+    a64, b64 = np.asarray(a, np.float64), np.asarray(b, np.float64)
+    if not (np.all(np.isfinite(a64)) and np.all(np.isfinite(b64))):
+        return float("inf")
+    num = float(np.sum((a64 - b64) ** 2))
+    den = float(np.sum(a64 ** 2)) or 1e-30
     return 10 * np.log10(max(num, 1e-30) / den)
 
 
@@ -1502,7 +1509,12 @@ class NativeEngine:
     """Helix Native via a child-process plugin host. See the module docstring."""
 
     SILENT_IN_DB = -70.0    # input RMS above this counts as non-silent
-    SILENT_OUT_DB = -100.0  # output RMS below this for a non-silent input is an error
+    # Output RMS below this for a non-silent input is an error. The guard is for a dead host, which
+    # returns digital zero (``_rms_db`` floor -300). It was -100 dBFS until T139: Native legitimately
+    # renders far quieter than that at low gain knobs (measured 2026-10-17, Preamp US Double Vib on a
+    # -27 dBFS DI: Drive 0.17 Master 0.14 = -106.4 dBFS, Drive 0 Master 0 = -141.1 dBFS, identical in
+    # a fresh and a warm host, smooth in both knobs), so -240 leaves about 100 dB either side.
+    SILENT_OUT_DB = -240.0
     # Native 3.82 fades its output in after a host reset: about 3,180 samples to reach unity
     # within 0.1% (measured 2026-10-14, VST3 and AU, any block size). Every render is reset for
     # determinism, so each one is prefixed with this much silence, then trimmed off.
@@ -1522,6 +1534,10 @@ class NativeEngine:
     # ``TAIL_CATEGORIES`` gets this much silence before each render instead of PREROLL; see
     # docs/notes/native-spike.md (Pre-roll for tail blocks) for the tail cut-off measurement.
     TAIL_PREROLL = 3 * SAMPLE_RATE
+    # T132 (2026-10-17): a render whose peak passes this (+60 dBFS) is a runaway, not audio. Native's
+    # unstable settings (Preamp EV Panama Red, Low 0 + High ~0.96) grow ~55 dB/s from ~2 s into a
+    # render; real chains peak within a few dB of full scale.
+    RUNAWAY_PEAK = 1000.0
 
     @property
     def preroll(self) -> int:
@@ -1542,7 +1558,7 @@ class NativeEngine:
                  preroll: int | None = None, reset_mode: str | None = None, flush_s: float = 2.0,
                  autocapture: bool | None = None, mem_limit_mb: float | None = None,
                  start_state: bytes | None = None, fallback_dirs: list | None = None,
-                 on_demand: bool | None = None):
+                 on_demand: bool | None = None, budget: bool = True):  # host-budget: lease at open
         self._init_kw = {"plugin_name": plugin_name, "calibration_db": calibration_db,
                           "block_size": block_size, "templates_dir": templates_dir, "route": route,
                           "preroll": preroll, "reset_mode": reset_mode, "flush_s": flush_s,
@@ -1574,9 +1590,24 @@ class NativeEngine:
             # captured in HX Stomp mode, so loading them needs no HC-mode reload, and the
             # ~1.3 GB a reload_with_state leaks is never spent.
             start_state = start_state_path().read_bytes()
-        self.host = (HostProcess(p, plugin_name, block_size, initial_state=start_state) if start_state
-                     else HostProcess(p, plugin_name, block_size))
-        self._params = {d["name"]: d for d in self.host.info.get("params", [])}
+        # --- host budget (T133): one lease per engine that opens its own host; pool engines pass
+        # budget=False and the pool holds one lease for all of them (TONEMATCH_HOST_BUDGET=off: none).
+        self._lease = None
+        self._many_lease = None
+        if budget and not p.startswith("builtin:"):
+            from . import host_budget as _hb
+            if _hb.enabled():
+                _hb.notice_once()
+                self._lease = _hb.acquire(n_wanted=1, cap=max_hosts_by_memory(), label="engine")
+        # --- end host budget
+        try:
+            self.host = (HostProcess(p, plugin_name, block_size, initial_state=start_state) if start_state
+                         else HostProcess(p, plugin_name, block_size))
+        except BaseException:
+            if self._lease is not None:
+                self._lease.release()
+            raise
+        self._params ={d["name"]: d for d in self.host.info.get("params", [])}
         self.templates = ChainTemplate.load_all(templates_dir)
         self._variants = ChainTemplate.load_variants(templates_dir)
         # Values outside the narrowed CC ranges (T098): templates of the library's older,
@@ -1769,7 +1800,8 @@ class NativeEngine:
                 "canary_reprepares": getattr(h, "canary_reprepares", 0),
                 "canary_fixed": getattr(h, "canary_fixed", 0),
                 "sentinel_every": self.sentinel_every,
-                **{f"sentinel_{k}": v for k, v in self.sentinel.items()}}
+                **{f"sentinel_{k}": v for k, v in self.sentinel.items()},
+                **{f"nonfinite_{k}": v for k, v in self.nonfinite.items()}}
 
     # --- availability ---------------------------------------------------------------------
 
@@ -2108,16 +2140,63 @@ class NativeEngine:
         lat, reset = self.latency(), self.reset_mode == "reset"
         pre = self.preroll if reset else int(self.flush_s * SAMPLE_RATE)
         padded = np.concatenate([np.zeros(pre, np.float32), x, np.zeros(lat, np.float32)])
-        y = self._raw_render(padded, reset=reset)[pre + lat:pre + lat + len(x)]
-        if not np.all(np.isfinite(y)):
-            raise EngineError("Native returned NaN or inf")
+        # T132: every attempt counts toward the sentinel interval, failed ones included (a host
+        # whose renders all fail used to never reach its next sentinel check).
+        self._since_sentinel = getattr(self, "_since_sentinel", 0) + 1
+        raw = self._raw_render(padded, reset=reset)
+        if not np.all(np.isfinite(raw)):
+            raw = self._nonfinite_rerender(padded, reset)
+        y = raw[pre + lat:pre + lat + len(x)]
+        peak = float(np.max(np.abs(y))) if len(y) else 0.0
+        if peak > self.RUNAWAY_PEAK:
+            # T132: an unstable setting that has not overflowed yet (shorter clip). The host is not
+            # poisoned by a finite render (measured: the next clean render nulls to -289 dB), so no
+            # recycle; the values would overflow the loss (squares above ~1.8e19 are inf in float32).
+            self.nonfinite["runaway"] += 1
+            raise EngineError(f"Native output ran away (peak {peak:.3g}, above {self.RUNAWAY_PEAK:g}): this "
+                              "setting is numerically unstable in Native")
         if _rms_db(x) > self.SILENT_IN_DB and _rms_db(y) < self.SILENT_OUT_DB:
             raise EngineError("Native returned silence for a non-silent input")
         g = np.float32(10 ** (self.calibration_db / 20))
         self.last_gain_db = self.calibration_db
         self.renders = getattr(self, "renders", 0) + 1
-        self._since_sentinel = getattr(self, "_since_sentinel", 0) + 1
         return (y * g).astype(np.float32)
+
+    def _nonfinite_rerender(self, padded: np.ndarray, reset: bool) -> np.ndarray:
+        """A render held NaN or inf (T132). Native keeps a non-finite value in its DSP state for
+        the life of the process: a state re-load, another chain, the empty-chain flush and 5 s of
+        silence all leave every later render NaN, whatever chain is loaded. So: replace the host
+        (``recycle_host``: chain and knobs restored, bit-identical to a fresh host, -295.5 dB) and
+        render once more. A clean re-render is returned (the poison came from an earlier render).
+        A second non-finite render means the setting itself is unstable in Native: the host is
+        replaced again, so the next render starts clean, and EngineError is raised."""
+        st = self.nonfinite
+        st["events"] += 1
+        self.recycle_host()
+        st["recycles"] += 1
+        raw = self._raw_render(padded, reset=reset)
+        if np.all(np.isfinite(raw)):
+            st["recovered"] += 1
+            print(f"NativeEngine: non-finite render; host replaced, re-render clean (T132; {st})",
+                  file=sys.stderr)
+            return raw
+        st["unstable"] += 1
+        self.recycle_host()
+        st["recycles"] += 1
+        bad = ~np.isfinite(raw)
+        raise EngineError(f"Native returned NaN or inf on a clean host too (sample {int(np.argmax(bad))} of "
+                          f"{len(raw)}): this setting is numerically unstable in Native; host replaced, "
+                          "later renders are unaffected")
+
+    @property
+    def nonfinite(self) -> dict:
+        """Non-finite render counts (T132): events, recovered by one re-render, unstable settings,
+        host recycles spent on them."""
+        st = self.__dict__.get("_nonfinite")
+        if st is None:
+            st = self.__dict__["_nonfinite"] = {"events": 0, "recovered": 0, "unstable": 0, "recycles": 0,
+                                                "runaway": 0}
+        return st
 
     def cost(self) -> Cost:
         if self._cost is None:
@@ -2167,6 +2246,10 @@ class NativeEngine:
             pool, self._many_pool = self._many_pool, None
             pool.close()
         self.host.close()
+        for name in ("_many_lease", "_lease"):  # host budget (T133)
+            if getattr(self, name, None) is not None:
+                getattr(self, name).release()
+                setattr(self, name, None)
 
     # --- render_many (contract amendment 2026-10-16) ---------------------------------------
 
@@ -2224,18 +2307,31 @@ class NativeEngine:
         want = int(env) if env else NativeRenderPool.DEFAULT_WORKERS
         if self.plugin.startswith("builtin:"):
             return max(1, want)
-        return max(1, min(want, max_hosts_by_memory(), max(1, (os.cpu_count() or 2) - 1)))
+        n = max(1, min(want, max_hosts_by_memory(), max(1, (os.cpu_count() or 2) - 1)))
+        # --- host budget (T133): the extras are a second lease (floor 0); the old caps above are
+        # upper bounds, the scaler decides how many of them the machine can carry right now.
+        if getattr(self, "_lease", None) is not None and n > 1:
+            from . import host_budget as _hb
+            if self._many_lease is None:
+                self._many_lease = _hb.acquire(self._lease.job, n - 1, 0, floor=0, cap=n - 1,
+                                               label="render_many")
+                return 1 + self._many_lease.granted
+            return 1 + self._many_lease.refresh(n - 1)
+        # --- end host budget
+        return n
 
     def _render_pool(self, n: int) -> NativeRenderPool:
         """At least ``n - 1`` extra engines configured like this one, sharing its templates
         and its measured latency (so every host trims renders identically)."""
         lat = self._plugin_latency
         pool = self._many_pool
+        if pool is not None and pool.workers > n - 1:  # host budget (T133): between calls, safe
+            pool.shrink_to(n - 1)
         if pool is None or pool.workers < n - 1:
             if pool is not None:
                 pool.close()
             kw = {k: v for k, v in self._init_kw.items() if v is not None}
-            pool = self._many_pool = NativeRenderPool(workers=n - 1, autocapture=False, **kw)
+            pool = self._many_pool = NativeRenderPool(workers=n - 1, autocapture=False, budget=False, **kw)
         for e in pool.engines:
             e.templates, e._variants = self.templates, self._variants
             if lat is not None:
@@ -2611,6 +2707,23 @@ class NativeRenderPool:
         n = workers or (int(env) if env else min(self.DEFAULT_WORKERS, max(1, (os.cpu_count() or 2) - 1)))
         n = max(1, min(int(n), cap))
         engine_kw.setdefault("autocapture", False)
+        # --- host budget (T133): the pool holds ONE lease for all its hosts (its engines open with
+        # budget=False). The RAM cap becomes an upper bound passed to the scaler, which grants what the
+        # machine can carry now; ``_rebalance`` re-checks at each generation.
+        self._lease = None
+        self._wanted = n
+        use_budget = engine_kw.pop("budget", True) and not str(engine_kw.get("plugin_path") or "").startswith("builtin:")
+        engine_kw["budget"] = False
+        self._engine_kw = dict(engine_kw)
+        if use_budget:
+            from . import host_budget as _hb
+            if _hb.enabled():
+                _hb.notice_once()
+                want = int(workers or (int(env) if env else self.DEFAULT_WORKERS))
+                self._wanted = max(1, want)
+                self._lease = _hb.acquire(n_wanted=self._wanted, cap=cap, label="pool")
+                n = max(1, self._lease.granted)
+        # --- end host budget
         self.last_errors: dict[int, Exception] = {}
         self.last_item_s: list[float] = []  # seconds per item (load + set_params + render [+ fn])
         with cf.ThreadPoolExecutor(n) as ex:
@@ -2622,12 +2735,51 @@ class NativeRenderPool:
                 except EngineError as e:  # keep the ones that opened; close them if none usable
                     errs.append(e)
         if not engines:
+            if self._lease is not None:
+                self._lease.release()
             raise errs[0]
         self.engines: list[NativeEngine] = engines
+        if self._lease is not None:
+            self._lease.trim_to(len(engines))
+        self.budget_log: list[tuple[float, int, bool]] = []  # (time, hosts, drain) after each rebalance
 
     @property
     def workers(self) -> int:
         return len(self.engines)
+
+    # --- host budget (T133) ------------------------------------------------------------------
+
+    def shrink_to(self, k: int) -> None:
+        """Close hosts beyond ``k`` (at least 1 stays). Only called between renders."""
+        k = max(1, int(k))
+        while len(self.engines) > k:
+            self.engines.pop().close()
+
+    def _rebalance(self) -> None:
+        """Safe point (start of a generation or batch, no render in flight): ask the scaler how many
+        hosts this pool may hold and close or open hosts to match. Never kills a host mid-render and
+        never goes below 1 host."""
+        lease = getattr(self, "_lease", None)
+        if lease is None:
+            return
+        g = max(1, lease.refresh(self._wanted))
+        if g < len(self.engines):
+            self.shrink_to(g)
+        elif g > len(self.engines):
+            first = self.engines[0]
+            new, k = [], g - len(self.engines)
+            with cf.ThreadPoolExecutor(k) as ex:
+                for f in [ex.submit(NativeEngine, **self._engine_kw) for _ in range(k)]:
+                    try:
+                        new.append(f.result())
+                    except EngineError:
+                        pass
+            for e in new:
+                e.templates, e._variants = dict(first.templates), {c: list(v) for c, v in first._variants.items()}
+                e._plugin_latency = first._plugin_latency
+            self.engines.extend(new)
+            lease.trim_to(len(self.engines))
+        self.budget_log.append((time.time(), len(self.engines), lease.drain))
 
     def mem_mb(self) -> float:
         """Sum of the hosts' physical footprints (MB)."""
@@ -2643,7 +2795,9 @@ class NativeRenderPool:
                "recycles": sum(e.recycles for e in self.engines),
                "canary_respawns": sum(getattr(e.host, "canary_respawns", 0) for e in self.engines)}
         for k in ("renders", "canary_reprepares", "canary_fixed", "sentinel_checks", "sentinel_drifts",
-                  "sentinel_fixed", "sentinel_recycles", "sentinel_suspect_renders", "sentinel_skipped"):
+                  "sentinel_fixed", "sentinel_recycles", "sentinel_suspect_renders", "sentinel_skipped",
+                  "nonfinite_events", "nonfinite_recovered", "nonfinite_unstable", "nonfinite_recycles",
+                  "nonfinite_runaway"):
             out[k] = sum(int(p.get(k, 0) or 0) for p in per)
         out["sentinel_worst_db"] = max(worst) if worst else None
         return out
@@ -2700,6 +2854,7 @@ class NativeRenderPool:
         ``on_error="none"`` returns None for a failed item (e.g. a silent setting) and keeps the
         exception in ``last_errors[index]``; ``"raise"`` re-raises the first failure.
         """
+        self._rebalance()  # host budget (T133): grow or shrink between generations
         out: list = [None] * len(param_sets)
 
         def one(eng: NativeEngine, i: int, ps: dict) -> None:
@@ -2719,6 +2874,8 @@ class NativeRenderPool:
         return self.map_generation(preset, param_sets, dry, lambda y: y, on_error)
 
     def render_batch(self, jobs: list[RenderJob], on_error: str = "raise") -> list[Audio | None]:
+        self._rebalance()  # host budget (T133)
+
         def key(j):
             try:
                 return chain_id([list(x) for x in chain_key(j.preset)]) if j.preset is not None else ""
@@ -2743,3 +2900,6 @@ class NativeRenderPool:
     def close(self) -> None:
         for e in self.engines:
             e.close()
+        if getattr(self, "_lease", None) is not None:  # host budget (T133)
+            self._lease.release()
+            self._lease = None

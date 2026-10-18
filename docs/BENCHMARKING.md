@@ -179,6 +179,35 @@ Run it: `python scripts/synthetic_v1.py generate` (offline, writes `cache/synthe
 
 What it still waits on: admitted loss weights from `tone-metrics` (pass `--weights` with the admitted file; until then nothing it measures is gate evidence); frozen Gate 2 thresholds; the two baselines at the same budget ("middle of every knob" and a random search) before the thresholds can freeze; and the human's sign-off. The density-stress variant (mix stems) is not built; the separation curve is recorded separately as `sep-stress-v1`.
 
+### The three synthetic sets and their roles (T130, 2026-10-17)
+
+All three come from the same generator (`scripts/synthetic_v1.py generate --set NAME`; each lives in `cache/NAME/` and its dataset name is NAME). Same rules as above: one Native block per item, settings on the control grid drawn between 0.10 and 0.90 of the range, a seeded pool of up to 6 models per category (every true model is in the pool), 24 neighbours, 10 s Guitar-TECHS excerpts.
+
+| Set | Seed | Items | Role |
+| --- | --- | --- | --- |
+| `synthetic-v1` | 20261016 | 96 (12 x 8 categories) | Gate 2 attempt 1. Now seen: it was run and its results studied. Not a test set any more. |
+| `synthetic-devfam` | 20261018 | 96 (24 each of mod, reverb, delay, amp) | Tuning set for the per-family specialists. Specialists may tune freely on it. |
+| `synthetic-v2` | 20261019 | 96 (12 x 8 categories) | **SPENT.** Sealed test set of Gate 2 attempt 2 (6 of 7 checks, not passed). Its runs `gate2_v2_attempt2`, `v2_base_middle` and `v2_base_random` are SPENT: they are the attempt-2 evidence and are never re-run for a claim. The set is now seen and is no longer a test set (hashes in the DECISIONS entry 'synthetic-v2 regenerated and re-sealed'). |
+| `synthetic-v3` | 20261020 | 96 (12 x 8 categories) | **SPENT.** Sealed test set of Gate 2 attempt 3 (all 7 checks met, awaiting the human's sign-off; ledger rows 2026-10-18T15:46:15 and 16:31:24-25). Its runs `gate2_v3_attempt3`, `v3_base_middle` and `v3_base_random` are SPENT: they are the attempt-3 evidence and are never re-run for a claim. The set is now seen and is no longer a test set (hashes in the DECISIONS entry 'synthetic-v3 re-sealed after the digital-zero rule'). Its DI excerpts avoid v1, v2, devfam and lindev. |
+
+(The v2 row's earlier seed 20261017 was its first, discarded draw; the lead re-sealed v2 at 20261019 before anyone ran it.) The devfam excerpts overlap no excerpt (clip A or C) of v1 or v2 by any time: the generator was given `--avoid-sets synthetic-v1 synthetic-v2`. The guitar library has only 104 usable files, so devfam still draws from many of the same recordings, at different moments; v2 likewise shares some recordings (and some moments) with v1, as the rule allows. Devfam uses the same pool rule (6 models per category, seeded), but its seed differs, so its pools hold different models from v2's.
+
+**Target validity rule (from synthetic-v3 on).** The generator renders every true preset once (level only) and redraws an item whose target is digital zero or trips Native's silence guard, so no set contains an item with no target. Redraws use their own random stream and rewrite nothing else; they are listed in the manifest under `target_check`. Items more than 60 dB under the DI are not redrawn: they are flagged and reported separately and stay in the pass rule's denominator (none in v3). Swell-type delays seem prone to the digital-zero case: SwellAdriatic in devfam and SwellVintageDigital in v3 (i089, redrawn to different knobs). v1, v2, devfam and lindev were made before the rule and are unchanged.
+
+### Gate 2 attempts so far (updated 2026-10-18)
+
+Each attempt ran once on its own sealed set under the frozen pass rule (seven checks). The sets differ, so this is a before-and-after, not a paired test. Source: `reports/local/gate2/index.html`, DECISIONS entries "Gate 2 attempt N result".
+
+| Attempt | Set and run | Checks met | Right kind / right model | Settings error | Rank-1 (bar 0.95) | State |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `synthetic-v1`, `gate2_full_hybrid` | 5 of 7 | 0.802 / 0.646 | 0.132 | 0.990 (old rule B) | Not passed. SPENT. |
+| 2 | `synthetic-v2`, `gate2_v2_attempt2` | 6 of 7 | 0.865 / 0.760 | 0.091 | 0.9375 (old rule B) | Not passed (rank-1 missed). SPENT. |
+| 3 | `synthetic-v3`, `gate2_v3_attempt3` | 7 of 7 | 0.885 / 0.771 | 0.101 | 0.979 (94 of 96; extended rule B) | All checks met, **awaiting the human's sign-off**. SPENT. |
+
+Attempt 3 against the baselines on v3 (same weights, budget 300): random walk model 0.562, category 0.771, settings error 0.190; middle model 0.375 with nothing given (0.521 with the category given). Model against random walk +0.208, 95% CI [+0.094, +0.323]; settings error against random walk -0.083, CI [-0.109, -0.058] on the 46 items both got right. The ledger `param_mae` (0.135) counts level knobs; the report's 0.101 excludes them (the rule's definition), and both are under the 0.15 bar. By family (right model of 12): cab 12, eq 11, reverb 11, mod 10, comp 10, amp 8, drive 7, delay 5; delay is the weakest and the next target. Split-80 carries no information on v3 (no tuning items) and is not counted as evidence.
+
+Rule change: the human extended rule B before attempt 3 (DECISIONS 2026-10-18): a neighbour that differs from the truth only in volume, within the capture's 3 dB jitter, is a tie. Attempt 1 and 2 figures stay under the old rule and are not re-scored. Caveats: known-DI case only; three sealed sets are consumed (v1, v2, v3). Gate 2 is passed only when the human signs it; the gate ledger row is not written until then.
+
 ### Gate 2 targets (approved as working targets, not frozen)
 
 | Measure | Target | Baseline that must be beaten |

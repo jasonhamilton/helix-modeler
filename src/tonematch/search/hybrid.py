@@ -18,6 +18,7 @@ Same total budget as `choose_models`. Everything here is a separable function: `
 """
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import replace
 
@@ -82,10 +83,11 @@ def allocate(n_models: int, total: int) -> list[int]:
 
 def broad_stage(section: Section, engine, kit, cands: list[ModelCandidate], budget: Budget, weights, n_total: int,
                 rng_seed: int = 0, fingerprint: bool = False, validator: Callable | None = None,
-                score_kit=None) -> tuple[list[ModelScore], int, list[str]]:
-    """Render `n_total` broad draws spread over `cands` (already in usage order). Returns the per-model
-    scores (`start` is the best draw's values), the renders spent and notes."""
-    counts = allocate(len(cands), n_total)
+                score_kit=None, counts: list[int] | None = None) -> tuple[list[ModelScore], int, list[str]]:
+    """Render `n_total` broad draws spread over `cands` (already in usage order; evenly unless `counts` says
+    otherwise: the family dispatch). Returns the per-model scores (`start` is the best draw's values), the
+    renders spent and notes."""
+    counts = counts if counts is not None else allocate(len(cands), n_total)
     jobs = []
     for i, (c, n) in enumerate(zip(cands, counts, strict=True)):
         rng = np.random.default_rng([rng_seed, 77, i])
@@ -100,8 +102,17 @@ def choose_models_hybrid(section: Section, engine, kit, cands: list[ModelCandida
                          f: float = 0.5, k: int = 5, eta: int = 2, sigma0: float = 0.3, min_per_model: float = 6.0,
                          refine_scale: float = 0.8, broad_kit=None, fingerprint: bool = False, usage: dict[str, int] | None = None,
                          validator: Callable | None = None, prior=None,
-                         is_tv: Callable[[str], bool] | None = None, plan: Plan | None = None) -> ModelChoice:
+                         is_tv: Callable[[str], bool] | None = None, plan: Plan | None = None,
+                         dispatch=None, policy=None) -> ModelChoice:
     """Rank `cands` (every pool model, all categories) at `budget.max_renders` in total.
+
+    `dispatch` (`specialists.Dispatch`) is the family dispatch of the item: with families enabled, the broad
+    draws are shared by the specialists' weights, a specialist's knob estimates replace the generic measured
+    seeds of its models and its family score replaces the general kit. None or an empty dispatch is the
+    frozen general method, draw for draw.
+
+    `policy` (`family_policy.Policy`, T143): a category prior from the dispatch hints and a specialist shortlist,
+    applied to which models are refined and to the final order. None or an inactive policy is the frozen method.
 
     `refine_scale` < 1 hands the refine stage less than the exact remainder: `halve` finishes the CMA-ES
     generation it is in and re-scores each warm start, so it overshoots its share by 10-20 %
@@ -112,7 +123,13 @@ def choose_models_hybrid(section: Section, engine, kit, cands: list[ModelCandida
     that tells the models apart (iteration 2 lost the true model in the broad stage on 3 of 16 items)."""
     from tonematch.search.loop import resolve_weights
 
+    disp = dispatch if (dispatch is not None and dispatch.families) else None
+    if disp is not None and disp.wrap is not None:      # the family score, for the broad draws and the refine
+        broad_kit = disp.wrap(broad_kit) if broad_kit is not None else None
+        kit = disp.wrap(kit)
     notes: list[str] = list(meas.notes) if meas is not None else []
+    if disp is not None:
+        notes += disp.notes
     cands, dropped = drop_time_variant(cands, is_tv)
     if dropped:
         notes.append("time-variant models excluded: " + ", ".join(dropped))
@@ -127,11 +144,15 @@ def choose_models_hybrid(section: Section, engine, kit, cands: list[ModelCandida
     # measured seeds: a seeded model's space is banded around them and its anchor is the seed
     by_model: dict[str, ModelCandidate] = {}
     seed_info: dict[str, dict] = {}
-    if meas is not None and cal:
+    if (meas is not None and cal) or disp is not None:
         for c in cands:
-            if not category_seeded(c.category, meas.probs):
+            sd: dict[str, Seed] = {}
+            if disp is not None and c.model in disp.seeds:
+                sd = disp.seeds[c.model]
+            elif meas is not None and cal and category_seeded(c.category, meas.probs):
+                sd = seeds_for(c.model, c.category, cal, meas, (ranges or {}).get(c.model, {}))
+            if not sd:
                 continue
-            sd: dict[str, Seed] = seeds_for(c.model, c.category, cal, meas, (ranges or {}).get(c.model, {}))
             sc = seeded_candidate(c, sd) if sd else None
             if sc is not None:
                 by_model[c.model] = sc
@@ -142,15 +163,43 @@ def choose_models_hybrid(section: Section, engine, kit, cands: list[ModelCandida
     by_model = {c.model: c for c in working}
 
     n_broad = round(f * total)
+    counts = None
+    if disp is not None:
+        from tonematch.search.specialists import draw_counts
+        counts = draw_counts([(c.model, c.category) for c in working], n_broad, disp)
+        notes.append("broad draws by category: " + ", ".join(
+            f"{cat} {sum(n for n, c in zip(counts, working, strict=True) if c.category == cat)}"
+            for cat in dict.fromkeys(c.category for c in working)))
     scores, n_spent, nn = broad_stage(section, engine, kit, working, budget, weights, n_broad, budget.seed,
-                                      fingerprint, validator, broad_kit)
+                                      fingerprint, validator, broad_kit, counts)
     notes += nn
     scores.sort(key=lambda s: (s.screen, rank.get(s.model, 10 ** 6)))
-    hs, hn = halve(engine, kit, section, by_model, scores, budget, plan, max(total - n_spent, 0.0) * refine_scale, k, eta,
-                   sigma0, min_per_model, prior, budget.seed)
+    pol = policy if (policy is not None and policy.active and disp is not None) else None
+    view = scores
+    if pol is not None:         # T143: the refine set is shortlist + best by prior-adjusted screen
+        from tonematch.search.family_policy import adjusted, narrow
+        view = narrow(scores, k, disp, pol, rank)
+        notes.append("family policy: refine set " + ", ".join(
+            f"{s.model}({adjusted(s, s.screen, disp, pol):.3f})" for s in view))
+        lead = min(view, key=lambda s: adjusted(s, s.screen, disp, pol), default=None)
+    else:
+        lead = next((s for s in scores if math.isfinite(s.screen)), None)    # scores are sorted by screen
+    res = None
+    refine_fn = disp.refiner_for(lead.category if lead is not None else None) if disp is not None else None
+    if refine_fn is not None:   # the refine stage of the leader's family (T120 gain, T117 linear); None = it declines
+        res = refine_fn(engine, kit, section, by_model, view, budget, plan, max(total - n_spent, 0.0), prior)
+    if res is not None:
+        hs, hn = res
+    else:
+        hs, hn = halve(engine, kit, section, by_model, view, budget, plan, max(total - n_spent, 0.0) * refine_scale,
+                       k, eta, sigma0, min_per_model, prior, budget.seed)
     notes += hn
-    refined = sorted((s for s in scores if s.refined is not None), key=lambda s: s.refined)
-    others = sorted((s for s in scores if s.refined is None), key=lambda s: (s.screen, rank.get(s.model, 10 ** 6)))
+    if pol is not None:
+        from tonematch.search.family_policy import final_order
+        refined, others = final_order(scores, disp, pol, rank)
+    else:
+        refined = sorted((s for s in scores if s.refined is not None), key=lambda s: s.refined)
+        others = sorted((s for s in scores if s.refined is None), key=lambda s: (s.screen, rank.get(s.model, 10 ** 6)))
     ch = ModelChoice(refined + others, n_spent + hs, n_spent, notes)
     ch.seeds = seed_info                                    # type: ignore[attr-defined]
     ch.measured = dict(meas.q) if meas is not None else {}  # type: ignore[attr-defined]
