@@ -457,3 +457,101 @@ def test_a_neighbour_that_renders_silent_is_a_worst_case_distractor_not_a_crash(
     eng2, it2, pool2, *_ = _known_di_setup()
     rows2, _ = sv.rank1_rows(eng2, it2, pool2, FakeKit(), {}, dry, ta, tc, known_di=known_di)
     assert rows[:-1] == rows2
+
+
+# --------------------------------------------------------------------------- T162 seed corruption
+class _B:
+    def __init__(self, cat, rng):
+        self.category, self.rng = cat, rng
+
+    def norm(self, values):
+        return {n: (v - self.rng[n][0]) / (self.rng[n][1] - self.rng[n][0]) for n, v in values.items()}
+
+
+def _pool():
+    return {"A": _B("delay", {"Time": (0.0, 2.0), "Mix": (0.0, 1.0)}),
+            "B": _B("delay", {"Time": (0.0, 2.0), "Fb": (0.0, 1.0)}),
+            "C": _B("delay", {"Mix": (0.0, 1.0)}),
+            "R": _B("reverb", {"Mix": (0.0, 1.0)})}
+
+
+_IT = {"id": "i007", "category": "delay", "model": "A", "values": {"Time": 1.0, "Mix": 0.25}}
+
+
+def test_corrupt_seed_p_one_sigma_zero_is_the_truth():
+    cs = sv.corrupt_seed(_IT, _pool(), 1.0, 0.0)
+    assert cs["model"] == "A" and cs["model_ok"]
+    assert cs["values"] == pytest.approx({"Time": 1.0, "Mix": 0.25})
+
+
+def test_corrupt_seed_is_deterministic_and_wrong_model_stays_in_family():
+    a = sv.corrupt_seed(_IT, _pool(), 1e-9, 0.1)
+    b = sv.corrupt_seed(_IT, _pool(), 1e-9, 0.1)
+    assert a == b and not a["model_ok"] and a["model"] in ("B", "C")
+    # a shared knob name carries the true normalised value; the other knob is uniform on its range
+    if a["model"] == "B":
+        assert abs(a["values"]["Time"] / 2.0 - 0.5) < 0.5 and 0.0 <= a["values"]["Fb"] <= 1.0
+
+
+def test_corrupt_seed_cells_are_nested_and_noise_scales_with_sigma():
+    pool = _pool()
+    for k in range(60):
+        it = dict(_IT, id=f"i{k:03d}")
+        ps = (0.05, 0.25, 0.5, 0.75, 1.0)
+        ok = [sv.corrupt_seed(it, pool, p, 0.0)["model_ok"] for p in ps]
+        assert ok == sorted(ok)                      # right at p implies right at every higher p
+    e1 = abs(sv.corrupt_seed(_IT, pool, 1.0, 0.01)["values"]["Mix"] - 0.25)
+    e2 = abs(sv.corrupt_seed(_IT, pool, 1.0, 0.02)["values"]["Mix"] - 0.25)
+    assert e2 == pytest.approx(2 * e1)               # same draw, scaled
+
+
+def test_corrupt_seed_rate_matches_p():
+    pool = _pool()
+    its = [dict(_IT, id=f"i{k:03d}") for k in range(400)]
+    rate = np.mean([sv.corrupt_seed(it, pool, 0.75, 0.0)["model_ok"] for it in its])
+    assert 0.68 < rate < 0.82
+
+
+def test_parse_seed_corrupt():
+    assert sv.parse_seed_corrupt(None) is None and sv.parse_seed_corrupt("") is None
+    assert sv.parse_seed_corrupt("0.5,0.1") == (0.5, 0.1)
+    for bad in ("0,0.1", "1.5,0", "0.5,-1"):
+        with pytest.raises(ValueError):
+            sv.parse_seed_corrupt(bad)
+
+
+def test_with_anchor_moves_only_the_start_and_leaves_default_path_alone():
+    from tonematch.search import ParamSpace
+    from tonematch.search.hybrid import with_anchor
+    from tonematch.search.model_choice import ModelCandidate
+
+    class P:
+        pass
+    sp = ParamSpace([(0, "Time"), (0, "Mix")], np.array([0.5, 0.5]), np.array([0.0, 0.0]), np.array([2.0, 1.0]),
+                    ["delay", "delay"], None)
+    c = ModelCandidate("A", "delay", P(), sp, [])
+    c2 = with_anchor(c, {"Time": 1.5, "Mix": 7.0})        # Mix is clipped to the range
+    assert list(c2.space.start) == pytest.approx([1.5, 1.0])
+    assert list(c.space.start) == [0.5, 0.5]
+    assert c2.space.refs == c.space.refs and c2.model == "A"
+    assert list(with_anchor(c, {"Nope": 1.0}).space.start) == [0.5, 0.5]
+
+
+def test_mismatch_dry_uses_another_recording(monkeypatch):
+    import soundfile as sf
+    monkeypatch.setattr(sf, "read", lambda f, dtype=None: (np.zeros((10, 1), np.float32), 48000))
+    items = [{"id": f"i{k:03d}", "di": {"A": {"path": f"P{k % 3}/x.wav", "file": f"f{k}.wav"}}} for k in range(9)]
+    for it in items:
+        audio, oid, path = sv.mismatch_dry(it, items, 1.0)
+        assert path != it["di"]["A"]["path"] and oid != it["id"]
+
+
+def test_corrupt_seed_cohort_makes_the_rate_exact_and_nested():
+    pool = _pool()
+    ids = [f"i{k:03d}" for k in range(12)]
+    prev = set()
+    for p in (0.25, 0.5, 0.75, 1.0):
+        okset = {i for i in ids if sv.corrupt_seed(dict(_IT, id=i), pool, p, 0.1, cohort=ids)["model_ok"]}
+        assert len(okset) == int(p * 12 + 0.5)
+        assert prev <= okset
+        prev = okset

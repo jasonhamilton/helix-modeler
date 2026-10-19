@@ -9,3 +9,4 @@ The five interfaces the agents agree on. Each has one owner. Nobody but the lead
 | Loss kit interface | `loss-kit.md` | tone-metrics | v0 |
 | Ledger format | `ledger-format.md` | benchmark | v0 |
 | Board and decision log | `board.md` | lead | v0 |
+| CLI result manifest (additive, T172) | `cli-result.md`, `src/tonematch/cli_result.py` | platform (lead to ratify) | v0 |

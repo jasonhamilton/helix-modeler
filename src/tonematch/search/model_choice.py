@@ -196,12 +196,17 @@ def rung_plan(k: int, eta: int = 2) -> list[int]:
 
 def halve(engine, kit, section: Section, cands: dict[str, ModelCandidate], scores: list[ModelScore],
           budget: Budget, plan: Plan, renders: float, k: int = 6, eta: int = 2, sigma0: float = 0.3,
-          min_per_model: float = 6.0, prior=None, seed: int = 0) -> tuple[float, list[str]]:
+          min_per_model: float = 6.0, prior=None, seed: int = 0, knob_tol: float = 0.0) -> tuple[float, list[str]]:
     """Successive halving over the best `k` screened models. `renders` is the total full-render
     budget for this stage. Each rung splits its share (`renders` over the rungs) equally among its
     survivors, refines each from its current best (the warm start in rung 0) and keeps the best
-    1/eta. Mutates `scores` (refined, values, rungs). Returns (renders spent, notes)."""
+    1/eta. Mutates `scores` (refined, values, rungs). Returns (renders spent, notes).
+
+    `knob_tol` > 0 (T176) lets each refinement stop once its knobs are within that tolerance
+    (`loop.refine_chain`); what a refinement does not spend is left unspent (saved), not rolled into later rungs;
+    0 is the old behaviour."""
     notes: list[str] = []
+    n_early = n_ref = 0
     live = sorted((s for s in scores if math.isfinite(s.screen) and s.screen < BAD), key=lambda s: s.screen)[:k]
     if not live:
         return 0.0, ["no model survived the screen"]
@@ -224,13 +229,19 @@ def halve(engine, kit, section: Section, cands: dict[str, ModelCandidate], score
             # Rung 0 can be spent partly by the warm-start score itself; refine_chain scores x0 once.
             engine.load(c.preset_at(dict(zip(c.space.refs, x0, strict=True))))
             ev = Evaluator(engine, kit, section, c.space, plan, budget, prior)
-            v, f, _, _ = refine_chain(ev, x0, max(share - 1, 1.0), sigma0, seed + 31 * ri)
+            v, f, _, rlog = refine_chain(ev, x0, max(share - 1, 1.0), sigma0, seed + 31 * ri,
+                                     tol=knob_tol.for_model(s.model) if hasattr(knob_tol, "for_model") else knob_tol)
+            n_ref += 1
+            n_early += int(any(st.get("stop") for st in rlog))
             spent += ev.spent
             if s.model not in cur or f <= cur[s.model][0]:
                 cur[s.model] = (f, v)
             s.refined, s.values = cur[s.model][0], cur[s.model][1]
             s.rungs.append({"rung": ri, "survivors": len(live), "renders": round(ev.spent, 1), "score": float(f)})
         live = sorted(live, key=lambda s: s.refined)
+    if knob_tol > 0:
+        notes.append(f"knob tolerance {knob_tol:g}: {n_early} of {n_ref} refinements stopped early, "
+                     f"{spent:.0f} of {renders:.0f} refine renders used")
     return spent, notes
 
 

@@ -120,3 +120,11 @@ def test_link_tasks_cli_rewrites_idempotently_and_spares_decisions(tmp_path):
 
 def test_real_docs_are_linked():
     assert lt.main(["--root", str(REPO), "--check"]) == 0
+
+
+def test_a_link_whose_title_holds_an_escaped_quote_is_left_alone(tmp_path):
+    root = make_root(tmp_path)
+    idx = tl.parse_board(root)
+    once = tl.linkify_markdown("see T020a here", idx, "../board")
+    assert '\\"quoted\\"' in once
+    assert tl.linkify_markdown(once, idx, "../board") == once      # second pass changes nothing

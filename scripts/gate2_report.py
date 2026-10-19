@@ -31,6 +31,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
+from tonematch import cli_result
 
 SET_REL = Path("cache") / "synthetic-v1"
 SET_REL_V2 = Path("cache") / "synthetic-v2"
@@ -1333,8 +1334,8 @@ def section_specialists(M: dict, M1: dict | None = None) -> str:
 # --------------------------------------------------------------------------- attempt 2 (headline) and the comparison
 
 KNOWN_DI_NOTE = ("Gate 2 tests the known-input case: the search is given the very same clean guitar recording (the DI) that made "
-                 "the target, so the only thing that differs is the preset. Later gates do not give it that. Gate 3 supplies only a "
-                 "separate dry sample with different notes, and Gate 4 (real songs) has no clean guitar at all, only a guitar "
+                 "the target, so the only thing that differs is the preset. Later gates do not give it that. Gate 3 (blind single block) gives the matcher only the rendered output, never the item's own dry sample; "
+                 "Gate 4 (real pedals) supplies only a separate dry sample with different notes, and Gate 5 (real songs) has no clean guitar at all, only a guitar "
                  "separated from the mix. So even a Gate 2 pass would not show that a song can be matched.")
 
 
@@ -2095,7 +2096,7 @@ STRATEGIES = [
      ["Could help a lot for songs with well-documented rigs"],
      ["Genre adds little beyond what the corpus already gives; needs an opt-in and a network lookup; gain may be zero", "Not testable on synthetic-v1"],
      "Days for a probe; weeks to ship.",
-     "Only test on the real-song set (Gate 3), and only after the audio-based methods.",
+     "Only test on the real-song set (Gate 5), and only after the audio-based methods.",
      "docs/notes/song-context.md (T104); DECISIONS 2026-10-17 (T109)"),
     ("More DI variety",
      "Test and train with many players, pickups and playing styles, not a few excerpts.",
@@ -2129,7 +2130,7 @@ def section_next(M) -> str:
                 "<li><strong>Listen first if you want to.</strong> The audio below has the target on the left channel and our guess on the right, "
                 "for wins and for the misses, especially delay. The blind A/B tool is the honest test.</li>"
                 "<li><strong>The next target is delay.</strong> It is the weakest kind of effect (5 of 12 right models), mostly swaps between delay models.</li>"
-                "<li><strong>Gate 3</strong> moves to real pedals and then real songs, where the search no longer gets the clean guitar.</li></ol>"
+                "<li><strong>Gate 3</strong> is the blind single-block test: the matcher gets only the output audio, not the dry track. Real pedals (Gate 4) and then real songs (Gate 5) follow.</li></ol>"
                 "<p>Sources: <code>docs/DECISIONS.md</code> (&ldquo;Gate 2 attempt 3 result&rdquo;), <code>board/GATES.md</code>.</p>")
     if M["attempt"] == "v2":
         return ("<h2 id='next'>8. What happens next</h2><ol>"
@@ -2149,7 +2150,7 @@ def section_next(M) -> str:
             "<li><strong>Apply the frozen pass rule</strong>, report the 96 and the 80 outside dev16, and record ledger rows.</li>"
             "<li><strong>Render and listen.</strong> The lead renders the example audio; you can then listen openly here and blind in the A/B tool.</li>"
             "<li><strong>Human sign-off</strong> on Gate 2 (the gate row is written only with it).</li></ol>"
-            "<p><strong>Then Gate 3</strong> moves from synthetic items to real songs: 20 songs you choose, from clean to high gain. "
+            "<p><strong>Then Gate 3</strong> tests blind prediction of a single block without the dry track (research T158 first); real pedals (Gate 4) follow, and <strong>Gate 5</strong> moves to real songs: 20 songs you choose, from clean to high gain. "
             "The matched preset is compared in blind listening against the nearest community preset and a text-only AI preset; the pedal-versus-software null residual and the Native-versus-Stomp comparison are also recorded. "
             "Sources: <code>board/GATES.md</code>, <code>docs/PLAN.md</code>, <code>docs/TONE-COMPARISON.md</code>.</p>")
 
@@ -2320,6 +2321,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--root", type=Path, default=ROOT)
     b.add_argument("--out", type=Path, default=None)
     b.add_argument("--no-audio", action="store_true")
+    cli_result.add_result_arg(b)
     r = sub.add_parser("render-examples", help="re-render target and guess with Native (refuses while Native is busy)")
     r.add_argument("--attempt", choices=sorted(ATTEMPTS), default="v1", help="v1 = synthetic-v1 (default), v2, v3")
     r.add_argument("--run", required=True, help="run folder tag under cache/<set>/runs")
@@ -2329,8 +2331,12 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "render-examples":
         return cmd_render_examples(a)
     root = getattr(a, "root", ROOT)
-    path = build(root, getattr(a, "out", None), audio=not getattr(a, "no_audio", False))
-    print(path)
+    with cli_result.scope(a, tool="gate2_report build", inputs={"ledger": root / "ledger" / "runs.csv"}) as res:
+        path = build(root, getattr(a, "out", None), audio=not getattr(a, "no_audio", False))
+        print(path)
+        res.outputs.update({"index_html": path, "out_dir": path.parent})
+        audio = sorted(p for p in path.parent.glob("*") if p.suffix in (".wav", ".flac", ".mp3"))
+        res.metrics.update({"audio_files": len(audio), "audio": getattr(a, "no_audio", False) is False})
     return 0
 
 

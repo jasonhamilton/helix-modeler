@@ -1,0 +1,60 @@
+[
+ {
+  "tag": "t162b_p0.5_s0.1_b150",
+  "kind": "seed",
+  "p": 0.5,
+  "sigma": 0.1,
+  "budget": 150,
+  "items": 12,
+  "errors": 0,
+  "model_acc": 0.16666666666666666,
+  "category_acc": 0.4166666666666667,
+  "mae": 0.18799212598425197,
+  "n_mae": 2,
+  "renders": 158.16666666666666,
+  "wall_s": 79.425,
+  "by_family_model_acc": {
+   "mod": 0.3333333333333333,
+   "reverb": 0.0,
+   "delay": 0.0,
+   "amp": 0.3333333333333333
+  },
+  "true_refined_but_lost": 1,
+  "seed_model_acc": 0.25,
+  "seed_refined": 0.4166666666666667,
+  "seed_knob_mae": 0.08602520245145553,
+  "d_model": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "d_cat": [
+   0.08333333333333333,
+   0.0,
+   0.25
+  ],
+  "d_mae": null
+ },
+ {
+  "tag": "t162b_unseeded_b150",
+  "kind": "unseeded",
+  "p": null,
+  "sigma": null,
+  "budget": 150,
+  "items": 12,
+  "errors": 0,
+  "model_acc": 0.16666666666666666,
+  "category_acc": 0.3333333333333333,
+  "mae": 0.12352362204724408,
+  "n_mae": 2,
+  "renders": 157.0,
+  "wall_s": 82.88333333333333,
+  "by_family_model_acc": {
+   "mod": 0.3333333333333333,
+   "reverb": 0.0,
+   "delay": 0.0,
+   "amp": 0.3333333333333333
+  },
+  "true_refined_but_lost": 1
+ }
+]

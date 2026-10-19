@@ -307,9 +307,13 @@ flowchart LR
   P2["Weeks 2–3: Loop v0<br/>separation + sections · DI library, loss kit<br/>CMA-ES on the fixed template · synthetic benchmark"]
   G2{{"Gate 2<br/>recovers known presets"}}
   P3["Week 4: Real songs<br/>snapshots + .hlx export · Stomp parity null test<br/>blind A/B"]
-  G3{{"Gate 3<br/>beats the nearest preset"}}
+  PB["No-DI research + blind single-block set"]
+  G3{{"Gate 3<br/>blind single-block prediction"}}
+  PR["Real pedals: dry take held out"]
+  G4{{"Gate 4<br/>matches real pedals"}}
+  G5{{"Gate 5<br/>beats the nearest preset"}}
   P4["Weeks 5–6: Learned seeding"]
-  P1 --> G1 --> P2 --> G2 --> P3 --> G3 --> P4
+  P1 --> G1 --> P2 --> G2 --> PB --> G3 --> PR --> G4 --> P3 --> G5 --> P4
 ```
 
 Gate 1 now covers both engines. If Native cannot take whole presets from code, Native mode falls back to 16 automation knobs per fixed chain; if the pedal protocol cannot be ported, hardware mode on Windows and macOS falls back to MIDI CC on template presets. After week 6: neural proxies (which also speed up hardware-only users), blind DI recovery and per-instrument embeddings.
@@ -345,7 +349,7 @@ Keep every Line 6 asset on the user's machine, avoid decompiling, and pick a GPL
 - **Songs and datasets.** Users process their own files locally; the project never hosts song audio. Check each dataset's licence (EGDB, separation checkpoints) before bundling or training on it.
 - **Song metadata.** Only artist and title strings may leave the machine, opt-in, never audio. MusicBrainz core data is CC0 but its tags and genres are CC BY-NC-SA 3.0: use and cache locally, never commit or embed in shared models ([licence](https://musicbrainz.org/doc/About/Data_License)). Spotify's terms forbid ML use of its content. Artist-gear sites: manual lookup only unless their terms say otherwise. See `docs/notes/song-context.md`.
 - **Trademarks.** Name Line 6 products only to say what the tool works with.
-- **Trained models.** A predictor or neural proxy trained on Native renders and shared with hardware-only users is derived from Native's output; confirm the Native licence permits that, or train from hardware renders instead.
+- **Trained models.** A predictor or neural proxy trained on Native renders and shared with hardware-only users is derived from Native's output. **Ruled 2026-10-18 by the human: such weights may be published** (docs/DECISIONS.md), with a model card, no Line 6 assets, and third-party base-weight licences respected. Training from hardware renders remains the fallback if that ever changes.
 
 ## Documentation and resource index
 
@@ -397,6 +401,48 @@ These are the documents gathered so far, grouped by what each one is for. Line 6
 | [Blind estimation with an auto-encoder](https://arxiv.org/html/2310.11781v1) | Why parameter distance misleads; audio-domain loss |
 | [Unsupervised nonlinear effect estimation (DAFx 2025)](https://arxiv.org/pdf/2504.04751v2) | Blind identification of distortion |
 | [Imort et al., distortion removal](https://arxiv.org/pdf/2202.01664) and [two-stage recovery](https://arxiv.org/pdf/2407.16639) | DI recovery |
+| [Okita and Katayose, predict then search (2026)](https://arxiv.org/html/2604.22276) | Closest published hybrid: DNN seed plus CMA-ES; survey in `docs/notes/no-di-survey-estimation.md` |
+| [StemFX (2026)](https://arxiv.org/abs/2607.15634) | Autoregressive FX-chain prediction trained on separated stems |
+| [EG-VAE (2026)](https://arxiv.org/html/2608.05513v1), [LOUDAR (2026)](https://arxiv.org/html/2608.01972v1) | Newer dry-guitar recovery: supervised VAE, unsupervised diffusion prior |
+| [Posterior-sampling distortion restoration (2025)](https://arxiv.org/html/2501.05959) | Blind, unpaired restoration of memoryless distortion |
+| [Hayes et al., flow-matching synth inversion (ISMIR 2025)](https://arxiv.org/html/2506.07199), [MNPE (2026)](https://arxiv.org/html/2605.13551v1) | Posterior heads for mixed discrete and continuous parameters |
+| [Zero-shot amp modelling with tone embedding (2024)](https://arxiv.org/html/2407.10646) | Reference-tone embedding that tolerates different content |
+| [GOAT dataset (2025)](https://arxiv.org/html/2509.22655) | Paired DI and NAM-amp guitar, by request, research only |
+| [Fx-Encoder (Koo et al., ICASSP 2023)](https://arxiv.org/pdf/2211.02247), [code, MIT](https://github.com/jhtonykoo/music_mixing_style_transfer) | Contrastive effect encoder; checkpoints trained on MUSDB18; `embed_fxenc` |
+| [Tone embedding for one-to-many amp modelling (Chen et al., ISMIR 2024)](https://arxiv.org/html/2407.10646v1) | Contrastive "same tone, different content" guitar encoder; no checkpoints found |
+| [EG-VAE (Yeh et al., Aug 2026)](https://arxiv.org/abs/2608.05513) | Guitar tone/content disentangling, tone transfer and DI recovery; checkpoint status unknown; see `docs/notes/no-di-survey-metrics.md` |
+| [TimberAgent / TRR](https://arxiv.org/html/2603.09332) | Gram-matrix texture descriptor for guitar-effect retrieval |
+| [KAD (kernel audio distance)](https://arxiv.org/html/2502.15602v1) | MMD-based distribution distance, candidate for the different-DI trust check |
+| [McDermott and Simoncelli, sound textures](https://mcdermottlab.mit.edu/papers/McDermott_Simoncelli_2011_sound_texture_synthesis.pdf) | Time-averaged texture statistics |
+| [Gradient-based optimisation of modulation effects](https://arxiv.org/pdf/2601.04867) | Handling unknown LFO phase in a loss |
+| [LLM2Fx-Tools](https://arxiv.org/html/2512.01559v2) | Fx-chain estimation with and without dry audio; MUSHRA design |
+| [Take et al., chain estimation and dry recovery (DAFx 2024)](https://dafx.de/paper-archive/details/ndvW6hLizkhxZP2em_SaEA) | Iterative effect removal on guitar |
+| [Guitar-TECHS](https://arxiv.org/pdf/2501.03720) | Three players, different guitars and hardware; source of the T041 DIs |
+| [ElectroSmash archive mirror](https://electrosmash.mas-effects.com/) (canonical [electrosmash.com](https://www.electrosmash.com/), not reachable from the workspace) | Circuit analyses with gains, corners, diodes and input impedances for TS, RAT, DS-1, Distortion+, Big Muff, Fuzz Face, Klon, Guvnor, Rangemaster; main source of `docs/notes/distortion-fundamentals.md` |
+| [Yeh, Abel, Smith, DAFx-07](https://dafx.de/paper-archive/details/mIq7vlQKu6pUlF467vvhgw), [Yeh publications](https://ccrma.stanford.edu/~dtyeh/papers/pubs.html) | Distortion/TS as conditioning filter, memoryless nonlinearity, EQ; diode clipper with embedded low-pass; thesis and CMJ 2008 listed |
+| [Eichas and Zölzer, DAFx-16](https://dafx.de/paper-archive/details/aW-6gR1PsD9EqSfEI9CYcg), [Eichas et al., DAFx-15](https://dafx.de/paper-archive/details/bKxNxdS0ua9iEdRrM6zPlg) | Wiener-Hammerstein identification of distortion pedals (abstracts read) |
+| [Werner et al., DAFx-15](https://dafx.de/paper-archive/details/4fsq4pZNdCbUzyzAL8xsQg), [Pakarinen and Yeh, CMJ 2009](https://www.effectrode.com/wp-content/uploads/2018/08/a_review_of_digital_techniques_for_modeling_guitar_amplifiers.pdf) | Big Muff clipping stage in WDF; static nonlinearities, symmetry and even harmonics |
+| [Neural ODE distortion circuits](https://arxiv.org/html/2205.01897), [Differentiable black/gray-box effects](https://arxiv.org/html/2502.14405), [Chowdhury, Klon modelling](https://arxiv.org/html/2009.02833), [Overton, Fuzz Face](https://repository.gatech.edu/entities/publication/47748b51-c826-4f0a-9b4f-6b0b7ac2b980), [OCD WDF model (DAFx-26)](https://dafx.de/paper-archive/details/FR5oopmtXLuPh9fiskDhrg) | State and memory in clippers; where Wiener-Hammerstein breaks down; fuzz and OCD modelling |
+| [Clipping diode primer (GuitarPedalX)](https://www.guitarpedalx.com/news/gpx-blog/a-brief-hobbyist-primer-on-clipping-diodes), [Electric Druid MT-2 analysis](https://electricdruid.net/boss-mt-2-metal-zone-pedal-analysis/), [Premier Guitar BD-2 mods](https://www.premierguitar.com/gear/boss-bd-2-mods), [Herbst, distortion and consonance](https://pure.hud.ac.uk/en/publications/distortion-and-rock-guitar-harmony-the-influence-of-distortion-le/) | Diode forward voltages, MT-2 and BD-2 stages, perceptual effects of distortion; full list in `docs/notes/distortion-fundamentals.md` |
+| [Scoring-models report (T169)](notes/scoring-models-report.md) | Catalogue of candidate tone-similarity scores for distortion, what we tried, unproven ideas, ranked proposals |
+| [CDPAM](https://arxiv.org/pdf/2102.05109) | Learned perceptual audio metric from human triplet judgments |
+| [Objective audio-quality metrics under degradations (DAFx)](https://dafx.de/paper-archive/details/zPYxwsZQRNgBM4XY2Azt4A), [PEAQ analysis](https://arxiv.org/pdf/2212.01467), [ViSQOL v3](https://arxiv.org/pdf/2004.09584) | PEAQ, PEMO-Q, ViSQOL, HAAQI behaviour under clipping and other degradations |
+| [Colonel, Comunita, Reiss, differentiable waveshapers (AES 2022)](https://www.eecs.qmul.ac.uk/~josh/documents/2022/21955.pdf), [Comunita, Steinmetz, Reiss, black-box and gray-box (2025)](https://arxiv.org/abs/2502.14405) | Wiener-Hammerstein and gray-box distortion modelling by gradient descent |
+| [Differentiable white-box VA (DAFx)](https://dafx.de/paper-archive/details/BuG_2piIUOi3oZvJGTn48g), [Physically-informed pedal models (DAFx)](https://dafx.de/paper-archive/details/mIq7vlQKu6pUlF467vvhgw) | Component-level and diode-clipper models of pedals |
+| [Wright et al., perceptual evaluation of high-gain amp models (DAFx)](https://dafx.de/paper-archive/details/FnATd0Lou6FQKgN2tAfAqg), [Confusingly Similar (Kemper)](https://labs.sonicfield.org/library/confusingly-similar-discerning-between-hardware-guitar-amplifier-sounds-and-simu) | Listening-test designs and results for amp/profile similarity |
+| [Farina, swept-sine distortion measurement (AES 108, 2000)](https://air.unipr.it/handle/11381/1453666) | Harmonic impulse responses separated in time on an exponential sweep; `docs/notes/distortion-identification.md` |
+| Novak et al. [IEEE TIM 2010](https://hal.archives-ouvertes.fr/hal-02504286), [EURASIP 2010](https://link.springer.com/article/10.1155/2010/793816), [DAFx-10 Chebyshev](https://dafx.de/paper-archive/details/13VDwDuJ0g0wHSqGzYQdWw) | Generalized Hammerstein and Chebyshev identification from synchronized swept sine; level-dependence criterion; overdrive pedals |
+| [Schmitz and Embrechts, Hammerstein kernels from a sweep (JAES 2017)](https://aes2.org/publications/elibrary-page/?id=19200), [Orcioni et al. 2018](https://labs.sonicfield.org/library/identification-of-volterra-models-of-tube-audio-devices-using-multiple-variance--Orcioni-2018), [Rebillat et al.](https://sam.ensam.eu/handle/10985/12377) | Hammerstein and Volterra identification of overdrive and tube devices; amplitude dependence |
+| Eichas and Zoelzer: [DAFx-15](https://dafx.de/paper-archive/details/bKxNxdS0ua9iEdRrM6zPlg), [DAFx-16](https://dafx.de/paper-archive/details/aW-6gR1PsD9EqSfEI9CYcg), [DAFx-17](https://dafx.de/paper-archive/details/Vbz-fSagQBocRJGPBog3qA), [JAES 2018](https://aes2.org/publications/elibrary-page/?id=19874) | Gray-box Wiener-Hammerstein modelling of distortion pedals and amps; filters measured first, then the nonlinearity |
+| [Yeh, Abel, Smith DAFx-07](https://dafx.de/paper-archive/details/mIq7vlQKu6pUlF467vvhgw), [Yeh and Smith DAFx-08](https://dafx.de/paper-archive/details/gZvqz8Bk39w9LqNNr1SDlg), [Pakarinen and Yeh review (CMJ 2009)](https://ccrma.stanford.edu/~dtyeh/papers/pubs.html) | Pedal as conditioning filter, memoryless nonlinearity, EQ filter; circuit simulation; amp-modelling review |
+| [Colonel, Comunita, Reiss, differentiable waveshapers (AES 2022)](https://www.eecs.qmul.ac.uk/~josh/documents/2022/21955.pdf), [Comunita, Steinmetz, Reiss (Frontiers 2025)](https://www.frontiersin.org/journals/signal-processing/articles/10.3389/frsip.2025.1580395/full) | Differentiable Wiener-Hammerstein reverse engineering; black-box versus gray-box over 40 devices |
+| [Miklanek et al. DAFx-23](https://dafx.de/paper-archive/details/UYVDlRJ95vRRQbsqJVUvqw), [Damskaegg et al. SMC-19](https://www.smc2019.uma.es/articles/S5/S5_02_SMC2019_paper.pdf), [DDSP Guitar Amp](https://arxiv.org/html/2408.11405v1) | Neural and gray-box amp and pedal modelling with interpretable blocks |
+| [Zaviska et al., declipping survey](https://arxiv.org/abs/2007.07663), blind Hammerstein: [Bai](https://iro.uiowa.edu/esploro/outputs/journalArticle/A-blind-approach-to-the-HammersteinWiener/9984083818202771), [Vanbeylen et al.](https://skoge.folk.ntnu.no/prost/proceedings/ifac2008/data/papers/1005.pdf), [WASPAA 2003](https://www.di.ens.fr/~cappe/Publications/Self-archive/pic_waspaa03.pdf) | Clipping detection from the output; blind nonlinear system identification background (PDFs not read) |
+| [Hinrichs, blind system inversion (2024)](https://asmp-eurasipjournals.springeropen.com/articles/10.1186/s13636-024-00330-0) | Neural copy of a reference effect from wet audio |
+| [Line 6 Helix models (3.80)](https://line6.com/helix-models/) | Official "based on" pedal for every Helix drive model; map in `docs/notes/distortion-circuits.md` |
+| [ElectroSmash pedal analyses](https://electrosmash.com/tube-screamer-analysis) (also [Klon](https://electrosmash.com/klon-centaur-analysis), [RAT](https://electrosmash.com/proco-rat), [Big Muff](https://electrosmash.com/big-muff-pi-analysis), [Fuzz Face](https://electrosmash.com/fuzz-face), [Distortion+](https://electrosmash.com/mxr-distortion-plus-analysis), [DS-1](https://electrosmash.com/boss-ds1-analysis)) | Stage-by-stage drive circuits with component values (not fetchable from the workspace; read in a browser) |
+| [Coda Effects circuit analyses](https://www.coda-effects.com/p/klon-centaur-circuit-analysis.html) | Klon, Big Muff tone stack, Fuzz Face |
+| [Yeh, Abel, Smith, DAFx-07](https://dafx.de/paper-archive/details/mIq7vlQKu6pUlF467vvhgw) | Simplified physical models of the Distortion+ and Tube Screamer (filter, memoryless nonlinearity, EQ) |
 
 The workspace cannot download PDFs from these sites, so the list links to them; a local docs folder can be assembled on your machine in a later step.
 

@@ -53,6 +53,10 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from tonematch import cli_result
+
+LEDGER_LOG: list[dict] = []        # rows this process appended (for --result-json)
+LAST_REPORT: dict = {}             # {'out': Path, 'report': dict} of the last report written
 
 from tonematch.metrics import (
     DSP_TERMS,
@@ -428,6 +432,7 @@ def run_helix(a, terms: list[str], threads: int) -> int:
     out = a.out or root / f"report{'-' + a.split if a.split else ''}{'-mask' if a.mask else ''}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=1))
+    LAST_REPORT.update(out=out, report=report)
 
     print(f"HELIX loss-trust-check ({dataset}{' split ' + a.split if a.split else ''}, Native): {len(items)} "
           f"items x {n_dis} distractors; chance {1 / (n_dis + 1):.3f}; {inaud} of {len(items) * n_dis} "
@@ -459,6 +464,8 @@ def run_helix(a, terms: list[str], threads: int) -> int:
             if wall_s is not None:
                 cmd += ["--wall-clock-s", f"{wall_s:.1f}"]
             subprocess.run(cmd, check=True, env=env)
+            LEDGER_LOG.append({"kind": "loss-trust", "engine": "native", "dataset": dataset, "metric": metric,
+                               "value": float(f"{value:.4g}"), "renders": renders, "wall_clock_s": wall_s})
 
         base = (f"Helix Native 3.82 renders; items={len(items)} distractors={n_dis} (near/nbr/random) "
                 f"seed={mf['seed']} seconds={mf['seconds']:g} chance={1 / (n_dis + 1):.3f}"
@@ -514,6 +521,8 @@ def ledger_row(term: str, subset: str, value: float, wall: float, note_extra: st
                     "--engine", "-", "--dataset", PROXY_DATASET, "--metric", "rank1_rate",
                     "--value", f"{value:.4f}", "--wall-clock-s", f"{wall:.1f}", "--notes", notes],
                    check=True, env=env)
+    LEDGER_LOG.append({"kind": "loss-trust", "engine": "-", "dataset": PROXY_DATASET, "metric": "rank1_rate",
+                       "value": round(value, 4), "wall_clock_s": round(wall, 1)})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -544,8 +553,28 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=None, help="JSON report path (default under cache/)")
     ap.add_argument("--ledger", action="store_true", help="append loss-trust rows (proxy dataset)")
     ap.add_argument("--note", default="", help="extra text for the ledger notes")
+    cli_result.add_result_arg(ap)
     a = ap.parse_args(argv)
+    return cli_result.run(a, tool="loss_trust_check", body=lambda res: _run(a, res),
+                          inputs={"helix_dir": a.helix_dir, "mrstft_v2_config": a.mrstft_v2_config})
 
+
+def _run(a, res) -> int:
+    rc = _main_body(a)
+    rep = LAST_REPORT.get("report")
+    if rep:
+        res.outputs["report_json"] = LAST_REPORT["out"]
+        summ = rep.get("summary", {})
+        res.metrics.update({"dataset": rep.get("dataset"), "proxy": rep.get("proxy"), "items": rep.get("items"),
+                            "distractors": rep.get("distractors"), "chance_rank1_rate": rep.get("chance_rank1_rate"),
+                            "wall_clock_s": rep.get("wall_clock_s"),
+                            "rank1_rate": {sub: {t: v.get("rank1_rate") for t, v in summ.get(sub, {}).items()}
+                                           for sub in (rep.get("subsets") or SUBSETS) if sub in summ}})
+    res.ledger_rows.extend(LEDGER_LOG)
+    return rc
+
+
+def _main_body(a) -> int:
     terms = list(DSP_TERMS) if a.all else list(dict.fromkeys(a.term))
     embed = [t for t in terms if t in EMBED_TERMS]
     threads = 1
@@ -598,6 +627,7 @@ def main(argv: list[str] | None = None) -> int:
     out = a.out or ROOT / "cache" / "loss-trust" / f"{PROXY_DATASET}{tag}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=1))
+    LAST_REPORT.update(out=out, report=report)
 
     print(f"PROXY loss-trust-check ({PROXY_DATASET}; NOT Helix): {a.items * len(a.seed)} items "
           f"(seeds {a.seed}) x "

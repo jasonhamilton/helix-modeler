@@ -20,7 +20,17 @@ Attempts: attempt 1 (`synthetic-v1`, `gate2_full_hybrid`, 2026-10-17) NOT PASSED
 - [x] Separation stress curve recorded (ledger row: 2026-10-16T15:22:49..51, dataset sep-stress-v1: htdemucs_6s SDR 21.2/15.9/15.4/11.2/7.3 dB for densities D1-D5; SYNTHETIC set (Guitar-TECHS DI through a numpy drive/cab, synthesised accompaniment), real-song stress not yet measured — ticked by tone-matcher-lead)
 - [ ] Human sign-off: awaiting human sign-off (as of 2026-10-18). Not ticked. The gate ledger row is written only with the human's sign-off. Caveats to accept or not: known-DI case only; the rank-1 rule was amended by the human before v3; three sealed sets consumed; delay model accuracy is 5 of 12.
 
-## Gate 3 — matches clean recordings of real pedals (new, human 2026-10-17)
+## Gate 3 — blind prediction of a single block without the dry track (new, human 2026-10-18)
+
+Each test item is one Helix block with a random model and random settings, rendered in Native from a random guitar sample. The matcher is given ONLY the rendered output. It never sees the item's dry sample: that sample comes from DI material held out of everything the matcher may render with or train on, and is used only afterwards, to score. Work starts after the no-DI research (T158). `benchmark` sets the bars and registers them in `docs/DECISIONS.md` BEFORE the sealed set is generated.
+
+- [ ] Sealed blind set generated: one block per item, random model and settings, random held-out guitar sample, hashes recorded, labels and dry samples unread by the matcher (ledger row: )
+- [ ] Bars and baselines registered before the run: category, model and settings-error thresholds; middle-of-every-knob and random-walk baselines run under the same no-dry-track condition (ledger row: )
+- [ ] Blind prediction meets the registered bars and beats both baselines on the sealed set (ledger rows: )
+- [ ] Short blind listen: the prediction re-rendered from the held-out dry sample against the target (ledger row: )
+- [ ] Human sign-off: ______ (date)
+
+## Gate 4 — matches clean recordings of real pedals (new, human 2026-10-17; was Gate 3, renumbered 2026-10-18)
 
 The matcher sees only the pedal's OUTPUT, plus a separate dry sample of the player's guitar (random playing, different notes). The dry take of the same performance is recorded but used only afterwards, to score. Real pedals need not match a Helix model exactly; success is sounding close.
 
@@ -30,7 +40,7 @@ The matcher sees only the pedal's OUTPUT, plus a separate dry sample of the play
 - [ ] Combinations: two- and three-pedal chains recorded and matched by the chain builder at the same bar (ledger rows: )
 - [ ] Human sign-off (the player): ______ (date)
 
-## Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)
+## Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)
 
 - [ ] Blind A/B on the 20-song set: the matched preset is preferred over the nearest community preset on a majority of songs (ledger row: )
 - [x] Parity null residual recorded for firmware 3.80 (ledger row: 2026-10-16T02:31:10, dataset parity-spot-fw380: amps -37.5..-47.5 dB, cabs -35.4..-37.4 dB, dynamics/EQ pass, distortion 2 of 5, reverb and modulation do not null, delays match in echo level; see docs/BENCHMARKING.md)

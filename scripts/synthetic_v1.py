@@ -49,6 +49,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
+from tonematch import cli_result
 from tonematch.engines.elastic import atomic_write_json, atomic_write_wav
 
 SR = 48_000
@@ -536,7 +537,7 @@ HYBRID = {"f": 0.5, "k": 5, "fingerprint": False, "scale": 0.8, "level_free": Fa
 
 
 def search_item_hy(engine, blocks: dict[str, Block], section, kit, weights: dict, budget: int, beam: int,
-                   seed: int, clip_s: float, screen_frac: float = 0.5) -> dict:
+                   seed: int, clip_s: float, screen_frac: float = 0.5, predictor_seed: dict | None = None) -> dict:
     """Hybrid (Gate 2): broad space-filling draws over all pool models (centred on the measured seed band
     where one exists), top-K narrowing, successive halving with banded CMA-ES; same render budget."""
     from tonematch.search import Budget
@@ -563,7 +564,7 @@ def search_item_hy(engine, blocks: dict[str, Block], section, kit, weights: dict
     ch = choose_models_hybrid(section, engine, kit, model_candidates(blocks), bud, meas=meas, cal=cal, ranges=ranges,
                               f=HYBRID["f"], k=HYBRID["k"], refine_scale=HYBRID["scale"],
                               broad_kit=getattr(kit, "inner", None) if HYBRID["level_free"] else None, fingerprint=HYBRID["fingerprint"], usage=usage,
-                              dispatch=disp, policy=policy)
+                              dispatch=disp, policy=policy, predictor_seed=predictor_seed)
     best = ch.best
     b = blocks[best.model]
     vals = best.values if best.values is not None else b.space.from_unit(
@@ -728,6 +729,69 @@ def true_screen_rank(screen: dict, model: str) -> int | None:
     return 1 + sorted(screen.values()).index(screen[model])
 
 
+
+# --------------------------------------------------------------------------- seed corruption (T162)
+# Diagnostic only: seed the hybrid with the TRUE answer corrupted at set rates, to learn how accurate a
+# predictor's first guess must be before it helps. One fixed random draw per (item, knob), so the cells of
+# a grid are nested: a cell with a higher p or a lower sigma is always the cleaner version of the same guess.
+
+def _sub_rng(seed: int, item_id: str, tag: str) -> np.random.Generator:
+    import zlib
+    return np.random.default_rng([seed, 162, int(item_id[1:]), zlib.crc32(tag.encode())])
+
+
+def corrupt_seed(it: dict, pool: dict, p: float, sigma: float, seed: int = SEED, cohort: list[str] | None = None) -> dict:
+    """The predictor stand-in for item `it`. The model is the true one when a fixed uniform draw is below `p`,
+    else another pool model of the same category. Settings: the true normalised knobs plus N(0, sigma) noise,
+    clipped to 0..1. A wrong model has no true knobs of its own: a knob it shares by name with the true model
+    takes the true normalised value (plus noise), any other knob is uniform on its range.
+    With `cohort` (the ids of the items in this run) the model draw is stratified: the items are ordered by their fixed
+    draw and exactly round(p * n) of them get the right model, so the realised accuracy is p, not a binomial sample of it.
+    Returns {model, values (parameter units), model_ok, p, sigma}."""
+    true = it["model"]
+    tb = pool[true]
+    others = sorted(m for m, b in pool.items() if b.category == it["category"] and m != true)
+    if cohort:
+        order = sorted(cohort, key=lambda i: _sub_rng(seed, i, "model").random())
+        ok = order.index(it["id"]) < int(p * len(order) + 0.5) or not others
+    else:
+        ok = _sub_rng(seed, it["id"], "model").random() < p or not others
+    model = true if ok else others[int(_sub_rng(seed, it["id"], "wrong").random() * len(others))]
+    b = pool[model]
+    tn = tb.norm(it["values"])
+    vals = {}
+    for n, (lo, hi) in b.rng.items():
+        rng = _sub_rng(seed, it["id"], "k:" + n)
+        z, u = rng.normal(), rng.random()
+        base = tn[n] if n in tn else u
+        vals[n] = lo + float(np.clip(base + sigma * z, 0.0, 1.0)) * (hi - lo)
+    return {"model": model, "values": vals, "model_ok": bool(ok), "p": p, "sigma": sigma}
+
+
+def parse_seed_corrupt(spec: str | None) -> tuple[float, float] | None:
+    """'P,SIGMA' -> (p, sigma); None or '' -> None. p must be in (0, 1] (p = 0 is the unseeded run: omit the flag)."""
+    if not spec:
+        return None
+    p, sg = (float(x) for x in spec.split(","))
+    if not (0.0 < p <= 1.0) or sg < 0.0:
+        raise ValueError(f"--seed-corrupt P,SIGMA needs 0 < P <= 1 and SIGMA >= 0, got {spec!r}")
+    return p, sg
+
+
+def mismatch_dry(it: dict, items: list[dict], clip_s: float, seed: int = SEED):
+    """A DI clip other than the item's own, from a different recording (T162 control: the search renders
+    through a clip the target was not made from). Deterministic per item. Returns (audio, source id, path)."""
+    import soundfile as sf
+    mine = it["di"]["A"]["path"]
+    pick = sorted((x for x in items if x["di"]["A"]["path"] != mine), key=lambda x: x["id"])
+    x = pick[int(_sub_rng(seed, it["id"], "di").random() * len(pick))]
+    audio = sf.read(str(ROOT / x["di"]["A"]["file"]), dtype="float32")[0][: int(clip_s * SR)]
+    return audio, x["id"], x["di"]["A"]["path"]
+
+
+SEED_CORRUPT: dict = {"spec": None, "di_mismatch": False, "items": [], "cohort": None}   # set by cmd_run; None = frozen behaviour
+
+
 def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budget, beam, do_rank1,
              clip_s: float, model_choice: bool = False, search_kit=None,
              known_di: bool = False, seed_measured: bool = False, audio_dir=None,
@@ -745,10 +809,20 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
     true_p = tb.with_values(it["values"])
     engine.load(true_p)
     target_a = np.asarray(engine.render(dry["A"]), np.float32)
-    sec = Section(DATASET, it["id"], target_a, dry["A"])
+    search_dry, mism = dry["A"], None
+    if SEED_CORRUPT["di_mismatch"]:      # T162 control: the search renders through another recording
+        search_dry, o_id, o_path = mismatch_dry(it, SEED_CORRUPT["items"], clip_s)
+        mism = {"id": o_id, "path": o_path}
+    sec = Section(DATASET, it["id"], target_a, search_dry)
     allowed = {m: b for m, b in pool.items()}
     searcher = search_item_hy if hybrid else search_item_ms if seed_measured else search_item_mc if model_choice else search_item
-    s = searcher(engine, allowed, sec, search_kit or kit, weights, budget, beam, int(it["id"][1:]), clip_s)
+    kw, cs = {}, None
+    if SEED_CORRUPT["spec"] is not None:
+        if not hybrid:
+            raise ValueError("--seed-corrupt needs --hybrid")
+        cs = corrupt_seed(it, pool, *SEED_CORRUPT["spec"], cohort=SEED_CORRUPT["cohort"])
+        kw["predictor_seed"] = {cs["model"]: cs["values"]}
+    s = searcher(engine, allowed, sec, search_kit or kit, weights, budget, beam, int(it["id"][1:]), clip_s, **kw)
     t_search = now_s() - t0
     pb = pool[s["model"]]
     res = {
@@ -759,6 +833,14 @@ def run_item(engine, it: dict, blocks_by_cat: dict, catalog, kit, weights, budge
         "true_model_screen_rank": true_screen_rank(s["screen"], it["model"]),
         "search_s": round(t_search, 1),
     }
+    if cs is not None:
+        res["seed"] = {"model": cs["model"], "model_ok": cs["model_ok"], "p": cs["p"], "sigma": cs["sigma"],
+                       "refined": cs["model"] in s["refined"]}
+        tn_ = pool[it["model"]].norm(it["values"])
+        sn_ = pool[cs["model"]].norm(cs["values"])
+        res["seed"]["mae"] = float(np.mean([abs(tn_[n] - sn_[n]) for n in tn_ if n in sn_ and n not in LEVEL_KNOBS] or [float("nan")]))
+    if mism is not None:
+        res["di_mismatch"] = mism
     if res["true_model_screen_rank"] is None:   # T148: e.g. a time-variant target the search leaves out
         res["true_model_not_searched"] = True
     for key in ("seeded", "measured", "probs", "stage_renders", "screen_scores", "hybrid", "dispatch"):
@@ -877,10 +959,14 @@ def run_baseline_item(engine, kind: str, it: dict, pool: dict, kit, weights, bud
     engine.load(true_p)
     target_a = np.asarray(engine.render(dry["A"]), np.float32)
     res: dict = {"id": it["id"], "category": it["category"], "model": it["model"], "baseline": kind}
+    search_dry = dry["A"]
+    if SEED_CORRUPT["di_mismatch"]:      # T162 control: draws are rendered through another recording
+        search_dry, o_id, _ = mismatch_dry(it, SEED_CORRUPT["items"], clip_s)
+        res["di_mismatch"] = {"id": o_id}
     names = sorted(pool)
     if kind == "middle":
         presets = [pool[m].with_values(mid_values(pool[m])) for m in names]
-        sc = _scores(engine, kit, weights, target_a, dry["A"], presets)
+        sc = _scores(engine, kit, weights, target_a, search_dry, presets)
         cat = [i for i, m in enumerate(names) if pool[m].category == it["category"]]
         bi = cat[best_index([sc[i] for i in cat])]          # best of the true category's models, category given
         ba = best_index(sc)                                 # best of all pool models, nothing given
@@ -902,7 +988,7 @@ def run_baseline_item(engine, kind: str, it: dict, pool: dict, kit, weights, bud
     else:
         rng = np.random.default_rng([SEED, 97, int(it["id"][1:])])
         draws = random_draws(rng, pool, budget)
-        sc = _scores(engine, kit, weights, target_a, dry["A"], [pool[m].with_values(v) for m, v in draws])
+        sc = _scores(engine, kit, weights, target_a, search_dry, [pool[m].with_values(v) for m, v in draws])
         bi = best_index(sc)
         pm, pv = draws[bi]
         res.update(baseline_item_fields(it, pool, pm, pv))
@@ -1182,6 +1268,7 @@ def cmd_baseline(a) -> int:
     shard = tuple(int(x) for x in a.shard.split("/")) if a.shard else None
     items = select_items(labels, a.items, a.ids, shard)
     weights, admitted, wlabel = load_weights(a.weights)
+    SEED_CORRUPT.update(di_mismatch=a.di_mismatch, items=labels)
     running = machine_hosts()
     print(f"native_host processes before start: {running}; this run opens 1", flush=True)
     from tonematch.engines import host_budget as hb  # T133: the scaler waits instead of refusing
@@ -1361,6 +1448,9 @@ LEDGER_METRICS = ("block_f1", "model_acc", "param_mae", "param_mae_level", "rank
                   "heldout_ratio")
 
 
+LEDGER_ROWS_WRITTEN: list[dict] = []     # rows this process appended (for the --result-json manifest)
+
+
 def write_ledger(summary: dict, dataset: str, notes: str, wall: float) -> list[str]:
     rows = []
     env = {**os.environ, "TONEMATCH_AGENT": "benchmark"}
@@ -1373,6 +1463,8 @@ def write_ledger(summary: dict, dataset: str, notes: str, wall: float) -> list[s
                         "--renders", str(summary["renders"]), "--wall-clock-s", f"{wall:.1f}",
                         "--notes", notes], check=True, env=env, cwd=ROOT)
         rows.append(m)
+        LEDGER_ROWS_WRITTEN.append({"kind": "benchmark", "engine": "native", "dataset": dataset, "metric": m,
+                                    "value": v, "renders": summary["renders"], "wall_clock_s": round(wall, 1)})
     return rows
 
 
@@ -1394,6 +1486,8 @@ def cmd_run(a) -> int:
     POLICY.update(tau=a.family_prior, shortlist_max=a.shortlist, shortlist_hint=a.shortlist_hint, gain_drive=a.gain_drive,
                    rank_slack=a.rank_slack, gate=a.prior_gate, keep_top=a.keep_top,
                    drive_seeds=a.drive_seeds, drive_shortlist=a.drive_shortlist)
+    SEED_CORRUPT.update(spec=parse_seed_corrupt(a.seed_corrupt), di_mismatch=a.di_mismatch, items=labels,
+                        cohort=[x["id"] for x in items] if a.seed_stratify else None)
     HYBRID.update(f=a.hybrid_f, k=a.hybrid_k, fingerprint=a.hybrid_fingerprint, scale=a.hybrid_scale,
                   level_free=a.hybrid_level_free)
     running = machine_hosts()
@@ -1512,7 +1606,9 @@ def cmd_summarize(a) -> int:
     labels = json.loads((SET_DIR / "labels.json").read_text())
     run_dir = SET_DIR / "runs" / a.tag
     results = [json.loads(p.read_text()) for p in sorted(run_dir.glob("i*.json"))]
-    print(json.dumps(summarize(results, labels, man["pool"]), indent=1))
+    summ = summarize(results, labels, man["pool"])
+    a.summary_obj = summ
+    print(json.dumps(summ, indent=1))
     return 0
 
 
@@ -1580,6 +1676,15 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--known-di", action="store_true",
                    help="known-DI mode (implied by admitted weights): rank-1 on the target's own DI A through "
                         "aligned_capture, rule B; Output/Volume/Level error reported as param_mae_level")
+    r.add_argument("--seed-corrupt", default=None, metavar="P,SIGMA",
+                   help="T162 diagnostic (hybrid only): seed the search with the true answer corrupted: right model with "
+                        "probability P (else a wrong model of the same category), knobs plus N(0, SIGMA) noise; omit for unseeded")
+    r.add_argument("--seed-stratify", action="store_true",
+                   help="T162: with --seed-corrupt, exactly round(P * items) of this run's items get the right model "
+                        "(fixed order), instead of an independent draw per item")
+    r.add_argument("--di-mismatch", action="store_true",
+                   help="T162 control: the target is rendered from the item's DI A, the search (and the random baseline) renders "
+                        "through a clip of a different recording")
     r.add_argument("--no-rank1", action="store_true")
     r.add_argument("--ledger", action="store_true")
     r.add_argument("--redo", action="store_true")
@@ -1596,6 +1701,7 @@ def main(argv: list[str] | None = None) -> int:
                         "(random model and settings, --budget draws); labelled with the weights used")
     r.add_argument("--tag", default="default")
     r.add_argument("--note", default="", help="free text appended to the ledger notes")
+    cli_result.add_result_arg(r)
     s = sub.add_parser("summarize")
     s.add_argument("--tag", default="default")
     s.add_argument("--baseline", choices=BASELINES, default=None, help="merge the shards of a baseline run")
@@ -1605,6 +1711,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--budget", type=int, default=300)
     s.add_argument("--ledger", action="store_true")
     s.add_argument("--note", default="")
+    cli_result.add_result_arg(s)
     for p_ in (g, r, s):
         p_.add_argument("--set", default="synthetic-v1", help="set name: cache/<NAME>/, dataset NAME")
     a = ap.parse_args(argv)
@@ -1617,7 +1724,35 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{man['items']} items, pool {sum(len(p) for p in man['pool'].values())} models, "
               f"wrote {SET_DIR}" + (f" and {FIXTURE}" if a.set == "synthetic-v1" else ""))
         return 0
-    return {"run": cmd_run, "summarize": cmd_summarize}[a.cmd](a)
+    fn = {"run": cmd_run, "summarize": cmd_summarize}[a.cmd]
+    if getattr(a, "as_worker", False):          # elastic workers never write the manifest; the supervisor does
+        return fn(a)
+    return cli_result.run(a, tool=f"synthetic_v1 {a.cmd}", body=lambda res: _with_result(fn, a, res),
+                          inputs={"manifest": SET_DIR / "manifest.json", "labels": SET_DIR / "labels.json"})
+
+
+def _with_result(fn, a, res) -> int:
+    t0 = time.time()
+    rc = fn(a)
+    run_dir = SET_DIR / "runs" / a.tag
+    res.outputs["run_dir"] = run_dir
+    summ = getattr(a, "summary_obj", None)
+    if summ is None:                                  # run: finish_run wrote summary.json (or a baseline summary)
+        fresh = [p for p in run_dir.glob("summary*.json") if p.stat().st_mtime >= t0 - 1] if run_dir.is_dir() else []
+        if fresh:
+            p = max(fresh, key=lambda q: q.stat().st_mtime)
+            res.outputs["summary_json"] = p
+            summ = json.loads(p.read_text())
+    if summ:
+        keep = ("dataset", "weights", "admitted", "known_di", "budget", "renders", "wall_s", "gate_evidence",
+                *LEDGER_METRICS)
+        res.metrics.update({k: summ[k] for k in keep if k in summ})
+        res.metrics["items"] = summ.get("items", summ.get("n_items"))
+        res.metrics["set"] = a.set
+    res.ledger_rows.extend(LEDGER_ROWS_WRITTEN)
+    if rc:
+        res.notes = "non-zero exit: a regression against the previous ledger row, or a failed item (see stderr)"
+    return rc
 
 
 if __name__ == "__main__":

@@ -628,7 +628,7 @@ def build_model(reg: dict, cur: dict, facts: dict, baseline: dict | None = None)
     now: dt.datetime = facts["now"]
     today = now.strftime("%Y-%m-%d")
     ear_q = cur.get("ear_qualifier", "") if not any(
-        g["name"] == "Gate 4" and g["signed"] for g in facts["gates"]) else ""
+        g["name"] == "Gate 5" and g["signed"] for g in facts["gates"]) else ""
     feats = [f for f in reg["features"] if not f.get("retired")]
     fdetail = {f["id"]: feature_detail(f, facts, ear_q) for f in feats}
     evid = {e["id"]: e for e in cur["evidence"]}

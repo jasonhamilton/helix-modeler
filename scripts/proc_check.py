@@ -23,8 +23,12 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+from tonematch import cli_result
+
 WORKER_MARKS = ("multiprocessing.spawn", "multiprocessing.resource_tracker",
-                "multiprocessing.forkserver", "tonematch.engines.native_host")
+                "multiprocessing.forkserver", "tonematch.engines.native_host",
+                "--as-worker")   # elastic-supervisor workers (synthetic_v1.py); orphaned when the supervisor dies
 
 
 def ps_rows() -> list[dict]:
@@ -103,9 +107,17 @@ def _alive(pid: int) -> bool:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--kill", action="store_true", help="stop the flagged orphans (never zombies' parents)")
+    cli_result.add_result_arg(ap)
     a = ap.parse_args(argv)
+    return cli_result.run(a, tool="proc_check", body=lambda res: _run(a, res))
+
+
+def _run(a, res) -> int:
     found = classify(ps_rows())
     o, z = found["orphans"], found["zombies"]
+    res.metrics.update({"orphans": len(o), "zombies": len(z),
+                        "orphan_pids": [r["pid"] for r in o], "zombie_pids": [r["pid"] for r in z],
+                        "orphan_load_points": round(sum(r["pcpu"] for r in o) / 100, 2)})
     load = sum(r["pcpu"] for r in o) / 100
     print(f"orphans: {len(o)} (about {load:.1f} load points); zombies: {len(z)}")
     for r in o:
@@ -115,6 +127,7 @@ def main(argv=None) -> int:
     if a.kill and o:
         left = kill([r["pid"] for r in o])
         print(f"stopped {len(o) - len(left)} of {len(o)} orphans" + (f"; still alive: {left}" if left else ""))
+        res.metrics.update({"killed": len(o) - len(left), "still_alive_pids": left})
         return 1 if left else 0
     return 1 if (o or z) else 0
 

@@ -10,6 +10,8 @@ This repo builds the HX Stomp Tone Matcher. Read `docs/PLAN.md` for what and why
 
 ## Standing rules (every agent)
 
+- **Model and method decisions go through the human (2026-10-18).** The human must approve each of these BEFORE it takes effect: which score, loss or weights are admitted; which search or prediction method is adopted; test-set design; pass bars; any change to a gate. The lead and agents may propose, with evidence and a recommendation. They may not adopt, admit or freeze. Record each approval in `docs/DECISIONS.md` with the human's words.
+
 - **Contracts are in `contracts/`.** Implement them, do not change them. A change is a proposal to the lead naming who it breaks.
 - **Every hand-off is a file plus a ledger row.** Append with `python scripts/ledger_append.py` (see `contracts/ledger-format.md`). A claim with no row did not happen.
 - **No Line 6 assets in the repo.** Catalog JSON, firmware, HX Edit resources, Native binaries: never. Read them from the user's install at runtime. `fixtures/golden/*.hlx` are the user's own exports and stay local unless the human decides otherwise.

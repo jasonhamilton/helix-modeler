@@ -1,4 +1,4 @@
-"""Blind A/B listening sessions (Gate 2 optional, Gate 3 required). Offline; no Native, no pedal.
+"""Blind A/B listening sessions (Gate 2 and Gate 3 optional, Gate 4 pedal listening and Gate 5 real songs required). Offline; no Native, no pedal.
 
   build        make a session from pairs of WAV files: trim to one shared excerpt, match loudness (LUFS),
                randomise which clip is A with a seeded key kept OUTSIDE the page folder, optional ABX trials.
@@ -7,6 +7,11 @@
   score        join the exported answers with the key: per-pair preference, binomial test, ABX accuracy;
                ledger rows kind=ab (this reports the human's answers; it never judges the audio).
   gate2-demo   a small session from synthetic-v1 run outputs if any have rendered audio, else instructions.
+  rating-build / rating-build-v2 / play / rating-score
+               the T170 human rating session (target + two candidates per trial, "which is closer?"),
+               played on the HX Stomp outputs 1/2, then every existing score measured against the
+               answers. Code in scripts/rating_session.py (v1, withdrawn) and rating_v2.py (hidden Helix settings over the
+               human's own dry take); protocols docs/notes/human-ratings-v1.md, human-ratings-v2.md.
 
 In every pair, clip X is the thing under test (our match / the recovered preset) and clip Y is what it is
 compared with (the target, or the nearest stock preset). "X chosen" is the headline preference.
@@ -332,7 +337,94 @@ def main(argv=None) -> int:
     d = sub.add_parser("gate2-demo")
     d.add_argument("--runs", type=Path, default=DEMO_DIR)
     d.add_argument("--seed", type=int, default=None)
+    rb = sub.add_parser("rating-build", help="T170 rating session from clips on disk")
+    rb.add_argument("--name", default="human-ratings-v1")
+    rb.add_argument("--seed", type=int, default=None, help="default: random, stored in the key")
+    rb.add_argument("--excerpt-s", type=float, default=7.0)
+    r2 = sub.add_parser("rating-build-v2", help="T170 v2: hidden Helix drive settings over the human's own dry take")
+    r2.add_argument("--name", default="human-ratings-v2")
+    r2.add_argument("--seed", type=int, default=None, help="default: random, stored in the key")
+    r2.add_argument("--withdraw-v1", action="store_true", help="replace the v1 page by a notice and delete its audio")
+    r3 = sub.add_parser("rating-build-v3", help="T170 v3: hard pairs (scores disagree) on hidden Helix drive settings")
+    r3.add_argument("--name", default="human-ratings-v3")
+    r3.add_argument("--seed", type=int, default=None, help="default: random, stored in the key")
+    r3.add_argument("--no-ledger", action="store_true")
+    r4 = sub.add_parser("rating-build-v4", help="T177 v4: near-twin models versus large knob moves")
+    r4.add_argument("--name", default="human-ratings-v4")
+    r4.add_argument("--seed", type=int, default=None, help="default: random, stored in the key")
+    r4.add_argument("--no-ledger", action="store_true")
+    pl = sub.add_parser("play", help="play T, A, B of one rating trial on the HX Stomp USB outputs 1/2 (audio only)")
+    pl.add_argument("session")
+    pl.add_argument("--trial", type=int, required=True, help="trial number as shown on the page")
+    pl.add_argument("--gain-db", type=float, default=0.0)
+    pl.add_argument("--only", default="TAB", help="e.g. TA, B, TAB (order played)")
+    pl.add_argument("--gap-s", type=float, default=1.0)
+    rs = sub.add_parser("rating-score", help="score the rating session answers against the existing scores")
+    rs.add_argument("session")
+    rs.add_argument("--answers", type=Path, help="default: reports/local/ratings/<session>.answers.json, else newest in ~/Downloads")
+    rs.add_argument("--no-ledger", action="store_true")
+    rs.add_argument("--no-embed", action="store_true", help="skip embed_afxrep")
     a = ap.parse_args(argv)
+    if a.cmd in ("rating-build", "rating-build-v2", "rating-build-v3", "rating-build-v4", "play", "rating-score"):
+        import rating_session as RS
+        if a.cmd == "rating-build-v2":
+            import rating_v2 as R2
+            if a.withdraw_v1:
+                print(f"v1 withdrawn: {R2.withdraw()} files deleted")
+            folder, keyf = R2.build_session(a.name, seed=a.seed)
+            print(f"page: {RS.URL_BASE}/{a.name}/index.html  (folder {folder}, "
+                  f"{R2.folder_mb(folder, RS.KEY_DIR / (a.name + '.di')):.1f} MB with the DI excerpts)\n"
+                  f"hidden key: {keyf}  (do not open before scoring)")
+            return 0
+        if a.cmd == "rating-build-v3":
+            import rating_v3 as R3
+            folder, keyf = R3.build_session(a.name, seed=a.seed)
+            kj = json.loads(keyf.read_text())
+            n = len(kj["trials"])
+            mb = R3.folder_mb(folder, RS.KEY_DIR / (a.name + "." + "di"))
+            print(f"page: {RS.URL_BASE}/{a.name}/index.html  (folder {folder}, {mb:.1f} MB with the DI excerpts)\n"
+                  f"hidden key: {keyf}  (do not open before scoring)")
+            if not a.no_ledger:
+                ledger(f"ab-{a.name}", "trials_built", float(n),
+                       f"v3 hard pairs: {n} trials (regular + sanity + retests), seed {kj['seed']}; page {RS.URL_BASE}/{a.name}/index.html; "
+                       "built for the human's ratings; nothing scored")
+            return 0
+        if a.cmd == "rating-build-v4":
+            import rating_v4 as R4
+            folder, keyf = R4.build_session(a.name, seed=a.seed)
+            kj = json.loads(keyf.read_text())
+            n = len(kj["trials"])
+            print(f"page: {RS.URL_BASE}/{a.name}/index.html  (folder {folder}); {n} trials, {kj['n_renders']} renders\n"
+                  f"hidden key: {keyf}  (do not open before scoring)")
+            if not a.no_ledger:
+                ledger(f"ab-{a.name}", "trials_built", float(n),
+                       f"v4 near-twin models vs large knob moves: {n} trials (regular + sanity + retests), seed {kj['seed']}, "
+                       f"{kj['n_renders']} renders on one Native host; page {RS.URL_BASE}/{a.name}/index.html; "
+                       "built for the human's ratings; nothing scored")
+            return 0
+        if a.cmd == "rating-build":
+            folder, keyf = RS.build_session(a.name, seed=a.seed, excerpt_s=a.excerpt_s)
+            print(f"page: {RS.URL_BASE}/{a.name}/index.html  (folder {folder})\nhidden key: {keyf}  (do not open before scoring)")
+        elif a.cmd == "play":
+            RS.play_trial(a.session, a.trial, a.gain_db, a.only.upper(), a.gap_s)
+        else:
+            ans = a.answers or RS.find_answers(a.session)
+            if ans is None:
+                raise SystemExit(f"no answers file found: save the page's download as {RS.RATINGS_DIR / (a.session + '.answers.json')}")
+            key = json.loads((RS.KEY_DIR / f"{a.session}.key.json").read_text())
+            scorer = RS.Scorer(RS.RATINGS_DIR / a.session, key, use_embed=not a.no_embed)
+            pooled = None
+            if key.get("version") == 3:
+                import rating_v3
+                pooled = rating_v3.load_v2_records(use_embed=not a.no_embed)
+            res = RS.score_all(key, json.loads(Path(ans).read_text()), scorer, pooled_records=pooled)
+            txt = RS.fmt(res)
+            print(txt)
+            (RS.RATINGS_DIR / f"{a.session}.results.json").write_text(json.dumps(res, indent=1, default=float))
+            (RS.RATINGS_DIR / f"{a.session}.results.txt").write_text(txt)
+            if not a.no_ledger:
+                RS.write_ledger(res, ledger)
+        return 0
     if a.cmd == "build":
         folder, keyf = build_session(a.name, [parse_pair(p) for p in a.pair], a.seed, a.excerpt_s, a.abx)
     elif a.cmd == "score":

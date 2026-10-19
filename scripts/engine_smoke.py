@@ -23,6 +23,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from tonematch import cli_result
+
 DI = ROOT / "fixtures" / "smoke" / "di_2s.wav"            # synthetic (other scripts import this name)
 DI_REAL = ROOT / "fixtures" / "smoke" / "di_2s_real.wav"  # Guitar-TECHS, CC BY 4.0 (PROVENANCE.md)
 DATASETS = {"real": "smoke-real-di", "synthetic": "smoke"}
@@ -48,9 +50,11 @@ def read_wav_f32(path: Path) -> np.ndarray:
 
 
 NO_LEDGER = False
+LEDGER_LOG: list[dict] = []        # rows appended (or, with --no-ledger, that would be) for --result-json
 
 
 def ledger(*args: str) -> None:
+    LEDGER_LOG.append({**cli_result.ledger_row_from_args(list(args)), "written": not NO_LEDGER})
     if NO_LEDGER:
         print("(dry run, --no-ledger) would append: " + " ".join(args))
         return
@@ -117,8 +121,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-ledger", action="store_true", help="dry run: print the rows instead of appending them")
     ap.add_argument("--di", default="auto",
                     help="auto (real clip, synthetic fallback), real, synthetic, or a 48 kHz f32 mono WAV path")
+    cli_result.add_result_arg(ap)
     a = ap.parse_args(argv)
     NO_LEDGER = a.no_ledger
+    LEDGER_LOG.clear()
+    return cli_result.run(a, tool="engine_smoke", body=lambda res: _run(a, res), inputs={"preset": PRESET})
+
+
+def _run(a, res) -> int:
     from tonematch.engines import registry
     from tonematch.engines.base import UnsupportedModelChange
 
@@ -127,12 +137,16 @@ def main(argv: list[str] | None = None) -> int:
     names = sorted(found) if want == "auto" else [n for n in [want] if n in found]
     if not names:
         print(NO_ENGINE)
+        res.notes = NO_ENGINE
+        res.metrics["engines_detected"] = sorted(found)
         return 2
     di, di_kind = pick_di(a.di)
     if not di.exists():
         print(f"FAIL: missing {di}")
         return 1
     dataset = DATASETS.get(di_kind, f"smoke-{di.stem}")
+    res.inputs["di"] = di
+    res.metrics.update({"engines_detected": sorted(found), "engines_run": names, "dataset": dataset, "engines": {}})
     rc = 0
     for name in names:
         engine = None
@@ -146,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             fails, m = check(engine, di)
         except UnsupportedModelChange as e:
             print(f"{name}: UNSUPPORTED load of {PRESET.name} ({e}); no ledger row written")
+            res.metrics["engines"][name] = {"ok": False, "failures": [f"unsupported load: {e}"]}
             rc = 1
             continue
         except Exception as e:  # noqa: BLE001
@@ -159,14 +174,20 @@ def main(argv: list[str] | None = None) -> int:
             fails.append(f"close() did not restore the original preset: {report}")
         if fails:
             print(f"{name}: FAIL " + "; ".join(fails))
+            res.metrics["engines"][name] = {"ok": False, "failures": fails}
             rc = 1
             continue
+        res.metrics["engines"][name] = {"ok": True, "peak_dbfs": round(m["peak"], 2),
+                                        "seconds_per_render": round(m["cost"], 4), "wall_s": round(m["wall"], 3)}
         print(f"{name}: OK peak {m['peak']:.1f} dBFS, {m['cost']:.3f} s/render ({di.name}, dataset {dataset})")
         note = ["--notes", f"di={di.relative_to(ROOT) if di.is_relative_to(ROOT) else di}"]
         ledger("--kind", "smoke", "--engine", name, "--dataset", dataset, "--metric", "peak_dbfs",
                "--value", f"{m['peak']:.2f}", *note)
         ledger("--kind", "render-cost", "--engine", name, "--dataset", dataset, "--metric", "seconds_per_render",
                "--value", f"{m['cost']:.4f}", "--renders", "1", "--wall-clock-s", f"{m['wall']:.3f}", *note)
+    res.ledger_rows.extend(LEDGER_LOG)
+    if NO_LEDGER:
+        res.notes = "--no-ledger: ledger_rows are the rows that would have been appended (written=false)"
     return rc
 
 

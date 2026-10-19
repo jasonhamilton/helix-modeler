@@ -39,7 +39,7 @@ from scipy.signal import stft
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from tonematch import param_policy
+from tonematch import cli_result, param_policy
 
 SR = 48_000
 N_FFT, HOP = 2048, 512                      # the separator's mask grid (tonematch.separation.confidence)
@@ -1465,13 +1465,44 @@ def parse(argv=None):
                     help="cap on scores per chain in the beam (the refine gets twice that): a trial budget "
                          "that does not depend on how fast the engine is")
     ap.add_argument("--dry-run", action="store_true", help="pick target, DI and chains; render nothing")
+    cli_result.add_result_arg(ap)
     return ap.parse_args(argv)
 
 
+def run_with_result(args, res) -> int:
+    """``run`` plus the result manifest fields (outputs and headline numbers read from the run's result.json)."""
+    rc = run(args)
+    out = Path(args.out)
+    res.outputs.update({"out_dir": out, "run_log": out / "run.log"})
+    if args.dry_run:
+        res.metrics["dry_run"] = True
+        res.notes = "dry run: target, DI and chains picked; nothing rendered"
+        return rc
+    for name in ("best_snapshot1.hlx", "best_snapshot0.hlx", "report.md", "result.json", "listen"):
+        if (out / name).exists():
+            res.outputs[name.replace(".", "_")] = out / name
+    rj = out / "result.json"
+    if rj.is_file():
+        d = json.loads(rj.read_text())
+        fin = d.get("finals") or []
+        res.metrics.update({"label": d.get("label"), "renders": d.get("renders"), "wall_s": d.get("wall_s"),
+                            "host_restarts": d.get("host_restarts"), "start_loss": d.get("start_loss"),
+                            "dry_loss": d.get("dry_loss"),
+                            "best_chain": fin[0]["chain"] if fin else None,
+                            "best_loss": fin[0]["loss"] if fin else None,
+                            "top": [{"chain": f["chain"], "loss": f["loss"]} for f in fin[:3]]})
+    return rc
+
+
+def main(argv=None) -> int:
+    a = parse(argv)
+    if a.rewrite_hlx:
+        for p, c in hlx_from_result(Path(a.rewrite_hlx)):
+            print(f"{p} validate exit {c}")
+        return 0
+    return cli_result.run(a, tool="match_song", body=lambda res: run_with_result(a, res),
+                          inputs={"stems_dir": a.stems_dir, "user_di": a.user_di, "user_di_json": a.user_di_json})
+
+
 if __name__ == "__main__":
-    _a = parse()
-    if _a.rewrite_hlx:
-        for _p, _c in hlx_from_result(Path(_a.rewrite_hlx)):
-            print(f"{_p} validate exit {_c}")
-        sys.exit(0)
-    sys.exit(run(_a))
+    sys.exit(main())

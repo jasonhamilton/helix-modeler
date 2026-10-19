@@ -206,7 +206,7 @@
    "title": "The tone comparison is only admitted when the clean recording is known"
   }
  },
- "ledger_rows": 1196,
+ "ledger_rows": 1199,
  "milestones": {
   "Gate 1": {
    "done": 4,
@@ -227,6 +227,12 @@
    "total": 4
   },
   "Gate 4": {
+   "done": 0,
+   "signed": false,
+   "state": "Not Started",
+   "total": 4
+  },
+  "Gate 5": {
    "done": 1,
    "signed": false,
    "state": "In Progress",

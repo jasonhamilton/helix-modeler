@@ -1679,3 +1679,662 @@ Gains are the three mod items i021 (CaliQ to MM4AnalogChorus), i048 (CaliQ to MM
   - The rank-1 rule was amended by the human before v3, and v1 and v2 figures stay under the old rule.
   - Sealed sets were consumed on the way: v1, then v2, then v3.
 - **v3 is now SPENT.** The evidence goes to board/GATES.md (benchmark ticks it). **Gate 2 is passed only when the human signs.** — lead
+
+## 2026-10-18 (lead): retrospective on the Gate 2 round (attempts 2 and 3); lessons and follow-up tasks
+
+The human asked for a recap of what to improve. Each lesson below has its follow-up task.
+
+**Methodology**
+1. **Check the test before freezing a rule.** The rank-1 miss was partly a contradiction in the test itself: the capture's ±3 dB level jitter made volume-only twins look different. Before any future gate rule is frozen, its harness must pass a sanity check: a preset against a copy of itself at another level or setting must tie. (T155)
+2. **Three sealed sets were spent passing Gate 2.** Each change was registered first, but across attempts that is mild tuning to the gate. A fresh v4 confirmation run with no changes is recommended before or with the sign-off. (T152)
+3. **Small dev sets misled us.** T143's tuning gain did not carry over. Dev decisions now use larger sets (100+ items) and 2–3 repeat runs, and report CIs.
+4. **Item validity is checked at generation time.** Validity covers silent or near-inaudible targets, time-variant models in pools, and silent neighbours. Each set gets a "validate set" report before it is sealed. (T155)
+5. **Knobs that are only a gain (Master, Output and similar) cannot be identified by sound.** Settings error is reported over identifiable knobs only, and same-sound settings are treated as one class.
+6. **The DI library is running out of unused passages** (gain-trust-v1b fell to 8 s excerpts). Grow it before Gate 3. (T156)
+
+**Process**
+
+7. **Task IDs collided three times.** Agents claim ids through a locked allocator, `scripts/next_task.py`. (T153)
+8. **Hand-typed launch commands failed twice.** Runs are launched from named config files, and DECISIONS records each config's hash. (T153)
+9. **The order "bar registered, then scored" could not be proven.** From now on, every registration (bar plus code hashes) is committed to git before its run.
+10. **Commit at each reviewed merge,** not at the end of a round (this round left 106 files uncommitted).
+11. **Every run type writes its ledger rows through `summarize --ledger`, under one summary filename.** A run without rows is not done. (T153)
+12. **Load and processes.**
+    - The scaler should be able to pause a worker between renders, since cooperative shrink waits about 2 minutes. (T154)
+    - Exclude the repo from Spotlight (a human action).
+    - Run the full pytest at low priority while Native runs.
+13. **Sealed labels are never copied.** A check flags any file whose hash matches a sealed labels.json. (T155)
+
+**Models**
+
+14. **Measurement-based specialists win where the effect's physics is simple** (linear 12/12 at about 6 renders). Search plus ranking is used where it is not.
+15. **Delay is the weakest family (5/12), mostly delay-for-delay swaps.** The next work: delay-character features, and checking which delay pairs are indistinguishable. (T157)
+16. **The true model is often never refined.** Widen the refine set when the broad screen is uncertain, especially for drive against amp. (T157)
+17. **Margins are thin.** Category 0.885 against a 0.85 bar; the level_db trust pass had zero slack; MAE drifted from 0.091 to 0.101.
+18. **The admitted score is validated for known DI only.** Re-check it on different-notes material before Gate 3.
+
+**Engines**
+
+19. **Every guard must fail closed and say why** (the NaN host, the silence threshold, the Windows load reading of 0). Audit the remaining engine guards. (T154)
+
+**Open with the human**
+- Gate 2 sign-off: the ear judges first, by listening to the comparisons.
+- The v4 confirmation.
+- Gate 3: the human has several distortion pedals.
+- Disk space: 1.6 GB free. — lead
+
+## 2026-10-18 (human, recorded by lead): new Gate 3, blind single-block prediction without the dry track; later gates move out
+
+**Decision.** The human said: "Once the tasks are done I would like to start on some testing without giving the model the dry track. We should generate a random setting then use a random guitar sample to create the test audio. The model should only be given the output audio and need to make the prediction. This should be the next gate - blind prediction using a single block with random settings. Move all other gates out."
+
+- **Gate 3 (new):** blind prediction of a single block. Each item is one Helix block, random model, random settings, rendered in Native from a random guitar sample. The matcher receives only the output audio.
+- **Renumbered:** real pedals goes from Gate 3 to **Gate 4**; real songs goes from Gate 4 to **Gate 5**. Gate 1 and Gate 2 are unchanged, and Gate 2's sign-off is still pending.
+- **Lead's protocol defaults** (open to the human):
+  - The item's dry sample comes from DI material held out from everything the matcher may render with or train on, and is used only to score. The matcher may still render candidates through its own reference DIs.
+  - The block category is not given, as in Gate 2.
+  - `benchmark` registers the bars and the two baselines (middle of every knob and random walk, same no-dry-track condition) BEFORE the sealed set is generated.
+  - Listening uses the prediction re-rendered from the held-out dry sample.
+- **Order:** the method is chosen after the no-DI survey (T158). The human asked for research "before committing to a specific method".
+
+**Why.** Gate 2 passed only with the dry track known. Real pedals and songs give no dry track, and the evidence so far says that is the hard part (T041 DI dependence; presence-v1 no-DI F1). — lead
+
+## 2026-10-18 (search, T162): seed-quality experiment, grid and measures registered BEFORE any cell is run
+
+Diagnostic only, not gate evidence. Question: how accurate must a predictor's first guess be before it helps the search, and how does that trade against render budget (docs/notes/no-di-survey-estimation.md option 2).
+
+- **Data.** `synthetic-devfam` (dev set, tuning allowed; no sealed or gate set is touched). First 32 items of the labels order = 8 mod, 8 reverb, 8 delay, 8 amp (pools of 6 models per category, so chance model accuracy is 1/6 to 1/5). Items with a silent true render, if any, are kept and reported as they fall.
+- **Method.** The Gate 2 attempt 3 hybrid, unchanged: `--hybrid --specialists all --hybrid-f 0.4 --hybrid-k 4 --hybrid-scale 0.9 --hybrid-level-free --family-prior 0.04 --prior-gate 0.9 --keep-top 2 --shortlist 2 --shortlist-hint 0.5`, admitted `data/weights/gate2-known-di-v3.json`, `--no-rank1`, no `--save-audio`, `--workers auto --priority normal`. New flag `--seed-corrupt P,SIGMA`: the stand-in predictor's guess becomes the first (anchor) broad draw of its model (`predictor_seed` argument of `choose_models_hybrid`, default None = the frozen method draw for draw; it costs the one render the default anchor would have cost and replaces any measured band for that model). Nothing else is told to the search: the predicted model is not forced into the refine set, it enters only if its anchor scores well.
+- **Corruption.** Model right when a fixed uniform draw (per item) is below p, else another pool model of the same category (fixed draw). Settings: true normalised knobs plus N(0, sigma) (fixed draw per item and knob), clipped to 0..1. A wrong model's knobs: shared names carry the true normalised value plus noise, other knobs are uniform. Draws are fixed per item, so the cells are nested (higher p and lower sigma are always cleaner versions of the same guess). p = 0 is the unseeded hybrid (no flag). The seed ceiling cell p = 1, sigma = 0 hands over the answer; it shows what the pipeline does when the seed is exact (the search can only lose renders there).
+- **Condition (a), known DI.** Target and search render through the same clip (the item's DI A). Cells (p, sigma, budget), budgets 50 / 150 / 300 renders:
+  1. sigma 0.1 x p in {1, 0.75, 0.5, 0.25} x 3 budgets (12 cells; the model-accuracy axis);
+  2. p 1 x sigma in {0, 0.25} x 3 budgets (6 cells; the settings axis; sigma 0.1 is in 1);
+  3. p 0.5 x sigma in {0, 0.25} at budget 150 only (2 cells; interaction);
+  4. unseeded hybrid x 3 budgets (3); random walk (`--baseline random`) x 3 budgets (3).
+  Pruned from the full 5 x 3 x 3 = 45 cells (+ baselines): sigma 0 and 0.25 at p 0.75 and 0.25 and at p 0.5 outside budget 150, and budgets 50 and 300 for the interaction cells. Reason: a full grid is about 6 h of host time at 32 items.
+- **Condition (b), different DI (CONTROL, labelled as such).** The target is rendered from the item's DI A; every search render goes through a clip of a different recording (`--di-mismatch`, deterministic per item, never the same recording path), scored with the same admitted weights. The no-DI score is still being chosen (T161), so this shows only how the same score behaves under DI mismatch. Cells: sigma 0.1 x p in {1, 0.5, 0.25} x 3 budgets (9); p 1 x sigma {0, 0.25} at budget 150 (2); unseeded x 3 budgets (3); random walk x 3 budgets (3). Pruned: p 0.75, sigma axis at 50 and 300, interaction cells. Run after (a), time permitting.
+- **Measured per cell.** Model accuracy, category accuracy, settings MAE on right-model items over identifiable knobs (level knobs excluded, the report definition), actual renders per item (the hybrid overshoots a little), wall seconds per item; plus the seed's own model accuracy and knob error, and whether the seeded model reached the refine stage. Per-family splits where the numbers allow. Paired differences against the unseeded hybrid at the same budget with 95 % bootstrap intervals over items. 32 items is small: differences under about 0.15 in model accuracy are not resolved, and the notes say so.
+- **Output.** `docs/notes/seed-quality.md` (answer in plain words plus curve table). Ledger rows `kind=search`, dataset `synthetic-devfam-seedcorrupt` (condition a) and `synthetic-devfam-seedcorrupt-diffdi` (condition b). Run dirs under `cache/synthetic-devfam/runs/t162_*`, JSON only, deleted afterwards after a summary is kept in `reports/`. Total new output expected well under 1 GB.
+- **Code hashes (sha256 prefix).** 16d935c6 search/hybrid.py; 027f1e17 scripts/synthetic_v1.py; 9615a202 gate2-known-di-v3.json; b57c4103 synthetic-devfam labels.json. Frozen-method regression: `tests/test_synthetic_v1.py` passes (38 tests, 7 new). — search
+
+## 2026-10-18 (tone-metrics): T161 registration, cross-DI invariance of candidate scores (written before any number was computed)
+
+**What this is.** A diagnostic for the no-DI work (Gate 3 method choice). It is not gate evidence and it admits no weights: `DEFAULT_WEIGHTS`, `KNOWN_DI_WEIGHTS` and `PROVISIONAL_WEIGHTS` stay as they are whatever the result. No Native renders. Script: `scripts/no_di_invariance.py`; note: `docs/notes/no-di-invariance.md`; ledger dataset `helix-trust-v2-xdi`.
+
+**Data and split (train only; nothing sealed is read).** The helix-trust-v2 cache holds every candidate on the item's own DI A only, so it has no "same preset, other DI" pair. Cross-DI pairs therefore come from these cached renders, each restricted to the helix-trust-v2 TRAIN split's models:
+- **V1**: helix-trust-v1 (already scored in 2026-10-16; labels in its manifest, not sealed), the 28 of 40 items whose true model is not in helix-trust-v2's test model list. Target: truth on DI A. Candidates (truth, 9 near misses, 4-5 same-family models, 5-6 other-family chains) on DI B (another recording) and DI C (another passage of A's recording), plus the raw DI clip as a DI-only distractor.
+- **DRIVE**: drive-specialist calibration renders (25 settings x 8 DIs per model), the 30 helix-trust-v2 train drive models. 6 settings per model (seed 161), the target DI rotating over the 8; candidates on one DI from the other Guitar-TECHS player and one from the same player: truth, 15 other settings of the same model, 8 other train drive models at a random setting, DI-only (24 distractors).
+- **MOD**: mod-specialist calibration renders (41 settings x 2 passages of one recording), the 5 train mod models present (all tremolo/vibrato), 10 settings each, each passage as target in turn; candidates on the other passage: truth, 19 other settings, 4 other models, DI-only.
+- **LTI**: helix-trust-v2 train items (96). Each candidate render on DI A is turned into a linear filter (Welch transfer estimate, 65,536-point segments) and applied to the DI A of two other train items (one other player, one same player, seed 161). A candidate is kept only if the filter reproduces its own render to a residual of -25 dB or lower; an item is kept only if its truth passes. This is exact only for linear blocks (cab, EQ, most reverbs and delays); nonlinear candidates drop out, so the distractor sets are smaller and biased toward linear ones. Numbers from this source are labelled "transplant".
+- **PICKUP (C4)**: helix-trust-v2 train, all 96 items and 20 candidates on DI A, with five fixed pickup-like filters applied to each candidate AFTER the block (post-hoc; renders that put the filter before the block do not exist): tilt up (low shelf -3 dB at 300 Hz plus high shelf +3 dB at 1.5 kHz), tilt down (the inverse), humbucker resonance (+5 dB peak at 2.2 kHz, Q 1.5, then a 5 kHz second-order low-pass), single-coil resonance (+4 dB at 4.5 kHz, Q 2), position notch (-6 dB at 1 kHz, Q 1.2). Post-hoc equals pre-block only for linear blocks; for amp, drive and comp it tests the score's spectral-shape sensitivity, not what a different pickup does to the distortion.
+
+**Scores (all parameters fixed here, none tuned on the result).** `mrstft_v2` and `level_db` and their guarded sum (Ruling 3 level guard: tol 0.25 dB, slope 0.08) as the known-DI control; `embed_afxrep`; `ltas_tilt` (as in the kit); `ltas_eqfit` (the LTAS band difference after a bounded least-squares fit of offset + tilt within +-1.5 dB/oct + a 3 kHz high shelf within +-6 dB; distance is the weighted RMS residual in dB; the fitted tilt and shelf are reported); `crest_flatness_hnr` and `envelope` (as in the kit); `texmod` (texture/modulation bundle: 1/2-octave subband envelopes 80 Hz-12 kHz, per-band coefficient of variation, skew and kurtosis, cross-band envelope correlations, and per-band envelope modulation power in octave bands 0.5-32 Hz; each group standardised by a per-feature median absolute deviation over all clips of the same source, label-free; distance = mean over the three groups of the RMS standardised difference); `mmd_cep` (maximum mean discrepancy with a Gaussian kernel between the two clips' active frames, 14 pitch-light frame features: MFCC 1-12 without c0, spectral flatness, log centroid; features standardised as above; kernel width = median pairwise frame distance over a fixed sample of the source); `presence_nodi` (the 23 `presence.features_no_di` features, standardised as above, RMS difference). Skipped: `embed_fxenc`, `embed_openamp`, TRR (wav2vec2), EG-VAE, Fx-Encoder++, MERT/CLAP (not installed or no checkpoint; downloads do not fit the 0.86 GB free; licences need `reviewer`).
+
+**Metrics.** For a target T = P(DI a) and candidates on DI x:
+1. Per item r = d(T, P(x)) / median over its distractors Q of d(T, Q(a)). The invariance ratio R is reported as the ratio of medians per source, family and distractor type (as in the survey) and as the median of r. Distractor types: knob moved about 10% (largest knob move <= 0.175 of range), about 25% (0.175-0.375), far settings (> 0.375, calibration sources), same-family other model, other family, DI-only.
+2. Pairwise win rate of the truth against each distractor type on DI x, and rank-1 (truth strictly lowest; ties count against it), with Wilson 95% intervals.
+3. Spearman correlation of the candidate ordering between two non-target DIs (V1: B vs C; DRIVE and LTI: the two other DIs; PICKUP: between filters; MOD: not available), mean over items.
+4. For `ltas_eqfit`: median fitted tilt and shelf by condition.
+
+**Ledger (one pair of rows per score).** `invariance_ratio_<score>` = median over the eight families of the family median of r, and `rank1_rate_<score>` = mean over families of the family rank-1, both over the real cross-DI conditions (V1 B and C, DRIVE, MOD, LTI transplant); PICKUP is reported separately in the note. Families with no item in a source simply contribute through the others; amp has only V1's items (3), which the note states. **Reading:** R near or above 1 means the score moves more with the guitar sample than with the preset and drops out before any rank-1 test spends renders. — tone-metrics
+
+## 2026-10-18 (search, T162): the human cut the grid to a pilot; the rest stays a documented follow-up
+
+- The human said: "Let's cut it way down. Let's try for a half an hour or hour or so and see what the results are looking like before we continue with the whole set." (relayed by the lead). The full registered grid was estimated at about 227k renders (about 26 h).
+- **Pilot (replaces the grid above for now):** the first 12 items of `synthetic-devfam` in every cell (i000 to i011: 3 each of mod, reverb, delay, amp), budget 150 only, five cells in this order: (a) unseeded, (a) p 0.5 sigma 0.1, (b) p 0.5 sigma 0.1 [different-DI control], (b) unseeded, (a) p 1.0 sigma 0.1. Hard stop 60 minutes; incomplete cells are reported with their n. Same method, weights and code as registered above. The (a) unseeded cell reuses items i000 to i011 from the stopped full-grid run (same config, same code; the run was stopped after 22 items, only the first 12 are used).
+- **Not dropped, deferred:** every other cell of the registered grid (budgets 50 and 300, p 0.75 and 0.25, the sigma axis, the random walk, and the rest of condition b) stays as a follow-up awaiting the human. T162 stays open as "pilot done; full grid awaiting human". With n = 12, differences under about 0.3 in model accuracy are not resolved; the pilot is a first look, not a curve.
+- The random-walk baseline is not in the pilot. — search
+
+## 2026-10-18 (search, T162): pilot is blind only; condition (a), known DI, is dropped
+
+- The human said: "Why are we running any tests with the dry sample known? We're trying to do blind testing." (relayed by the lead).
+- **Change.** Condition (a) is removed from the pilot and from the documented follow-ups; every present and future cell is condition (b): target from the item's DI A, search renders through a clip of a different recording (`--di-mismatch`). It is still a control in one respect: the no-DI score is not chosen yet (T161), so the admitted known-DI weights are used for the comparison; the matcher itself is never given the target's own dry clip. The (a) data already on disk (`t162a_unseeded_b150`, 12 items; `t162a_p0.5_s0.1_b150`, stopped partway) is kept and is not reported as a result.
+- **Pilot cells now, in order:** (b) p 0.5 sigma 0.1; (b) unseeded; (b) p 1.0 sigma 0.1; (b) random walk if time is left. 12 items (i000 to i011), budget 150, hard stop 60 minutes from the first message (10:45 local). The earlier "five cells" list is superseded. — search
+
+**T161 registration amendment (tone-metrics, 2026-10-18, before any Helix-render result was computed or seen).** Three implementation changes found in smoke tests; none was chosen by looking at a score's cross-DI number:
+1. **LTI transplant fit:** the registered Welch transfer estimate nulled only to about -7 to -20 dB on EQ renders whose coherence with the DI is 0.999, so it would have dropped true linear blocks. Replaced by the time-domain least-squares FIR already in the repo (`presence.wiener_fir`, 16,384 taps = 0.34 s, 64 taps before time zero), which nulls an EQ render to about -67 dB. The -25 dB keep threshold is unchanged. Consequence: delays and reverbs with tails longer than 0.34 s and time-variant mods do not pass, so LTI covers mainly EQ and cab.
+2. **Relative power floors** in `texmod` and `mmd_cep`: an absolute floor made both depend on playback level (a quarter-level copy scored about a third of a large tone change). The floor is now 100 dB below the clip's loudest bin.
+3. **`presence_nodi`** ignores features that are undefined (NaN) on either clip, and its scales use NaN-aware medians (the decay and sustain slopes are NaN on some tremolo renders).
+Also recorded: on the offline proxy (before any Helix number), `texmod` and `mmd_cep` fail the kit's note-invariance check (same tone with other notes is as far as another tone); `ltas_eqfit` and `presence_nodi` pass. — tone-metrics
+
+## 2026-10-18 (search, T162): pilot stopped; paused until T161 and blind specialists
+
+- The lead stopped the pilot (human approved, all CPU to T161). Reason: under `--di-mismatch` the loss and the specialists receive the search's own clip as the "dry" signal, so a cell measures a score that does not fit the blind task, not blind matching. The grid will re-run after T161 picks a blind score and the specialists get blind versions.
+- **Finished before the stop:** blind cells `t162b_unseeded_b150` and `t162b_p0.5_s0.1_b150`, 12 of 12 items each (the p 1.0 cell and the random walk never started). Both at chance on model (2/12); the realised seed accuracy was 3/12, not 6/12 (fixed independent draws). Read as "current Gate 2 score used blind (control)". Ledger rows: 4, dataset `synthetic-devfam-seedcorrupt-diffdi`.
+- **Added after seeing that:** `--seed-stratify` makes the realised seed accuracy exactly p; the follow-up grid uses it. Frozen method unchanged when the flags are absent (hybrid.py and synthetic_v1.py hashes differ from the registration only by these optional paths; tests 39 pass).
+- Stopped without leftovers: `proc_check` reports 0 orphans, 0 zombies. Known-DI (a) run dirs kept on disk, not reported. — search
+
+## 2026-10-18 (human, recorded by lead): the end-user match must be predictor-led and cheap; heavy compute is for training only
+
+**Decision.** The human said: "I don't want to run across multiple machines - this is not realistic for the end user of the software. It may be feasible for training purposes but not for a simple matching routine. We need to look into a better process to narrow this down with some sort of predictor."
+
+- **The end-user matching routine is designed for one ordinary computer.** A trained predictor narrows the candidates (block type, model, settings), and only a small render budget verifies and refines them. Large parallel render farms and long searches are not part of the user-facing path.
+- **Heavy compute is allowed for training.** That covers generating paired data and training the predictor.
+- **Clarification recorded:** the "8 hosts" used so far are 8 Native processes on this one Mac, not 8 machines. Even so, the human's point stands: the matcher's cost per match must come down by orders of magnitude, not be parallelised away.
+- **Consequences:**
+  - T030 (predictor) moves up.
+  - The no-DI survey's rank-1 option (a learned wet-audio predictor with calibrated top-k, docs/notes/no-di-survey-estimation.md) is the lead candidate.
+  - Speed work on the search is secondary to the predictor.
+
+**Why.** The single song match took 1,719 renders and 23 minutes, and the Gate 2 search used about 300 renders per single block. Neither is a routine an end user would wait for. — lead
+
+## 2026-10-18 (stomp-engine, T166): live preview of a running search on the HX Stomp
+
+**Decision.** `scripts/stomp_live_preview.py` puts each new best preset of a running search into the Stomp's edit buffer, so the human can play guitar through it and hear the progress (human request 2026-10-18).
+
+- **Edit buffer only.** It never writes flash and never saves. Loads go through `StompEngine.load` (a whole-preset write into the edit buffer, then a full readback).
+- **One session for the whole run.** The run sits inside one `pedal_lock.session` (purpose "human listening; no renders"), so no agent renders on the pedal while the human listens. Stop it with SIGTERM or Ctrl-C. On exit it calls `close(verify_bytes=True)` inside the lock, which re-selects the original preset and decode-compares it with the backup. `--no-restore-on-exit` leaves the last preview in the edit buffer.
+- **Input on Main L/R (`@input` 1), not USB 5/6.** The engine's `cal.input_usb56` is replaced for this session only; the calibration file is not changed. Slip guard off (no pilot block on Path B) and sentinel off, so the pedal holds exactly the searched blocks and nothing is rendered.
+- **Throttle and latest wins.** At most one load per 5 s (`--throttle-s`). The file is read at load time, so in a burst only the newest best is loaded.
+- **Consistency check.** The search's ProgressWriter (scripts/match_block.py) writes the .hlx before the json. A pair is loaded only when the .hlx name's `s<seq>` equals the json `seq`. A refused load is logged and skipped. A dead bridge ends the run, and the restore still runs.
+- **Preflight.** The script refuses if HX Edit is running. It also refuses unless the pedal is on 04C "Smoke Known", checked with one read-only `info` call before any backup or select.
+
+**Evidence.** Offline, three single-drive presets compiled onto a 3.80 04C backup: one block, input 1, readback diff ok. Hardware smoke (cache/stomp/hw/20261018T191727Z-live-preview-smoke): Scream 808 loaded in 0.48 s, readback ok, slot 1 the only block. The restore was decoded-equal (bytes differ: the known device re-encoding, T097) and the lock was released. — stomp-engine
+
+## 2026-10-18 (human, recorded by lead): predictor weights trained on Native renders may be published
+
+**Decision.** The human answered the open question in docs/notes/predictor-design.md (risk 3), "Publish the weights".
+- Weights the project trains on its own Helix Native renders (the predictor, and any later proxies or metrics) may be published for other users. Model cards say "published" rather than "not published until ruled".
+- This extends the earlier ruling that IR training is allowed and weights may be published.
+
+**Still binding.**
+- No Line 6 assets ship with the weights: no catalog JSON, model files, firmware or Native binaries. Model ids appear as labels only.
+- Every published checkpoint carries a model card: training data (which DI sets, with their licences, e.g. Guitar-TECHS), render engine and version, and the eval results.
+- If a checkpoint builds on third-party weights, their licence governs the result. Fx-Encoder++ and MERT are CC BY-NC 4.0, so anything built on them is non-commercial; prefer our own or permissively licensed bases.
+- No weights exist yet. Nothing is published until a checkpoint passes its evaluation and the reviewer has checked the model card and licences. `licence-check` runs before any release.
+
+**Why.** It is the human's call as project owner. The 2026-10-15 EULA reading covered training on one's own renders but not distributing the weights; the human has accepted that residual risk. — lead
+
+## 2026-10-18 (human, recorded by lead): top priority is distortion pedals only, from first principles; everything else paused
+
+**Decision.** The human said: "This distortion model is not working well. Let's go to the fundamentals of what a distortion pedal does. ... A distortion pedal is basically 3 things: 1) a gain stage, 2) a clipping stage (diodes) and 3) an EQ stage. ... Look at the electrical circuits of popular pedals online, the different types of diodes, the eq that defines these different pedals. We should be able to figure this out pretty easily by looking at how a waveform clips and the output eq ... Currently i want to focus ONLY on distortion pedals - make this a priority - no more chains, no more other cabs, chains, etc. Learn this and learn it well. ... If we can't do this everything else doesn't even matter."
+
+- **The only active line of work is distortion, overdrive and fuzz pedals:** understanding them and matching them as a single block. The model is gain stage → clipping stage → EQ stage.
+- **Paused:**
+  - chains;
+  - cab and amp matching;
+  - other effect families;
+  - the T162 seed grid;
+  - T164 (stopped; its drive-only song search ranked models the human hears as "nothing alike");
+  - status, report and other side work.
+- **Resumes only where it serves distortion:** T161 (blind score) and T165 (the predictor), re-scoped to drive only.
+- **First step is deep research (T167),** in three parallel tracks:
+  - (a) circuit fundamentals: gain stages, clipping devices and topologies, EQ;
+  - (b) the circuits of popular pedals and the Helix drive models based on them;
+  - (c) how each stage is identified from audio (transfer curve, harmonics, symmetry, pre/post EQ), with and without the dry signal, plus the measurement experiment to run next on Native.
+
+**Why.** The matching system so far does not produce matches the human hears as close. — lead
+
+## 2026-10-18 (human, recorded by lead): model and method decisions require the human's approval; the current model is judged unusable
+
+**Decision.** The human said: "also the model we created is garbage. Something is flawed in our testing and/or our methodology. I need the model decisions to come up through me. Whatever agent made the decisions on the current setup has wasted a lot of time, money and effort."
+
+- **New standing rule (CLAUDE.md).** The human approves, before it takes effect, every: admission of a score, loss or weights file; adoption of a search or prediction method; test-set design; pass bar; and gate change. The lead and agents propose only.
+- **Accountability.** The lead (tone-matcher-lead) made or ratified the decisions behind the current setup:
+  - admitting `gate2-known-di-v3`;
+  - adopting the specialists;
+  - the Gate 2 protocol (known DI, identical notes, synthetic targets).
+  These were the lead's calls, not the human's.
+- **Status of earlier lead rulings.** All earlier lead-made method rulings are treated as unapproved until the human reviews them. That includes the admitted weights, the specialists, the hybrid search config, and the Gate 2 protocol and its pass claim. Gate 2 stays unsigned.
+- **Next.** The lead prepares a plain post-mortem of what in the testing and methodology was flawed, for the human to review. No new method is adopted without approval.
+
+— lead
+
+## 2026-10-18 (human): approved the rating session, steps 0 and 1 of the identification plan, and a web page of the reports
+
+**Approval.** The lead asked three questions:
+1. Build the rating session (scoring report proposal 1).
+2. Run steps 0 and 1 of docs/notes/distortion-identification.md.
+3. Turn the reports into a web page.
+
+The human answered: "do all of that".
+
+- **Rating session (T170, benchmark).** 20–30 trials, each a target plus two candidates, built from clips already on disk (cache/matches/*/listen). Loudness-matched and blind, extending scripts/ab_session.py. The page is local only (song audio never leaves the machine). Nobody scores the human's answers but the human. Afterwards, the existing scores are checked against them (rank agreement); that is a measurement, not an admission.
+- **Steps 0 and 1 (T171, tone-metrics).** Zero renders:
+  - Step 0 mines the existing coarse-v1 drive fingerprints.
+  - Step 1 validates the estimators on synthetic Wiener–Hammerstein systems with known truth.
+  - The pass/fail checks in the note are placeholders, reported as measured. Nothing is adopted.
+- **Reports page (lead).** A private web page summarising the research reports. Text only: no song audio, no Line 6 assets.
+
+Not approved by this: the dfp-v1 probe, the validation design, the bars, the circuit-class list and the core set. — lead
+
+## 2026-10-18 (human): the rating session is rebuilt on hidden Helix drive settings over the human's own take
+
+**Why.** The human said: "the report is not going to work properlly with different guitar sounds - the guitar playing in the sample audio is nothing like the original." human-ratings-v1 compared the original guitarist against renders of the human's playing, so a trial judged the performance, not the tone. v1 is withdrawn unanswered.
+
+**Approval.** The lead offered three options: a real-pedal reamp, a hidden Helix setting, or both. The human chose **"Hidden Helix setting"**.
+- **Targets.** The human's own dry take (data/songs/mother-playalong/takes, the human's playing only; no song audio) rendered through a hidden, random single Helix drive setting.
+- **Candidates.** Other drive settings on the same take excerpt: same model with other knobs, a model in the same confusable group, the same circuit class, and a different class. Target and candidates differ only in tone.
+- **Known limitation, accepted by choosing this option.** It is Helix judged against Helix, as in Gate 2. It tells us which scores follow the human's ear on tone. It does not test real pedals.
+
+— lead
+
+## 2026-10-18 (tone-metrics, T171): distortion identification steps 0 and 1 reported; nothing adopted
+
+**What was done.** Steps 0 and 1 of docs/notes/distortion-identification.md section 8, as the human approved. Zero renders. Results for the human are in docs/notes/distortion-id-steps01.md. Ledger rows are dated 2026-10-18T20:26:07, datasets `distortion-id-step0` and `distortion-id-step1`.
+
+**Nothing is adopted.** Under the standing rule, the choices below are research-code choices made so that the placeholder checks could be measured. Each one is a proposal for the human:
+
+1. **The pre/post split aligns the fundamental only.** The note's all-orders version gave pre-filter errors up to 5 dB. The harmonics are kept for a separate W-H consistency check.
+2. **The static curve is read about 10 dB above the measured knee,** with the post-filter removed using a minimum-phase rebuild. At full drive the check fails because the harmonic series is cut short.
+3. **The non-W-H flag is the sweep-based odd-harmonic residual.** The fundamental residual alone missed the bias-drift and two-clipper cases.
+4. **Thresholds.** The identifiability width (1 dB), the burst memory flag (0.2) and the harmonic floor (-40 dB re the fundamental) were set while building, on these nine synthetic systems only.
+5. **The six-way circuit class** in `drive_fp_mining.LABELS` is a provisional reading of distortion-circuits.md, used only to compute agreement figures. It is not a class list.
+
+**Not decided, for the human:**
+- the sweep level set (the dfp-v1 levels leave an 18 dB gap below -42 dBFS where high-gain knees fall);
+- the sweep length (1.5 s separated orders 1 to 9 as well as 6 s on these circuits);
+- whether step 2 (the 54-render Native pilot) runs.
+
+— tone-metrics
+
+## 2026-10-18 (human): rating session v3 uses hard pairs
+
+**Approval.** The human said "Let's do more human ratings if that will improve the models". The lead offered three designs; the human chose **"Hard pairs (Recommended)"**.
+- About 40 trials, chosen where the existing scores DISAGREE with each other.
+- Small knob steps (Drive vs Tone) and near-twin models.
+- 1–5 ratings on every candidate.
+- Source audio is the human's own playing only, with hidden Helix drive settings.
+
+**Why.** In v2 every score agreed with the human on the easy pairs (72–100%, all intervals overlapping), so v2 could not tell good scores from bad. Hard pairs are the trials that discriminate. Still a measurement: nothing is admitted from it. — lead
+
+## 2026-10-18 (human): drop the redundant template-capture put-back on the Stomp (T168)
+
+**Approval.** stomp-engine proposed dropping the op-21 put-back in template capture whenever a whole-preset load follows immediately. That put-back is the model-change-then-op-21 write behind both USB wedges today. The lead explained the four-step sequence (model change, template read, put-back, real load). The human answered **"yes"**.
+- The put-back is kept, behind the new settle gate, only where nothing follows and the pedal must be left as found.
+- The end state is verified by readback.
+- The settle gate, credit-paced chunks, IN pump and precursor stop also go in, as backup.
+
+— lead
+
+## 2026-10-18 (platform): T172 command-line tools reference and the `--result-json` manifest
+
+- **Reference.** `docs/TOOLS.md` classifies all 104 scripts: 58 user-runnable (documented with inputs, options, outputs, examples, safety), 15 internal, 31 historical spikes. `tests/test_tools_doc.py` keeps it in step (every script named once, counts add up, example flags exist in the script source).
+- **Result manifest (additive contract).** `contracts/cli-result.md`, schema `cli-result/v0`, helper `src/tonematch/cli_result.py`. A tool given `--result-json PATH` writes one atomic JSON file with status, exit code, args, inputs, outputs (repo-relative paths), metrics and the ledger rows it appended; on an exception it writes `status="error"` and re-raises. `status` is `ok` only for exit code 0 (a failing check such as `hlx_validate` exit 1 is `error`, with the details in `metrics`). Wired into 13 scripts. Without the option nothing changes. Proposal to the lead: ratify the contract (no existing contract, ledger column or script output changes, so it breaks nobody).
+- **Left alone on purpose** (other agents are working there): `ab_session.py`, `rating_session.py`, `rating_v2.py` (benchmark), `stomp_*.py` (stomp-engine), `distortion_id*` (tone-metrics). TOOLS.md lists them as "result manifest: to add".
+- **Fix found on the way.** `scripts/task_links.py` did not recognise an existing link whose title holds an escaped quote (T168's title), so every `link_tasks.py` run nested the link again. Fixed in the protected-link pattern, with a test.
+- No effect on how matching behaves: the wired tools only report what they already computed.
+— platform
+
+## 2026-10-18 (human): approved the distortion measurement pilot (step 2) with the lead's five method choices
+
+**Approval.** The lead explained step 2 and the five choices in plain terms and asked "Shall I run the pilot with those five choices?" The human answered **"yes measure"**.
+- **Choices approved** (from docs/notes/distortion-id-steps01.md, including the agent's four method changes):
+  1. Test tones in 5 dB steps across the clipping onset, in addition to the sweeps.
+  2. Read the static curve at moderate drive, about 10 dB above the measured knee.
+  3. The pre/post EQ split aligns the fundamental only, needs at least 50% overlap, uses a minimum-phase post-filter, and excludes harmonics at or above Nyquist.
+  4. Flag non-W-H systems with the sweep odd-harmonic residual.
+  5. Sweep length decided from measured Native ringing in this pilot (6 s vs 1.5 s).
+- **Pilot.** 6 drive models from different classes × 9 settings = 54 renders on Native. Pass/fail checks as in the note: repeat agreement, a boost shows no clipping, a fuzz shows a large even share, gain rises with Drive, and the extractor matches the class expectations.
+- **Not approved by this:** step 3 (all 60 models), the class list, any score or bar.
+
+— lead
+
+## 2026-10-18 (tone-metrics, T173): distortion measurement pilot (step 2) reported; nothing adopted
+
+**What was done.** Step 2 of docs/notes/distortion-identification.md, as the human approved ("yes measure"). Six drive models were measured on Native: Scream 808, Vermin Dist, Triangle Fuzz, Arbitrator Fuzz, Kinky Boost and Deranged Master (the pool's treble booster). Two-knob models got 9 settings and the two one-knob models 5. This took 72 renders: 46 settings, 2 repeats, 12 short-sweep renders and 12 re-renders. Only fingerprints were stored (456 KB). Results for the human are in docs/notes/distortion-pilot-step2.md. Ledger rows are `benchmark / native / distortion-pilot-v1`, dated 2026-10-18T21:01:40.
+
+**Checks, as measured (placeholders, not bars).**
+- Met:
+  - repeat renders are bit-identical, in session and across sessions;
+  - the fuzz's even-harmonic share is -6.5 to -17.3 dB;
+  - g0 rises with Drive in 14 of 14 series;
+  - the RAT post low-pass moves 8.9 kHz, 2.5 kHz, 752 Hz with Filter while the pre-filter stays fixed;
+  - the Big Muff scoop is 3.2 dB at 891 Hz at Tone 0.5;
+  - the TS mid hump shows on 9 of 9 settings.
+- Not met:
+  - the Kinky Boost is not clean at -6 dBFS (0 of 5 settings; 6 to 18 dB of compression);
+  - the TS pre-filter corner is 730, 564 and 356 Hz at Gain 0.2, 0.5 and 0.85, so 6 of 9 settings are within 480 to 1080 Hz.
+- Sweep length: by the agent's stated rule, **6 s**. It held on 10 of 12 subset settings; the germanium fuzz reads 0.56 to 0.74 dB differently with 1.5 s sweeps.
+
+**Research-code choices made while measuring (proposals, not adopted).**
+1. Sweep levels: -78 dBFS, then every 6 dB from -66 to 0. The tone staircase runs -71 to -1 dBFS in 5 dB steps.
+2. The ringing decision uses a per-frequency leakage measure. The first "time above -40 dB" measure was wrong: it picked up the stronger neighbouring order, so 12 extra renders were spent on the replacement.
+3. Corners are read from first-order fits. The knee falls back to the sweeps when the first tone step is already compressed.
+4. The placeholder lines are my own: boost clean = under 1 dB of compression and THD under -40 dB at -6 dBFS; fuzz even share at least -20 dB; TS corner within 480 to 1080 Hz; RAT corner ratio at least 2; scoop at least 3 dB.
+
+**For the human (step 3 needs approval):**
+- the sweep length;
+- where the staircase starts (-71 is too high for the highest-gain settings);
+- the boost expectation;
+- whether to drop or re-tune the step-1 non-W-H flag (it does not separate the Native models);
+- the fingerprint size (6.6 KB against the planned 3);
+- a check that the Scream 808 Tone reaches Native (it moves the response by at most 2.2 dB);
+- the switches that the templates do not map;
+- whether and on which models to run step 3;
+- the class list.
+
+— tone-metrics
+
+## 2026-10-18 (human): go ahead with step 3 and the lead's three proposals from the ratings
+
+**Approval.** The lead listed recommendations and asked "Do you want me to go ahead with these recommendations?" The human answered **"go ahead"**. The lead reads this as covering both lists below. If the human meant only part of it, they can say so, and the rest stops.
+
+Distortion measurement, step 3 (T174, tone-metrics):
+1. 6 s sweeps.
+2. The tone staircase starts at about -90 dBFS.
+3. Kinky Boost is measured as it is (Helix's boost distorts).
+4. The "not a simple three-stage circuit" flag is dropped for now.
+5. One quick check that Scream 808's Tone reaches Native.
+6. Unmapped switches stay at their defaults.
+7. Run step 3: all 60 drive models at 12 settings each.
+
+From the ratings:
+- **(T175, tone-metrics)** embed_afxrep, ltas_eqfit and ltas_tilt go forward as candidates for the different-guitar test (DI mismatch), the T161 protocol re-scoped to drive. This is a measurement, not an admission.
+- **(T176, search)** Drive matching stops refining a knob once it is within about ±0.15 on Drive and Tone, and spends those renders on model and family choice. The human's v3 ratings support this: small knob steps were 71% ties.
+- **(T177, benchmark)** A short rating session v4, about 20 trials, on near-twin models and large knob moves.
+
+— lead
+
+## 2026-10-18 (tone-metrics, T175): registration of the different-guitar test on drive (measurement, not admission; written before any number was computed)
+
+**What this is.** The T161 protocol re-scoped to drive, as the human approved ("go ahead", entry above). It tests whether `embed_afxrep`, `ltas_eqfit` and `ltas_tilt` (the three scores that best followed the human's ear, pooled v2+v3 36/46, 34/46, 34/46) still pick the right drive setting when the target and the candidates are played on DIFFERENT DIs. `mrstft_v2` is the control (a known-DI score; expected to fail here). **Measurement, not admission:** no weights change (`DEFAULT_WEIGHTS`, `KNOWN_DI_WEIGHTS`, `PROVISIONAL_WEIGHTS` stay), whatever the result. Script `scripts/drive_xdi_scores.py` (new; reuses the T161 helpers, leaves `scripts/no_di_invariance.py` as registered); note `docs/notes/drive-xdi-scores.md`; ledger `kind=loss-trust`, dataset `helix-trust-v2-xdi-drive`.
+
+**Data (cached renders only; no Native renders).** `cache/drive-specialist/cal_renders`: 25 settings x 8 DIs per model, 10 s each. The 8 DIs are Guitar-TECHS excerpts, 4 from player P1 (Ibanez Les Paul-type, bridge pickup) and 4 from P2 (EVH Wolfgang superstrat, neck pickup), per the Guitar-TECHS paper. So every preset has 8 DIs: the "at least 3 DIs" condition is met and no renders are needed. P3 is not in this cache and is not used (proposed Gate 3 reserve). Only helix-trust-v2 TRAIN-split drive models are used; no test-split model and no sealed label is read. Models excluded as in the rating sessions (time-variant, novelty, octave, bass): DM4JetFuzz, IndustrialFuzz, ThrifterFuzz, DM4OctaveFuzz, Line6BronzeMaster. That leaves 25 models.
+
+**Targets.** 6 settings per model (seed 175), 150 targets. Target DI rotates over the 8 DIs (model index x 6 + k, mod 8). Every clip is scaled to the same active-frame level (frames within 40 dB of the loudest, as the Ruling 3 level guard) before scoring, like the loudness-matched rating clips.
+
+**Candidates per target, all rendered on the same DI x** (x = each of the other 7 DIs in turn; x = the target's own DI is reported as the same-DI reference):
+- truth (same model and setting);
+- **knob, small**: the model's other settings whose largest knob move is at most 0.175 of range; **knob, medium**: 0.175 to 0.375; **knob, large**: over 0.375. Level knobs (Level, Output, Volume, Level 1/2, ODLevel, FuzzLevel) are left out of the move, since loudness is matched; a setting that moves less than 0.02 apart from level is dropped as the same sound;
+- **near twin**: every setting (25) of each other train model in the same confusable group of docs/notes/distortion-circuits.md 1.4 (subgroups A2, G2 count with A, G). Groups present: A Scream 808/Stupor OD; B Minotaur/Teemah; C Top Secret OD/KWB; E Deez One Vintage/Deez One Mod/Hedgehog D9; F Swedish Chainsaw/Killer Z; G Triangle Fuzz/Bighorn (RamsHead)/Ballistic Fuzz; H Arbitrator Fuzz/Facial Fuzz; I Jumbo Fuzz/Wringer Fuzz; K Kinky Boost/Vital Boost/Deranged Master; N Valve Driver/Tube Drive. Compulsive Drive and Vermin Dist have no train twin;
+- **same class, other group**: 2 models of the same family (boost, overdrive, distortion, fuzz; the "Fam" column) outside the group, 5 random settings each;
+- **different class**: 4 models of other families, 5 random settings each.
+Twins and classes use the models' own cached (random) settings, not a matched setting as in rating v3; this is stated in the note.
+
+**Measured per score, each split by DI difference:** "same player" = the other 3 DIs of the target's player (same guitar and pickup, other notes); "other player" = the 4 DIs of the other player (other player, other guitar, other pickup).
+1. **Invariance ratio** per distractor type: r = d(target, truth on DI x) / median over distractors Q of that type of d(target, Q on the target's DI). Reported as the median of r over target x DI, and the share of r < 1. R < 1 means the guitar change moves the score less than that kind of preset change.
+2. **Rank-1** of the truth among all candidates on DI x (truth strictly lowest; ties count against it), and per type (truth beats every candidate of that type); **pairwise win rate** of the truth against each type.
+3. **Ordering agreement**: Spearman between the candidate distances on DI x and on the target's own DI (does the order survive the DI change), and between two other DIs x, y (both same player, both other player).
+CIs: 95% bootstrap over models (1000 resamples), because the 6 targets and 7 DIs of a model are not independent. No threshold is set; nothing passes or fails.
+
+**Ledger, per score (4 scores), all on the other-player condition:** `rank1_rate_<score>` (all candidates), `pairwise_win_<score>`, `invariance_ratio_twin_<score>` (median r against near twins), with the same-player values in the notes. — tone-metrics
+- **Addendum (same day, still before any number):** the truth on the target's own DI is the target clip itself, so same-DI rank-1 is trivially 1 and is not reported; the same-DI ordering is used only as the reference in item 3. Also reported, as extras: which distractor type takes first place when the truth does not; a rank-1 that also counts a small-knob neighbour as a hit (rating v3: small knob steps were 71% ties, mostly inaudible); the split by family of the target (boost, overdrive, distortion, fuzz). — tone-metrics
+
+## 2026-10-18 (search): knob tolerance for drive matching (T176)
+
+Implements the human's "go ahead" (see the ratings entry above). `match_block.py --knob-tol` (default 0.15 on drive, 0 elsewhere; `--knob-tol 0` is the T164 behaviour draw for draw). With it: the broad stage is a coarse Drive x Tone grid per model (3 x 2 plus the anchor, 7 renders) instead of Latin-hypercube draws; the refine set is twice as wide; CMA-ES (`loop.refine_chain`) stops a stage once the step size on every knob is under the tolerance after 4 generations, or two successive improvements each moved every knob by less than it; saved renders are left unspent, not rolled into later rungs. Files: `src/tonematch/search/{loop,model_choice,hybrid}.py`, `scripts/match_block.py`, `tests/test_knob_tol.py`. Fake-engine estimate (12 models, 600-render ceiling): about 38% fewer renders per match (543 to 335), true model in the top 2 in 9 of 12 against 7 of 12; at a 300 ceiling it saves little (5%) and finds the top-1 model less often (4 of 12 against 7), so a small budget loses accuracy; at 1200 it saves 67%. A fake engine says nothing about the real score, which is still under test (T175). No Native run was made; the real effect waits for the human. The old T164 run planned about 31,600 renders over 5 shards (no total was recorded because it was stopped).
+
+— search
+
+
+## 2026-10-18 (tone-metrics, T175): different-guitar test on drive, results (measurement; nothing adopted)
+
+Run as registered above (cached drive-specialist renders, 25 train drive models, 150 targets, about 86 candidates each, 5,000 clips, 1,791 s at 4 workers, nice 10; no Native renders, no sealed label read). Note: docs/notes/drive-xdi-scores.md. Ledger `loss-trust / helix-trust-v2-xdi-drive`, 2026-10-18T21:47:21, 12 rows.
+- **Other player and guitar (P1 vs P2), rank-1 among all candidates** (chance 0.012): embed_afxrep 0.13 (95% over models 0.08-0.18), ltas_eqfit 0.05, ltas_tilt 0.03, mrstft_v2 0.04. Pairwise win: 0.88, 0.71, 0.67, 0.71.
+- **Right model first** (derived from the first-place type table; chance 0.30): embed_afxrep 0.67 (same player 0.74), ltas_eqfit 0.30, ltas_tilt 0.34, mrstft_v2 0.33.
+- **By distractor type (other guitar), pairwise win and invariance ratio**: embed_afxrep beats near twins 0.90 (R 0.98), same class 0.95 (R 0.79), different class 0.93 (R 0.68), but knob moves only 0.60 / 0.71 / 0.82 (R 30 / 4.5 / 1.7, small / medium / large). ltas_eqfit and ltas_tilt have R above 1 against every type except ltas_tilt against different class (0.98); pairwise 0.51 to 0.75.
+- **Order agreement with the own-DI order** (Spearman, other guitar): 0.79, 0.47, 0.42, 0.51.
+- **Same player, other notes** is nearly as hard: rank-1 0.18, 0.04, 0.05, 0.09.
+- **Reading (tone-metrics, not a ruling):** only embed_afxrep survives a guitar change, and only for the model and family choice; no score sets drive knobs across DIs; the rating agreement of ltas_eqfit and ltas_tilt does not carry over to different guitars. **Proposal to the lead, affects `search` (T176) and `learning` (predictor):** for no-DI drive matching use embed_afxrep as the model and family ranking signal only, and do not use ltas_eqfit or ltas_tilt as no-DI drive scores; knob settings need the user's aligned take (mrstft_v2) or the predictor. Nothing changes in any weights file. — tone-metrics
+
+## 2026-10-18 (tone-metrics, T174): distortion measurement step 3 reported; nothing adopted
+
+**What was done.** Step 3 of docs/notes/distortion-identification.md, as the human approved ("go ahead"). All 60 drive models of `category_pool('drive')` were measured at 12 settings each. The dfp-v1 probe is the pilot probe with the tone staircase starting at -91 dBFS. The rest followed the approved choices: 6 s sweeps, Kinky Boost as is, the non-W-H flag dropped, unmapped switches at default. 720 fingerprints, 0 failed, repeat renders bit-identical, 5.9 MB, no audio. Results are in docs/notes/distortion-step3.md. Ledger rows are `benchmark / native / distortion-fp-v1`, dated 2026-10-18T21:57:23.
+
+**The Tone check first.** Scream 808's Tone reaches Native exactly. The CC route nulls against a controller-free file drop at -329 to -334 dB on 9 settings. A first try nulled at -64 dB because the library Level (0.67) is off the CC grid, a known engine behaviour that does not touch the fingerprints. Nothing goes to native-engine. The knob's effect sits at its ends:
+- from 0.2 to 0.8 it moves the shape by at most 1.3 dB;
+- from 0.8 to 1 it lifts 10 kHz by 8.6 dB.
+
+**Method choices made while measuring (research code, proposals, not adopted).**
+1. **Settings.** Two-knob models: Drive 0.2 / 0.5 / 0.85 times tone 0.2 / 0.8, plus the tone-0.5 line, Drive 0.05 and 1.0, and one off-grid point (0.65, 0.35). One-knob models: 12 Drive points.
+2. **Which knob is drive and which is tone,** per model, from distortion-circuits.md. The judgement calls:
+   - Regal Bass DI: Volume in the drive slot. It measures as an output level.
+   - Killer Z: Dist and Contour.
+   - Tone Sovereign: channel 1.
+   - Clawthorn: the overdrive channel.
+   - Thrifter: Notch Gain.
+   - Bronze Master: one-knob.
+   - Level knobs fixed at the library value.
+3. **The card.** Knee, harmonic onset (H2 or H3 within 60 dB of the tone), even share, the pre high-pass and post low-pass corners, and the mid feature. A corner is shown only when its first-order fit holds (within 3 dB root-mean-square, inside 63 Hz to 16 kHz).
+4. **Like-for-like with coarse-v1.** The comparison uses only the corners and the centre of each model's grid.
+5. **Load.** At most 5 hosts from the scaler (it granted 1 to 5) and 3 analysis workers, overlapped with the rendering. The run pauses its rendering above a load of 9. The 1-minute load went over 10 once, for about a minute (peak 12.05), while another agent's 4-process run was going. It averaged 7.7.
+
+**Results (measurements, not bars).**
+- Leave-one-setting-out top-1: card 0.82, all scalars 0.96, curves 0.97.
+- The like-for-like comparison: 0.52 / 0.74 / 0.81, against coarse-v1's 0.34 / 0.59 / 0.75.
+- Clusters against the circuit labels: ARI 0.03 to 0.21, no better than coarse-v1.
+
+**For the human:**
+- whether step 4 runs, and on which features;
+- the class list (the measured asymmetry disagrees with several circuit labels);
+- the three "same pedal" pairs that measure far apart;
+- tone knobs that work at their ends, and the T176 ±0.15 stop rule near the ends;
+- the six models whose cards are not meaningful at a quiet input;
+- Regal Bass DI's drive slot;
+- the fingerprint size.
+
+— tone-metrics
+
+## 2026-10-18 (stomp-engine, T168): the HX Stomp USB wedge, cause and fix
+
+**Cause (evidence: traces of every frame, `STOMPD_TRACE`; the incidents' own documents in `cache/stomp/hw/t168-incident-docs/`).**
+- **The trigger:** an op-21 whole-document write started while the pedal was still rebuilding its DSP after another DSP-changing command.
+  - The device took two chunks, then stopped crediting for good.
+  - hx-usb does not wait for the per-chunk credits, so it kept sending, the next write timed out after 2 s, and the pedal was left holding a half-received message. Only the 9V clears that state.
+  - This is the signature fretwire records as well.
+- **Both live-preview incidents** were the template capture's put-back: `model` (new drive) → `chain` → `backup` → op-21 within about 0.1 s.
+- **Reproduced on purpose at 13:14:54:** the incident-2 document written 0.4 s after another op-21, with only a `chain` in between (that read took 153 ms against a normal 40 ms). One power cycle.
+- **Ruled out:**
+  - **Idle backlog:** real, but it settles at about 4 transfers and does not grow.
+  - **Audio:** the playback started after both incidents.
+  - **The IN read scheme on its own:** the reproduction ran with the new IN pump on.
+
+**Fix (helper `cache/stomp/bin/stompd` sha256 `defeb16f`; old build kept as `stompd.pre-t168`; notes and full results in `docs/notes/stompd.md`, section T168).**
+1. **Settle gate before every op-21:**
+   - at least 1.5 s since the last restore / model / select;
+   - then a fresh read of the edit buffer that answers in under 80 ms;
+   - then 300 ms with no notification.
+2. **Credit-paced chunks:** never more than one chunk ahead of the device's credits, and nothing more is sent to a device that stopped taking data.
+3. **IN pump:** a read is always posted, as HX Edit does, plus a full drain on every idle tick and before every command.
+4. **Precursor stop in `StompBridge`:**
+   - **Triggers:** a slow command write (over 100 ms), a slow non-final credit (over 20 ms), or an idle keepalive write over 1000 ms.
+   - **Effect:** the bridge is marked `degraded`, and a further `restore` raises `LinkDegraded` before anything is sent.
+   - **Why the idle limit is separate:** an isolated 133 ms idle keepalive stopped soak 1 without any other sign of trouble.
+5. **Template capture leaves out its op-21 put-back** when the whole-preset load that follows rebuilds or empties the capture slot.
+   - **Approval:** the human, through the lead's explanation: **"yes"**; see the human's entry above.
+   - **Kept** when nothing follows, when the load keeps the slot's model, on a refusal and on any error.
+   - **Verified:** the edit buffer after the load is byte-identical with and without the put-back, for 4 models.
+
+Python: `stomp_bridge.py` gains the link summary, the precursors, `LinkDegraded`, the `TONEMATCH_STOMP_TRACE` transaction log, and the read-only `drain` command; `stomp.py` gains the put-back rule (`putbacks_skipped`).
+
+**Results:**
+- Incident replay: ok with the full fix (it wedged with the pump alone).
+- Soak: 200/200 new-model loads, idle 1-60 s, no wedge and no precursor.
+- Audio soak: 60/60 under a continuous duplex stream, with 39 template captures.
+- Ledger: `smoke/stomp-soak` rows at 2026-10-18T21:07, T22:58, T23:12.
+
+**Cost:**
+- An op-21 that follows a DSP change within 1.5 s waits up to about 1.8 s. That happens in template capture and in back-to-back whole loads with no render between them.
+- One op-21 fewer for each new model's first use.
+- Measured: whole new-model loads 0.8 s (templates cached), 2.8-3.4 s with a capture.
+- Nothing changes for in-place parameter loads.
+
+**For search and benchmark:** Stomp render cost per new-model trial without a capture is unchanged when a render (2 s or more) sits between writes. The matching method and render behaviour are unchanged.
+
+**Open, for the lead:**
+- `tests/test_user_di.py` uses the real pedal-lock directory, so it fails while any Stomp session holds the lock. Its 6 failures during my soak were that, not a regression. That test belongs to dry-signal.
+- The stomp-engine scripts that drive the helper directly with the old timing assumptions (`stomp_robust.py`, `stomp_inject.py`) inherit the gate automatically and get slower by at most that wait.
+
+— stomp-engine
+
+## 2026-10-18 (human): go ahead on the five post-v4 recommendations
+
+**Approval.** The lead listed five recommendations and said 'Say "go ahead" for all of it'. The human answered **"go ahead"**.
+1. **(T178, search)** Per-knob tolerance: Tone about ±0.1, finer near 0 and 1; Drive stays at ±0.15. Evidence: v4, where a large Tone move cost 1.33 rating points and a large Drive move 0.40; T174, where Tone knobs act mostly at their ends.
+2. **(T179, tone-metrics)** Measure the Tone ends at 0 / 0.1 / 0.9 / 1 on all drive models.
+3. **(T181, tone-metrics)** Step 4: identify model and settings from real guitar takes at random held-out settings, using the fingerprint card and the curves.
+4. **(T180, tone-metrics)** Build circuit families from the measured fingerprints. The circuit names stay as labels only.
+5. **(T178, search)** AFx-Rep (embed_afxrep) is used only to shortlist models and families when there is no dry track. Knobs are set from the fingerprints or the user's aligned take, not by a sound-comparison score. Evidence: T175.
+
+Still to check before anything ships: AFx-Rep's licence and its dependence on guitar type.
+
+— lead
+6. **(T178, search)** Done, fake-engine tests only. `match_block.py` has per-knob tolerance (Drive 0.15, Tone 0.1 and 0.05 near the ends; `--knob-tol-drive/-tone/-map`; `--knob-tol X` = old behaviour) and `--shortlist afxrep` (shortlist of 8 + family, then fingerprint inversion if T181 code exists, else aligned take, else coarse grid, low confidence). Not yet run on Native. The tone-knob map format for T179 is a guess (docs in `search/knob_tol.py`); the families and inversion hooks are tolerant of absent files.
+
+## 2026-10-18 (tone-metrics, T181): step 4 measurement plan, written before any number is computed
+
+**Measurement, not admission.** No bar is registered; nothing is adopted. Approval: the human's "go ahead" (entry above, item 3). This plan follows docs/notes/distortion-identification.md section 7. Of its options I take **A (Native renders of library models at random held-out settings, on held-out real DI)**, because that is what the human approved. B (leave-one-model-out) and C (Stomp and real pedals) are not run.
+
+**Pool.** 54 drive models: the 60 of step 3 minus the six whose card is "not meaningful at quiet input" (Xenomorph, Wringer, Tycoctavia, Megaphone, Industrial, DM4 Jet Fuzz). They are left out of the targets and of the gallery. Chance is 1/54 for top-1 and 5/54 for top-5.
+
+**Audio.** 8 excerpts of real DI, each 6 s plus 0.5 s of lead-in that is rendered and thrown away. They are played at their recorded level, with no normalising.
+- 4 Guitar-TECHS excerpts: 2 from P1 (scales, chords) and 2 from P2 (scales, chords). They avoid the 8 drive-specialist calibration windows.
+- 4 of the human's own dry takes: 3 from `20261018-112935_take1` (never used in a rating session) and 1 from a `20261018-113158` take, in a window that overlaps no v2, v3 or v4 rating excerpt.
+- Excerpts are chosen by the rating sessions' window score (mostly active, many onsets), with a fixed seed.
+
+**Split, by excerpt.**
+- **Dev** = the P1 scales excerpt and the first human excerpt: 30 targets. Every method choice is made on dev only.
+- **Test** = the other 6 excerpts: 90 targets. P2 never appears in dev.
+- Test numbers are reported once, with the options chosen on dev. All variants are also listed, labelled as such.
+
+**Targets.** 120 in all, 15 per excerpt. Each model gets 2 or 3 targets, on different excerpts.
+- Drive and Tone are drawn uniformly from CC steps 0 to 127, leaving out the step-3 grid's steps for that knob, so no target sits on a measured setting.
+- Level and every other knob stay at the library default. One-knob models get Drive only.
+- Knob errors are in knob position, 0 to 1.
+
+**Renders, at most 3 Native hosts; rendering pauses above load 9.**
+- 120 targets.
+- Gallery: 54 models × the 12 step-3 settings × 8 excerpts = 5,184 short renders. These serve the two baselines and the blind arm. Features are taken on the fly, and the audio is not kept.
+- 120 "truth" renders of the dfp-v1 probe at each target's own setting. This is a diagnostic only: how far the estimated fingerprint is from the measured one. It is never used to identify anything.
+- Target audio is held in a small cache and deleted at the end.
+
+**Condition A (DI known).**
+- **Estimating the fingerprint.** From the (DI, output) pair I fit a three-stage twin:
+  1. a first-order pre high-pass, its corner chosen from a grid by the fit;
+  2. a memoryless clipping curve (a spline, by least squares);
+  3. a post-filter equal to the best linear approximation divided by the pre-filter.
+- The dfp-v1 probe is played through the twin, and the step-1/step-3 analyser (`distortion_probe.analyse`) reads its card and curves. Levels above the excerpt's own peak are extrapolation; whether to mask them is a dev choice.
+- **(i) Model.** Each model's distance is the smallest distance to its knob map: its 12 dfp-v1 settings interpolated over Drive × Tone (thin-plate). If T179's tone-end fingerprints are complete at analysis time, they are reported as a second variant.
+- Reported: top-1, top-5, and top-1 within the family. Families come from `data/drive-families-v1.json` if T180 has written it at analysis time, otherwise from the confusable groups; the note will say which.
+- **(ii) Settings.** The Drive × Tone point that minimises that distance, on the true model's map, so knob accuracy is measured apart from the model choice. Also reported on the chosen model when it is right.
+- The human's tolerances: within ±0.15 on Drive and within ±0.1 on Tone.
+
+**Condition B (output only).**
+- **Features from the output alone:**
+  - the even/odd balance of harmonics 4 to 12 on sustained notes;
+  - the post-EQ: the long-term spectrum minus a clean-guitar reference spectrum (the other excerpts' DIs);
+  - crest factor and compression (spread of frame levels, note-decay slope).
+- They are compared with the same features of the gallery renders on the other excerpts. They are also reported with the gallery restricted to other players only.
+- Settings come from the interpolated blind-feature knob map.
+- **Combination.** The AFx-Rep shortlist (top 5 and top 8 models, approved for shortlisting only), then the blind features rerank it.
+
+**Baselines, on the same targets.**
+- Chance.
+- `mrstft_v2` (DEFAULT): the nearest gallery render. In A it is on the same excerpt; in B on one partner excerpt from another player. Its knobs are the nearest grid setting.
+- AFx-Rep alone: in A the same excerpt, in B the other excerpts.
+
+**Intervals.** 95% bootstrap over models, because one model's targets are correlated.
+
+**Ledger.** `benchmark / native / distortion-step4-dryknown` and `distortion-step4-blind`.
+
+— tone-metrics
+
+## 2026-10-18 (tone-metrics, T179 and T180): tone-knob ends measured; drive families built from the fingerprints
+
+Done under the human's "go ahead" above (items 2 and 4). Measurement only: nothing is adopted beyond the approved family map. Details in `docs/notes/drive-families-and-tone-ends.md`.
+
+**T179, tone-knob ends.**
+- **Run:** 52 two-knob drives at tone 0 / 0.1 / 0.9 / 1, Drive 0.5 and 0.85, dfp-v1 probe, Level fixed. 418 Native renders (2 of them controls), 0 failed. Up to 4 hosts. The 1-minute load peaked at 7.6 when sampled, and the run never paused.
+- **Controls:** byte-identical to step 3.
+- **Most tone knobs are not end-loaded.** The median share of the effect in the first and last tenth of travel is 0.18, where an even knob gives 0.20. The shapes:
+  - 23 linear;
+  - 6 end-loaded (Scream 808 and Deranged Master at both ends);
+  - 8 tapers;
+  - 7 with slack ends;
+  - 8 uneven.
+
+  The shape is the same at both Drive values for all 52.
+- **For search T178:** a map in search's loader format, `reports/local/distortion-id/tone-ends/knob_sensitivity.json`, with a copy at `data/knob_sensitivity.json`.
+  - Per model: `drive_knobs` and `tone_knobs`, plus the measured effect per 0.1 at each end and in the middle.
+  - **No tolerance keys are set**, so search's defaults still apply.
+  - A separate `suggested_tol` (an equal-effect rule, not read by the loader) asks for an end tolerance tighter than ±0.05 on 10 models. It needs nothing tighter than 0.1 at the ends on 27.
+  - The choice is search's.
+
+**T180, drive families.**
+- **Method:** 15 families from the step-3 fingerprints: the level-free card plus the curves, a consensus of 200 Ward resamples, and a k rule fixed before naming.
+- **Reproducible but soft:**
+  - two independent halves of the resamples give identical families (ARI 1.0);
+  - a single resample agrees with the consensus at ARI 0.58;
+  - 11 models have a membership confidence under 0.5.
+- **Shape of the map:** 9 families have 2 to 10 members. 6 are single models: four of the six flagged fuzzes, Ratatouille and DM4 Octave Fuzz. The six flagged fuzzes never join an ordinary family.
+- **Agreement with the circuit-note labels** is small: ARI 0.13 against the 17 groups, where random grouping reaches 0.035. Only group C stays whole.
+- **Map:** `data/drive-families-v1.json`, in search's loader format: `families` (id to models), `descriptions`, `model_to_family`, `member_confidence` and `second_choice`. The circuit names are kept only as labels.
+
+**Open, for the human or the lead:**
+- whether search should use the k = 15 map, or the coarser reproducible k = 12;
+- whether loose members (confidence under 0.5) should widen to their second-choice family too.
+
+— tone-metrics
+
+## 2026-10-18 (human): proceed with the needed testing without the human's playing or listening
+
+**Instruction.** The human said: "I'm not able to do any playing. Please proceed with any testing that we need to do."
+- **Testing.** The lead runs the open tests that need no playing and no listening:
+  - step 4 (T181, running);
+  - an end-to-end check of the new no-DI drive matcher on held-out targets (T183);
+  - the Mother re-match (T182, after T181), saved as a listening pack. There is no live Stomp preview, since the human is not listening.
+  - a full regression test run (T184).
+- **Pending decisions used as test settings only, not adopted.** The lead's three post-T180 recommendations are used as TEST SETTINGS in these runs:
+  - measured per-model tone tolerances;
+  - k = 15 families;
+  - a second-choice family for loosely placed models.
+  They are NOT adopted as defaults. The human has not answered them and decides after seeing the results. Each report states that it used them.
+
+— lead
+
+## 2026-10-18 (tone-metrics, T181): step 4 results (measurement, not admission; nothing adopted)
+
+The plan is the entry above, registered before computing. Note: `docs/notes/distortion-step4.md`. Ledger: 70 rows, `benchmark / native / distortion-step4-dryknown` and `distortion-step4-blind`, 2026-10-19T01:15:16 to T01:15:21; test split, 90 targets.
+
+**Results.** Chance is 0.02 top-1, 0.14 family, 0.28 Drive and 0.19 Tone.
+- **The probe at the hidden setting (diagnostic).** The knob maps give the model 1.00, Drive within ±0.15 0.98, and Tone within ±0.1 0.86. Without interpolation (the nearest measured setting), Tone is 0.46.
+- **DI known, fingerprint estimated from guitar** (twin fit, curves, calibrated on dev; the dev choice):
+  - top-1 0.30 [0.19, 0.42], top-5 0.57, family 0.47;
+  - Drive 0.69 and Tone 0.46 on the true model.
+  - With the card alone: top-1 0.16.
+- **Baselines on the same DI.** `mrstft_v2` top-1 0.92, AFx-Rep 0.93. Both: Drive 0.92 to 0.94 and Tone 0.47 at the nearest grid setting.
+- **Output only:**
+  - AFx-Rep alone, top-1: 0.44 (all other excerpts), 0.39 (other players), 0.48 (same player, the Gate 4 case);
+  - top-5: 0.84, 0.76 and 0.86;
+  - output-only fingerprint features: 0.06 to 0.08 top-1, with the family at chance;
+  - AFx-Rep's top 5 reordered by the features: 0.21;
+  - knobs from the output alone: Drive about 0.5, Tone 0.26 to 0.40.
+
+**Changes from the plan, all recorded in the note.**
+- E8 is from the human's `112611` takes, because no `113158` window was free of rating excerpts.
+- Targets also avoid the T179 tone-end steps.
+- The calibration and its leave-one-out on dev were chosen on dev.
+- The "same player only" gallery was added after registration, because it is Gate 4's set-up, and is labelled as such.
+- About 100 gallery renders were redone after the AFx-Rep GPU path failed in worker processes (now forced to CPU) and one feature crash.
+
+**For search (T178/T182).**
+- `tonematch.metrics.distortion_step4.estimate_knobs(target, di, models)` exists, as T178 expects. It returns knob positions 0 to 1.
+- `estimate_knobs_with_confidence` adds the ranking, the twin's fit, the lag and a confidence. It returns no knobs with no DI, or when the DI does not explain the target (twin fit worse than -3 dB).
+- On the T182 window with the human's take 1 it returns nothing (fit -0.1 dB): the take is another performance.
+- Measured value of its knobs: Drive within tolerance 0.69, Tone 0.46. That is no better than the nearest coarse grid render on the same DI.
+
+**For the human (proposals, not adopted).**
+1. Stop the output-only fingerprint route for drives.
+2. Decide whether Gate 4 may use a "measured pedal" mode: re-amp the real pedal once with the 115 s probe, then match from the fingerprints. It is untested on real pedals.
+3. Keep or drop the twin hint in search.
+
+— tone-metrics
+
+## 2026-10-18 (search, T183): end-to-end check of the no-DI drive matcher; test settings only
+
+Measurement under the human's "proceed with any testing". Details in `docs/notes/nodi-drive-e2e.md`. **The measured tone tolerances, the k = 15 families and the second-choice family were TEST SETTINGS in these runs. They are not adopted.**
+
+- **Blind (different DI), 24 held-out targets:** true model in the AFx-Rep top 8: 18 of 24; in the expanded shortlist: 23 of 24 (the list is 34 of 60 models, so that is weak evidence for the families); AFx-Rep's own top-1: 11; the flow's final top-1: 2, family top-1: 3. The second-choice family rescued no target.
+- **Cause of the loss:** the final re-score (unadmitted no-DI loss) re-orders the shortlist almost at random when the DI is another performance. With the same DI, AFx-Rep top-1 is 23 of 24 and the final is 17.
+- **Fingerprint inversion declines on a different DI** (T181's fit check), so path (a) equals the coarse grid blind. With the same DI: Drive within 0.15 on 15 of 17 and Tone within tolerance on 9 of 15.
+- **Cost:** about 370 renders and 106 s per match on one host, against about 2,300 renders and 216 s on two hosts for the old search at a 6-minute cap.
+- **Proposal to the lead (not done):** when the DI is not aligned, rank the final models by AFx-Rep order and show the re-score only for information. It changes what the flow calls best.
+- **Bugs fixed:** wrong or no knob on 10 of 60 models in the coarse grid, final check limited to 10 models, silent inversion fallback, inversion positions used as values, shortlist renders counted twice.
+
+— search
+
+## 2026-10-18 (lead): the two measured drive maps move from data/ to cache/drive-maps/
+
+**What moved.** `data/drive-families-v1.json` (T180) and `data/knob_sensitivity.json` (T179) are now `cache/drive-maps/drive-families-v1.json` and `cache/drive-maps/knob_sensitivity.json`, so they are local only and never committed. Code and docs now point to the new paths. Earlier entries in this log keep the old path as written.
+
+**Why.** `licence_check` failed its Line 6 asset scan, because both files carry Line 6 model ids outside cache/. The standing rule is no Line 6 assets in the repo. They can be rebuilt from the local fingerprints with `scripts/drive_tone_families.py`. — lead

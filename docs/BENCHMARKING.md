@@ -1,6 +1,6 @@
 # How Benchmarking Works
 
-*Last updated: 2026-10-17 (T107 blind A/B session tool added; T073 synthetic-v1 set and recovery harness added; T066b parity probes added; T066c flanger and phaser closed). Kept current by `benchmark` whenever a test, a threshold, a gate or a verdict changes, and checked by the lead at every `plan-sync`.*
+*Last updated: 2026-10-18 (T170 human-ratings-v3 hard-pairs session built; T170 human-ratings-v2 built, v1 withdrawn; T107 blind A/B session tool added; T073 synthetic-v1 set and recovery harness added; T066b parity probes added; T066c flanger and phaser closed). Kept current by `benchmark` whenever a test, a threshold, a gate or a verdict changes, and checked by the lead at every `plan-sync`.*
 
 The benchmark is the project's referee. It does not build or tune anything. It runs fixed tests with known answers, records every result as a row in the ledger, compares each result with the previous one, and ticks a gate only when the ledger shows the gate's evidence. Today it can tell us that the two engines work and agree with each other. It cannot yet tell us whether a match is good, because the test that answers that (the Helix synthetic set) has not been rendered.
 
@@ -112,6 +112,10 @@ Three rules govern every conclusion:
 
 Session files stay under `reports/local/` (gitignored); no song audio leaves the machine.
 
+### Human rating session, "which is closer to the target?" (T170, built 2026-10-18)
+
+A separate session type in `scripts/ab_session.py` (code in `scripts/rating_session.py`). It collects the human's choice between two candidates and a target, then measures how well each existing score agrees with it. Protocol, trial list, caveats and (later) results: [notes/human-ratings-v1.md](notes/human-ratings-v1.md). `rating-build` makes 26 trials from clips on disk, `play <session> --trial N` plays one on the HX Stomp USB outputs 1/2 (audio only), `rating-score <session>` joins the answers to the hidden key (`cache/ratings/`, outside the served page folder) and writes ledger rows `kind=ab`, `dataset=ab-<session>`, metrics `agree_<score>`, `sanity_correct`, `retest_consistent`. It is a measurement: no score is admitted or rejected by it. Status: **v1 WITHDRAWN unanswered** (it compared the original guitarist with renders of the human's playing, so it judged performance, not tone; its audio is deleted). **v2 built 2026-10-18, awaiting the human's ratings**: [notes/human-ratings-v2.md](notes/human-ratings-v2.md). v2 uses only the human's own dry take: 8 targets (one per circuit class), each a single Helix drive block with a hidden random setting, and candidates on a ladder of distance (same model nudged, same model moved a lot, same group, different class, clean) rendered from the same excerpt so only the tone differs; 24 regular trials, 3 sanity, 2 retests; `rating-build-v2` builds it, and the scoring report adds whether the human's choices follow the ladder and agreement per circuit class. Page: http://127.0.0.1:8000/local/ratings/human-ratings-v2/index.html. v2 was answered 2026-10-18 (18 decided, 8 ties): every score agreed on 72-100% with overlapping intervals, so v2 could not separate the scores. **v3 "hard pairs" built 2026-10-18, awaiting the human's ratings**: [notes/human-ratings-v3.md](notes/human-ratings-v3.md). 46 trials built from pairs where the existing scores DISAGREE (at least 30% of 15 voting scores on each side; 32 such pairs, plus 8 near-threshold pairs where they agree), made of small single-knob steps, near-twin models and class changes on 10 hidden Helix targets over fresh excerpts of the human's own takes, with big 1-5 click ratings for both candidates; `rating-build-v3` builds it, and `rating-score` adds agreement on disputed trials only, the pooled v2+v3 table and what the human heard as close by pair type. Page: http://127.0.0.1:8000/local/ratings/human-ratings-v3/index.html.
+
 ### Hardware parity results so far
 
 | Preset | Null | What it means |
@@ -214,7 +218,7 @@ Rule change: the human extended rule B before attempt 3 (DECISIONS 2026-10-18): 
 | --- | --- | --- |
 | Which blocks are on (block F1, higher is better) | 0.85 or more | 0.64 for "everything on" on multi-block chains; on synthetic-v1's one-block items the category is the only block, chance 0.125 |
 | Right model on the Stomp set (higher is better) | 0.60 or more | about 0.17 by chance |
-| Right chain structure on the Native set | 0.80 or more (waived for Gate 2 by the human 2026-10-16; Gate 2 is single-block; moves to Gate 3) | 0.33 by chance |
+| Right chain structure on the Native set | 0.80 or more (waived for Gate 2 by the human 2026-10-16; Gate 2 is single-block; moves to Gate 4, real-pedal combinations) | 0.33 by chance |
 | Setting error, 0 to 1 scale (lower is better) | 0.15 or less | 0.19 for "always the middle" |
 | Trust check, combined score / per method | 0.95 / 0.90 | 1 in 16 by chance |
 | Score on new notes vs the fitted notes | no more than 1.25 times | 1.0 |

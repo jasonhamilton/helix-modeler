@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import numpy as np
 
+from tonematch import cli_result
 from tonematch.separation import (
     DEFAULT_MODEL,
     ROFORMER_MODELS,
@@ -31,8 +32,13 @@ from tonematch.separation import (
 )
 from tonematch.separation import separate as run_separate
 
+LEDGER_LOG: list[dict] = []        # rows this process appended (for --result-json)
+
 
 def ledger(dataset: str, metric: str, value: float, notes: str, wall: float | None = None) -> None:
+    LEDGER_LOG.append({"kind": "separate", "engine": "-", "dataset": dataset, "metric": metric,
+                       "value": float(f"{value:.6g}"), "wall_clock_s": None if wall is None else round(wall, 3),
+                       "notes": notes})
     cmd = [sys.executable, str(ROOT / "scripts" / "ledger_append.py"), "--kind", "separate",
            "--dataset", dataset, "--metric", metric, "--value", f"{value:.6g}", "--notes", notes]
     if wall is not None:
@@ -41,7 +47,7 @@ def ledger(dataset: str, metric: str, value: float, notes: str, wall: float | No
     subprocess.run(cmd, check=True, env=env, cwd=ROOT)
 
 
-def main() -> int:
+def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument("song")
     p.add_argument("--stem", help="user-supplied guitar stem; skips separation (mix still required)")
@@ -51,12 +57,18 @@ def main() -> int:
     p.add_argument("--dataset", help="ledger dataset / song id (default: file stem + hash)")
     p.add_argument("--no-cache", action="store_true")
     p.add_argument("--no-ledger", action="store_true")
-    a = p.parse_args()
+    cli_result.add_result_arg(p)
+    a = p.parse_args(argv)
+    return cli_result.run(a, tool="separate", body=lambda res: _run(a, res),
+                          inputs={"song": a.song, "user_stem": a.stem})
 
+
+def _run(a, res) -> int:
     try:
         st = run_separate(a.song, a.stem, a.model, a.backend, use_cache=not a.no_cache)
     except SeparatorUnavailable as e:
         print(f"error: {e}", file=sys.stderr)
+        res.notes = f"separator unavailable: {e}"
         return 2
     d = st.cache_dir
     mask = confidence_mask(st)
@@ -81,7 +93,18 @@ def main() -> int:
     print(f"tempo {sections.tempo_bpm} bpm, {len(sections.bar_snapshot)} bars, "
           f"{sections.n_snapshots} snapshot(s); exposed windows: {len(sections.exposed_windows)}")
     print(sections.table())
+    res.outputs.update({"stems_dir": d, "guitar_wav": d / "guitar.wav", "others_wav": d / "others.wav",
+                        "mix_wav": d / "mix.wav", "confidence_npy": d / "confidence.npy",
+                        "sections_json": d / "sections.json", "manifest_json": d / "manifest.json"})
+    res.metrics.update({"model": st.model, "backend": st.backend, "cached": bool(st.cached),
+                        "wall_clock_s": round(st.wall_clock_s, 3), "song_hash": st.song_hash,
+                        "user_supplied_stem": bool(st.user_supplied),
+                        "confidence_mean": round(float(mask.energy_weighted_mean), 4),
+                        "exposed_fraction": round(float(mask.exposed_fraction), 4),
+                        "tempo_bpm": sections.tempo_bpm, "bars": len(sections.bar_snapshot),
+                        "n_snapshots": sections.n_snapshots, "exposed_windows": len(sections.exposed_windows)})
     if st.cached or a.no_ledger:
+        res.ledger_rows.extend(LEDGER_LOG)
         return 0
     ds = a.dataset or f"{Path(a.song).stem}-{st.song_hash[:8]}"
     note = f"{st.model}/{st.backend}" + ("; user-supplied stem, others=mix-guitar (approximate)"
@@ -90,6 +113,7 @@ def main() -> int:
     ledger(ds, "confidence_mean", mask.energy_weighted_mean,
            f"{note}; heuristic dominance*consistency proxy, uncalibrated; "
            f"exposed_fraction={mask.exposed_fraction:.2f}")
+    res.ledger_rows.extend(LEDGER_LOG)
     return 0
 
 

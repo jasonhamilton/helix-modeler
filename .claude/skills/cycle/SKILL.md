@@ -15,7 +15,7 @@ Run as `tone-matcher-lead`. One cycle is two to three days in weeks 1 to 4, a we
 
 ## 2. Pick the mode
 
-From `board/GATES.md`: no gate passed → mode 1 (prove the architecture); Gate 1 passed → mode 2 (make the loop work); Gate 2 → mode 3 (beat the baseline on real songs); Gate 3 → mode 4 (make it learn) and mode 5 (ship for others) as the roadmap in `docs/AGENT-TEAM.md` says. An override (gate blocker, regression, new firmware, ear disagrees) changes who goes first inside the mode, not the mode.
+From `board/GATES.md`: no gate passed → mode 1 (prove the architecture); Gate 1 passed → mode 2 (make the loop work); Gate 2 passed → mode 3 (beat the baseline: Gate 3 blind single block, then Gate 4 real pedals, then Gate 5 real songs; mode 3 holds until Gate 5 unless the human says otherwise); Gate 5 passed → mode 4 (make it learn) and mode 5 (ship for others) as the roadmap in `docs/AGENT-TEAM.md` says. (Renumbered 2026-10-18, T160: modes unchanged, mode 3 now spans Gates 3 to 5.) An override (gate blocker, regression, new firmware, ear disagrees) changes who goes first inside the mode, not the mode.
 
 ## 3. Order the board
 

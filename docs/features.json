@@ -962,7 +962,7 @@
    ],
    "todo": [
     "Propose admission for the separated-song case with drive as the named weak category",
-    "Option C: note-proof terms for the no-DI case (Gate 4)",
+    "Option C: note-proof terms for the no-DI case (Gate 3)",
     "Option D: learned guitar embedding (deferred)",
     "Freeze Gate 2 thresholds with benchmark"
    ],
@@ -1234,7 +1234,7 @@
     "Run attempt 2 on synthetic-v2 under the frozen rule"
    ],
    "needs_human": [
-    "Listen blind to the DS-Sample candidates when a session is prepared (the informal preference does not count for Gate 4)"
+    "Listen blind to the DS-Sample candidates when a session is prepared (the informal preference does not count for Gate 5)"
    ],
    "decisions": [
     "Search passes provisional weights explicitly (DECISIONS 2026-10-14 cycle 3 loss kit)",
@@ -1495,7 +1495,7 @@
    "id": "listening",
    "name": "Blind listening sessions and export",
    "purpose": "Prepare level-matched, randomised blind A/B or MUSHRA sessions so the human, who is the final judge, can rate matches against references and baselines.",
-   "done_when": "A blind-ab-session script builds a session folder with the answer key kept out, the human has rated the 20-song set, results are ingested as ledger rows, and Gate 4 has the human's sign-off.",
+   "done_when": "A blind-ab-session script builds a session folder with the answer key kept out, the human has rated the 20-song set, results are ingested as ledger rows, and Gate 5 has the human's sign-off.",
    "status": "prototype",
    "progress_note": "Two informal human listening sessions exist as ledger rows (not blind, one song, not scored by any agent). The blind A/B tool (T107) is built with 7 tests; no session has been prepared or rated, and the 20-song set does not exist.",
    "functionality": "No blind session can be prepared yet. Informal listening happened outside the tool: the human compared the target stem, two matches, the start chain and the raw DI for one section of one song, and played one preset live on the Stomp. Update: scripts/ab_session.py (build, score, gate2-demo) now exists with 7 tests; no session has been prepared or rated.",
@@ -1540,10 +1540,10 @@
    ],
    "todo": [
     "Assemble the 20-song set and the nearest-community-preset baselines",
-    "Prepare Gate 4 session, ingest ratings as ledger rows"
+    "Prepare Gate 5 session, ingest ratings as ledger rows"
    ],
    "needs_human": [
-    "Rate blind sessions when they exist (Gate 4 sign-off)"
+    "Rate blind sessions when they exist (Gate 5 sign-off)"
    ],
    "decisions": [
     "Comparison ends in a blind human listen (DECISIONS 2026-10-13 planning)"
@@ -1982,7 +1982,7 @@
    "id": "chain-builder",
    "name": "Chain builder",
    "purpose": "Turn the analysis (blocks present, common patterns, per-slot model shortlists) into a whole chain and a preset file.",
-   "done_when": "Runs on a real engine and beats the nearest community preset on real songs (Gate 4).",
+   "done_when": "Runs on a real engine and beats the nearest community preset on real songs (Gate 5).",
    "status": "prototype",
    "progress_note": "Built (T105) with fake engines only: presence, top structures from the chain prior, per-slot shortlist, coordinate descent and joint refine, halving across structures. A real run needs a block-library adapter, block-serial rendering in the render pool and the presence estimate keys.",
    "functionality": "Assembles candidate chains using block-serial composition of single-block templates.",

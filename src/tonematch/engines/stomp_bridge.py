@@ -42,6 +42,9 @@ from .base import EngineError
 
 ENV_HELPER = "TONEMATCH_STOMPD"
 ENV_USB_RESET = "TONEMATCH_STOMP_USB_RESET"
+# T168 transaction log: "1" writes cache/stomp/trace/<UTC>-<pid>.log, any other value is a path.
+# Every call and reply (with the helper's `link` stats) plus the helper's own per-frame TRACE lines.
+ENV_TRACE = "TONEMATCH_STOMP_TRACE"
 USB_RESET_MODES = ("auto", "always", "off")
 DEFAULT_USB_RESET = "auto"
 REPLUG_MESSAGE = ("The HX Stomp did not come back after the software USB reset. Unplug its USB cable "
@@ -70,6 +73,24 @@ class PowerCycleNeeded(BridgeError):
     def __init__(self, detail: str = ""):
         super().__init__(POWER_CYCLE_MESSAGE)
         self.detail = detail
+
+
+class LinkDegraded(BridgeError):
+    """T168: the helper reported a precursor of a wedge (the pedal took a USB write slowly). The
+    session still answers; it refuses further whole-document writes (op 21, the multi-chunk write
+    that stalls part-way when the pedal stops reading). Stop the run and close the session."""
+
+
+# T168: a healthy HX Stomp completes each bulk write in well under 5 ms (traces 2026-10-18, max
+# 1.5 ms). A write slower than this means the pedal is not taking data promptly. Env override.
+PRECURSOR_WRITE_MS = float(os.environ.get("TONEMATCH_STOMP_PRECURSOR_MS", "100"))
+# fretwire's flow-control credit (the empty 0x08 the edit channel returns per chunk of a long write):
+# healthy 1-3 ms, 28-94 ms on the chunk before each wedge fretwire recorded. Env override.
+PRECURSOR_CREDIT_MS = float(os.environ.get("TONEMATCH_STOMP_PRECURSOR_CREDIT_MS", "20"))
+# The idle tick's own writes (keepalives) are judged apart: one isolated 133 ms idle pause with
+# normal traffic right after was seen in the T168 soak and is not the mid-command stall. Only a
+# pause of half the helper's 2 s write limit counts. Env override.
+PRECURSOR_IDLE_WRITE_MS = float(os.environ.get("TONEMATCH_STOMP_PRECURSOR_IDLE_MS", "1000"))
 
 
 def usb_reset_mode(explicit: str | None = None) -> str:
@@ -142,7 +163,9 @@ def stomp_on_bus() -> bool:
 # Commands this client will send. Edit-buffer operations and reads only: nothing here saves,
 # renames, writes a slot, writes a setting or touches IRs, whatever the helper binary offers.
 ALLOWED_COMMANDS = frozenset({"info", "chain", "backup", "restore", "select", "model", "set", "enable",
-                              "route_key", "quit"})
+                              "route_key", "quit", "drain"})
+# `drain` (T168, helper build 2026-10-18 on): read-only. Reads everything the pedal has already sent
+# (keepalives, notifications) and reports how many transfers that was; a healthy link has 0-3.
 # The whole-document write (op 21, `restore` in the helper, EDIT BUFFER only). By default it may
 # only write back a backup this same session took (close() putting a dirty buffer back). Writing
 # any other document, such as one compiled from a generated .hlx (T018s), needs a bridge opened
@@ -151,6 +174,17 @@ DOCUMENT_WRITE = "restore"
 WEDGE_HINT = ("If the pedal no longer answers (here or on its own screen), it may be wedged: pull the "
               "HX Stomp's 9V adapter for a few seconds and plug it back in. A USB replug does not "
               "clear it. Do not retry in a loop.")
+
+
+def trace_path(value: str | None = None) -> Path | None:
+    """Where the T168 transaction log goes (``TONEMATCH_STOMP_TRACE``), or None when off."""
+    v = os.environ.get(ENV_TRACE, "") if value is None else value
+    if not v or v == "0":
+        return None
+    if v == "1":
+        root = Path(__file__).resolve().parents[3] / "cache" / "stomp" / "trace"
+        return root / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{os.getpid()}.log"
+    return Path(v)
 
 
 class StompBridge:
@@ -194,6 +228,12 @@ class StompBridge:
 
         self.allow_document_write = allow_document_write
         self._backups: set[str] = set()
+        # T168 link health from the helper's per-reply `link` stats (helper build 2026-10-18 on).
+        self.degraded: str | None = None
+        self.link_summary: dict[str, Any] = {"replies": 0, "with_stats": 0, "writes": 0, "write_ms_max": 0.0,
+                                             "slow_writes": 0, "idle_backlog_max": 0, "in_age_ms_max": 0.0,
+                                             "credits": 0, "credit_ms_max": 0.0, "ahead_max": 0,
+                                             "idle_writes": 0, "idle_write_ms_max": 0.0}
         self.usb_reset = usb_reset_mode(usb_reset)
         self._audio_busy = audio_busy or _reamp_audio_active
         self._opened = False      # a session was brought up (ready received)
@@ -226,8 +266,16 @@ class StompBridge:
 
     def _start(self, open_timeout_s: float) -> dict[str, Any]:
         """Launch the helper and wait for its ready line."""
+        env = dict(os.environ)
+        self.trace_path = trace_path()
+        self._trace_fh = None
+        if self.trace_path is not None:
+            self.trace_path.parent.mkdir(parents=True, exist_ok=True)
+            self._trace_fh = open(self.trace_path, "a", buffering=1)
+            env["STOMPD_TRACE"] = "1"
+        self._trace({"py": "start", "exe": str(self._exe)})
         self._proc = subprocess.Popen([str(self._exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE, text=True, bufsize=1)
+                                      stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
         self._lines: queue.Queue[str | None] = queue.Queue()
         self._stderr: collections.deque[str] = collections.deque(maxlen=200)
         self._dead: str | None = None
@@ -264,6 +312,23 @@ class StompBridge:
                 raise PowerCycleNeeded(str(e)) from None
             raise
 
+    def _trace(self, rec: dict[str, Any]) -> None:
+        fh = getattr(self, "_trace_fh", None)
+        if fh is not None:
+            try:
+                fh.write(json.dumps({"wall": time.strftime("%H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d}",
+                                     **rec}, default=str) + "\n")
+            except (OSError, ValueError):
+                pass
+
+    def _trace_raw(self, line: str) -> None:
+        fh = getattr(self, "_trace_fh", None)
+        if fh is not None:
+            try:
+                fh.write(line[len("TRACE "):])
+            except (OSError, ValueError):
+                pass
+
     def _pump(self) -> None:
         assert self._proc.stdout is not None
         for line in self._proc.stdout:
@@ -273,7 +338,11 @@ class StompBridge:
     def _pump_stderr(self) -> None:
         assert self._proc.stderr is not None
         for line in self._proc.stderr:  # drained continuously so the helper never blocks on it
+            if line.startswith("TRACE "):
+                self._trace_raw(line)
+                continue
             self._stderr.append(line)
+            self._trace({"py": "stderr", "line": line.rstrip()[:500]})
 
     def _fail(self, why: str) -> BridgeError:
         """Kill the helper (no stale replies can follow) and build the error to raise."""
@@ -315,6 +384,9 @@ class StompBridge:
             if p not in self._backups:
                 raise BridgeError("writing a document other than this session's own backup needs "
                                   "StompBridge(allow_document_write=True)")
+        if cmd == DOCUMENT_WRITE and self.degraded:
+            raise LinkDegraded(f"restore refused: {self.degraded}. The session is still answering; stop "
+                               "and close it (no power cycle needed if it closes cleanly).")
         with self._lock:
             if self._dead is not None:
                 raise BridgeError(f"the stompd session is dead ({self._dead}). {WEDGE_HINT}")
@@ -326,12 +398,57 @@ class StompBridge:
                 self._proc.stdin.flush()
             except OSError as e:
                 raise self._fail(f"cannot write to stompd: {e}") from e
-            msg = self._next(timeout_s)
+            self._trace({"py": "call", "cmd": cmd, "args": {k: v for k, v in args.items()}})
+            t = time.monotonic()
+            try:
+                msg = self._next(timeout_s)
+            except BridgeError as e:
+                self._trace({"py": "fail", "cmd": cmd, "s": round(time.monotonic() - t, 3), "error": str(e)[:300]})
+                raise
+            self._trace({"py": "reply", "cmd": cmd, "ok": msg.get("ok"), "ms": msg.get("ms"),
+                         "s": round(time.monotonic() - t, 3), "link": msg.get("link"),
+                         **({} if msg.get("ok") else {"error": msg.get("error")})})
+        self._note_link(cmd, msg.get("link"))
         if not msg.get("ok"):
             raise BridgeError(f"{cmd}: {msg.get('error')}")
         if cmd == "backup" and args.get("path"):
             self._backups.add(str(Path(str(args["path"])).resolve()))
         return msg
+
+    def _note_link(self, cmd: str, link: dict | None) -> None:
+        """Fold one reply's link stats into ``link_summary``; a slow write marks the bridge degraded."""
+        ls = self.link_summary
+        ls["replies"] += 1
+        if not isinstance(link, dict):
+            return
+        ls["with_stats"] += 1
+        ls["writes"] += int(link.get("writes") or 0)
+        ls["slow_writes"] += int(link.get("slow_writes") or 0)
+        wmax = float(link.get("write_ms_max") or 0.0)
+        ls["write_ms_max"] = max(ls["write_ms_max"], wmax)
+        ls["idle_backlog_max"] = max(ls["idle_backlog_max"], int(link.get("idle_backlog_max") or 0))
+        ls["in_age_ms_max"] = max(ls["in_age_ms_max"], float(link.get("in_age_ms_max") or 0.0))
+        cmax = float(link.get("credit_ms_max") or 0.0)
+        ls["credits"] += int(link.get("credits") or 0)
+        ls["credit_ms_max"] = max(ls["credit_ms_max"], cmax)
+        ls["ahead_max"] = max(ls["ahead_max"], int(link.get("ahead_max") or 0))
+        imax = float(link.get("idle_write_ms_max") or 0.0)
+        ls["idle_writes"] += int(link.get("idle_writes") or 0)
+        ls["idle_write_ms_max"] = max(ls["idle_write_ms_max"], imax)
+        why = None
+        if wmax > PRECURSOR_WRITE_MS or link.get("slow_writes"):
+            why = (f"a USB write took {wmax:.0f} ms during `{cmd}` (healthy: under 5 ms; "
+                   f"limit {PRECURSOR_WRITE_MS:.0f} ms)")
+        elif imax > PRECURSOR_IDLE_WRITE_MS:
+            why = (f"an idle keepalive write took {imax:.0f} ms before `{cmd}` (healthy: under 5 ms; "
+                   f"limit {PRECURSOR_IDLE_WRITE_MS:.0f} ms)")
+        elif cmax > PRECURSOR_CREDIT_MS:
+            why = (f"the pedal took {cmax:.0f} ms to credit a chunk during `{cmd}` (healthy: 1-3 ms; "
+                   f"limit {PRECURSOR_CREDIT_MS:.0f} ms)")
+        if why and self.degraded is None:
+            self.degraded = f"wedge precursor: {why}"
+            self._trace({"py": "degraded", "why": self.degraded, "link": link})
+            print(f"stompd: {self.degraded}", file=sys.stderr)
 
     def close(self) -> None:
         """End the session: `quit`, collect the helper's `closed` report (HX Edit's session-close
@@ -355,6 +472,10 @@ class StompBridge:
             finally:
                 if self._pedal_lock is not None:
                     self._pedal_lock.release()   # after the reset: the pedal is free only now
+                self._trace({"py": "closed", "release": self.release_report, "reset": self.reset_report})
+                fh, self._trace_fh = getattr(self, "_trace_fh", None), None
+                if fh is not None:
+                    fh.close()
 
     def _collect_closed(self, timeout_s: float) -> None:
         """Read the helper's remaining lines until its `closed` report or EOF."""

@@ -52,7 +52,7 @@ A skill is a procedure any agent can run the same way every time. These are the 
 | `loss-trust-check` | tone-metrics, reviewer | Proves a loss ranks the true preset first on the synthetic set before it joins the kit | Every new or changed loss term |
 | `synthetic-benchmark` | benchmark, CI | Loads or regenerates the synthetic set, runs recovery, writes a ledger row | Every merge |
 | `parity-null` | benchmark | Same DI through Native and the Stomp, level-match, null, residual to the ledger | Once per firmware; after engine changes |
-| `blind-ab-session` | benchmark | Builds a randomized A/B or MUSHRA folder for the human and collects the ratings into the ledger | Gate 3 and later milestones |
+| `blind-ab-session` | benchmark | Builds a randomized A/B or MUSHRA folder for the human and collects the ratings into the ledger | Gate 3 (short blind listen), Gate 4 and Gate 5 |
 | `status-report` | status-reporter, lead | Refreshes `docs/features.json` and renders the by-feature HTML status page | End of every cycle, after `plan-sync` |
 | `licence-check` | reviewer, platform | Scans dependencies and repo contents for GPL boundaries and Line 6 assets | Every dependency change |
 
@@ -107,9 +107,9 @@ The mode decides who is active. Everyone else is on call for questions and bug f
 |---|---|---|---|---|
 | 1. Prove the architecture | Now to Gate 1 (week 1) | lead, native-engine, stomp-engine, preset, platform | research; benchmark (`engine-smoke` only) | Both engines driven from code on at least one OS each; a generated `.hlx` loads in HX Edit and on the pedal; engine interface v0 frozen |
 | 2. Make the loop work | Gate 1 to Gate 2 (weeks 2 to 3) | separation, dry-signal, tone-metrics, search, benchmark, preset (fixed template) | engines (maintenance), research, reviewer | On the synthetic set the true preset ranks first; block-type F1, model accuracy and parameter error meet the thresholds benchmark sets in week 2 |
-| 3. Beat the baseline on real songs | Gate 2 to Gate 3 (week 4) | separation (stress), preset (snapshots, export modes), stomp-engine (parity), benchmark (A/B prep), lead, human listening | search and tone-metrics (fixes only), research | Blind A/B beats the nearest community preset on most of the 20 songs; parity residual recorded for the firmware |
+| 3. Beat the baseline: blind single block, real pedals, real songs | Gate 2 to Gate 5 (Gate 3 blind single block first, then Gate 4 real pedals, then Gate 5 real songs) | separation (stress), preset (snapshots, export modes), stomp-engine (parity), benchmark (A/B prep), lead, human listening | search and tone-metrics (fixes only), research | Blind A/B beats the nearest community preset on most of the 20 songs; parity residual recorded for the firmware |
 | 4. Make it learn | Weeks 5 to 6 and after | learning, benchmark, search (seeding), research | engines, preset | Predictor-seeded search reaches the same or a better score with fewer renders than a cold search, on both engines |
-| 5. Ship for others | Ramps after Gate 3, then ongoing | platform, reviewer, research (docs), lead (README, contributing guide) | everyone, for bug fixes | A fresh install on each OS passes `engine-smoke` with either engine; `licence-check` clean; doc index current |
+| 5. Ship for others | Ramps after Gate 5, then ongoing | platform, reviewer, research (docs), lead (README, contributing guide) | everyone, for bug fixes | A fresh install on each OS passes `engine-smoke` with either engine; `licence-check` clean; doc index current |
 
 Event-driven overrides, in any mode:
 

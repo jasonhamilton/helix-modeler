@@ -66,7 +66,7 @@ Ranked by consequence for the goal. Missing evidence is labelled Unknown/Unverif
 **High** · Confirmed Problem
 
 - **Problem.** The pedal verification found real defects: the audio stream over USB is not stable for about 0.7 s after it starts, amps carry sound over from the previous render, the pedal refuses four effect models in whole-preset writes, and some delay and reverb settings glide slowly when changed in place. Setting truth passed 20 of 40 items, repeatability 12 of 17. A longer pre-roll fixed the first problem, but a one-sample slip still happens about once in 90 renders. The human confirmed the pedal's blocks are editable after sessions.
-- **Impact.** The pedal is the final judge of the preset. Until the slip is detected or re-taken, pedal numbers cannot be used as evidence, and earlier pedal agreement figures are understated in noise. [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") (Native only) is not affected; [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") is.
+- **Impact.** The pedal is the final judge of the preset. Until the slip is detected or re-taken, pedal numbers cannot be used as evidence, and earlier pedal agreement figures are understated in noise. [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") (Native only) is not affected; [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") is.
 - **Cause.** Known for each defect (stream start-up, amp state, device refusals, parameter glide). The remaining slip has no recorded cause.
 - **Resolution.** Detect and re-take slipped renders, find why four models are refused, measure or avoid the parameter glide, then re-register the pedal rules (float32 read-back, an absolute -60 dB settle criterion, floors from rested renders) and re-run.
 - **Owner.** stomp-engine; the lead schedules the re-run
@@ -78,11 +78,11 @@ Ranked by consequence for the goal. Missing evidence is labelled Unknown/Unverif
 **High** · Risk
 
 - **Problem.** The tool's comparison measure passed its registered test on single-block Helix sound (0.990 against a bar of 0.90), but only for the case where the clean guitar recording behind the target is known and lined up. The earlier tests of the song case, where no clean recording exists, failed (about 7 correct in 40 on different notes). The song case with a separation stand-in reached 0.948 on single blocks and is not yet admitted; drive effects are its weak category.
-- **Impact.** [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") can be passed on this footing, but real songs have no lined-up clean recording, so [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") matching has no validated score yet. On the one real song tried, the top two candidates were nearly tied.
+- **Impact.** [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") can be passed on this footing, but real songs have no lined-up clean recording, so [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") matching has no validated score yet. On the one real song tried, the top two candidates were nearly tied.
 - **Cause.** Level-free spectral comparison works when the notes match; it reacts to which notes were played when they do not. Four of seven test misses were drive Output changes, which this measure cannot see by design (a level guard handles loudness).
 - **Resolution.** Admit the song case separately once an aligned recording exists, add note-proof measures for the no-recording case (deferred option C), and re-test on real separated songs.
 - **Owner.** tone-metrics; the lead decides admission
-- **Next step.** Propose admission of the separated-song case with the drive weakness named; defer note-proof measures until [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") planning.
+- **Next step.** Propose admission of the separated-song case with the drive weakness named; take note-proof measures into the [Gate 3](../../board/GATES.md#gate-3--blind-prediction-of-a-single-block-without-the-dry-track-new-human-2026-10-18 "Gate 3 — blind prediction of a single block without the dry track (new, human 2026-10-18)") (blind single block) method choice after research [T158](../../board/TASKS.md#t158 "No-DI method survey (human 2026-10-18").
 - **Evidence.** Tone-comparison admission: second Helix trust set, test split scored once (96 items, 19 look-alikes each); Tone-comparison trust check on real Helix renders (40 known chains, 2,400 renders); Informal listening to the first real-song matches; Decision log; [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 1 on all 96 known-answer items: 4 of 6 criteria pass (category accuracy and model non-inferiority fail); [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 2 on all 96 sealed synthetic-v2 items: 6 of 7 checks pass (ranking the true preset first fails: 0.9375 against 0.95)
 
 ### Guitar separation quality on real songs is unknown
@@ -90,11 +90,11 @@ Ranked by consequence for the goal. Missing evidence is labelled Unknown/Unverif
 **High** · Unknown/Unverified
 
 - **Problem.** Guitar separation has been scored only on artificial mixes: quality falls from 21.2 dB (guitar alone) to 7.3 dB with a second guitar in the mix. No real song has a quality score.
-- **Impact.** If the isolated guitar on a real song contains drums, vocals or artefacts, the tone comparison will chase those instead of the guitar and [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") results will be unreliable.
+- **Impact.** If the isolated guitar on a real song contains drums, vocals or artefacts, the tone comparison will chase those instead of the guitar and [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") results will be unreliable.
 - **Cause.** No real-song stress set exists, and the only separation model aimed at guitar has no stated licence so it was not used.
 - **Resolution.** Run the separation stress test on a few real songs, locally, and record how accuracy falls as the mix gets denser.
 - **Owner.** separation, after the owner supplies songs
-- **Next step.** Owner chooses the first songs (one action covers this and the [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") song set).
+- **Next step.** Owner chooses the first songs (one action covers this and the [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") song set).
 - **Evidence.** Separation run on the real song (no quality score); Separation stress curve on a synthetic mix (five densities)
 
 ### Building whole chains from single blocks is not yet shown to work
@@ -102,11 +102,11 @@ Ranked by consequence for the goal. Missing evidence is labelled Unknown/Unverif
 **Medium** · Unknown/Unverified
 
 - **Problem.** Single blocks are matched first and whole chains are built from analysis: the kinds of block present, ordered by common patterns. The pattern prior now rests on 2,068 curated presets and shows strong order rules. But the block-presence detector passed its test only for the cabinet and for whether a gain stage is present; for delay, reverb and modulation it missed its bars. The chain builder exists and is tested only with fake engines.
-- **Impact.** [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") (real songs) needs whole chains. Presence is used only as a soft hint, so every time-based block must be confirmed by rendering with and without it.
+- **Impact.** [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") (real songs) needs whole chains. Presence is used only as a soft hint, so every time-based block must be confirmed by rendering with and without it.
 - **Cause.** Behind an amp and cabinet, single-block detectors call the extra block a drive almost every time; comparing against the clean recording cannot isolate a block that follows a non-linear amp.
 - **Resolution.** Judge post-amp blocks against the chain's current best render, render a multi-block test set on Native, and run the chain builder on a real engine. Cabinet choice by deconvolution looks promising.
 - **Owner.** search (builder), tone-metrics (detector), native-engine (multi-block renders)
-- **Next step.** Schedule the multi-block render set; this is [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") work and does not block [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)").
+- **Next step.** Schedule the multi-block render set; this is [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") work and does not block [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)").
 - **Evidence.** Chain-pattern prior built from 129 presets (aggregate statistics only); Preset-corpus chain statistics (category level only); Block-presence detector scored once on its test split (single Helix Native blocks); Chain builder design and fake-engine tests; Cabinet impulse-response library analysis (aggregate note, vendor-free); Decision log; Task board
 
 ### Lower-priority issues
@@ -174,7 +174,7 @@ Ranked by consequence for the goal. Missing evidence is labelled Unknown/Unverif
 **Medium** · Unknown/Unverified
 
 - **Problem.** The only listening so far was informal and unblinded. The blind A/B tool is built but has not been used in a session.
-- **Impact.** Whether matches sound better than a ready-made preset is still unknown; [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") cannot start.
+- **Impact.** Whether matches sound better than a ready-made preset is still unknown; [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") cannot start.
 - **Cause.** Sessions need matched presets from the whole pipeline, which does not exist yet.
 - **Resolution.** Run sessions once the pipeline produces candidates; an optional short listen can accompany the [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") review.
 - **Owner.** benchmark prepares sessions; the owner listens
@@ -213,8 +213,9 @@ Each milestone is a gate in the project plan with a written checklist and the ow
 |---|---|---|---|---|
 | [Gate 1](#gate-1-both-engines-driven-by-code-end-of-week-1) | Foundational | **Complete** | 4 of 4 | given |
 | [Gate 2](#gate-2-recovers-known-presets-end-of-week-3-next-milestone) (next) | Core method | **At Risk** | 3 of 3 | pending |
-| [Gate 3](#gate-3-matches-clean-recordings-of-real-pedals-new-human-2026-10-17) | Product-level | **Not Started** | 0 of 4 | pending |
-| [Gate 4](#gate-4-beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17) | Product-level | **In Progress** | 1 of 3 | pending |
+| [Gate 3](#gate-3-blind-prediction-of-a-single-block-without-the-dry-track-new-human-2026-10-18) | Product-level | **Not Started** | 0 of 4 | pending |
+| [Gate 4](#gate-4-matches-clean-recordings-of-real-pedals-new-human-2026-10-17-was-gate-3-renumbered-2026-10-18) | Product-level | **Not Started** | 0 of 4 | pending |
+| [Gate 5](#gate-5-beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18) | Product-level | **In Progress** | 1 of 3 | pending |
 
 ### Gate 2: recovers known presets (end of week 3) (next milestone)
 
@@ -244,7 +245,22 @@ Evidence: [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-we
 **Next action.** None. The pedal is now on firmware 3.80 and its smoke test passes there; the remaining 3.80 re-checks (parity with Native) belong to the next gate.  
 Evidence: [Gate 1](../../board/GATES.md#gate-1--both-engines-driven-by-code-end-of-week-1 "Gate 1 — both engines driven by code (end of week 1)") sign-off record; Native smoke test; Pedal smoke test, independent re-run; Generated preset loaded on the pedal (owner-reported).
 
-### Gate 3: matches clean recordings of real pedals (new, human 2026-10-17)
+### Gate 3: blind prediction of a single block without the dry track (new, human 2026-10-18)
+
+**State: Not Started** · Product-level milestone. Show that the tool can name the right block and settings from the rendered output alone, without ever seeing the dry guitar track that made it.
+
+- [ ] A sealed set of single-block items exists: random model, random settings, rendered in Native from a random held-out guitar sample the matcher never sees.
+- [ ] The pass bars and the two baselines (middle of every knob, random walk) are registered before the run, under the same no-dry-track condition.
+- [ ] Blind prediction meets the bars and beats both baselines on the sealed set.
+- [ ] A short blind listen of the prediction re-rendered from the held-out dry sample agrees.
+
+**Demonstrated.** Nothing yet: no sealed blind set, bars or blind prediction exist. [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") passed only with the dry track known, and earlier evidence says the no-dry-track case is the hard part.  
+**Remaining.** Finish the no-DI research ([T158](../../board/TASKS.md#t158 "No-DI method survey (human 2026-10-18")), choose the method, build the held-out dry-sample split and the sealed set ([T159](../../board/TASKS.md#t159 "Gate 3 blind single-block set")), register the bars, then run and listen.  
+**Blocking.** Not started: blocked on the no-DI research ([T158](../../board/TASKS.md#t158 "No-DI method survey (human 2026-10-18")). Also depends on [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") sign-off by the human.  
+**Next action.** Complete research [T158](../../board/TASKS.md#t158 "No-DI method survey (human 2026-10-18"), then build the held-out set ([T159](../../board/TASKS.md#t159 "Gate 3 blind single-block set")).  
+Evidence: Gate checklists; Decision log.
+
+### Gate 4: matches clean recordings of real pedals (new, human 2026-10-17; was Gate 3, renumbered 2026-10-18)
 
 **State: Not Started** · Product-level milestone. Show that the tool can match clean recordings of real guitar pedals, judged by re-rendering the matched preset from a held-out dry take and by a short blind listen.
 
@@ -255,11 +271,11 @@ Evidence: [Gate 1](../../board/GATES.md#gate-1--both-engines-driven-by-code-end-
 
 **Demonstrated.** Nothing yet: no dry reference, pedal recording or real-pedal match exists. Some groundwork carries over (the chain builder tested with fake engines, the blind listening tool), but none of it has been run on real pedals.  
 **Remaining.** Capture the dry reference and the single-pedal set, choose the quality bar before the run, then record and match two- and three-pedal chains. The matcher must work without a lined-up dry take (note-invariant comparison terms, a learned guitar embedding, a phase-insensitive modulation score).  
-**Blocking.** Depends on [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") and on the player recording the pedals.  
-**Next action.** Wait for [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)"); the player can plan the recording session.  
+**Blocking.** Depends on [Gate 3](../../board/GATES.md#gate-3--blind-prediction-of-a-single-block-without-the-dry-track-new-human-2026-10-18 "Gate 3 — blind prediction of a single block without the dry track (new, human 2026-10-18)") and on the player recording the pedals.  
+**Next action.** Wait for [Gate 3](../../board/GATES.md#gate-3--blind-prediction-of-a-single-block-without-the-dry-track-new-human-2026-10-18 "Gate 3 — blind prediction of a single block without the dry track (new, human 2026-10-18)"); the player can plan the recording session.  
 Evidence: Gate checklists; Chain builder design and fake-engine tests; Blind A/B listening tool.
 
-### Gate 4: beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)
+### Gate 5: beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)
 
 **State: In Progress** · Product-level milestone. Show that, for real songs, the tool's preset beats the nearest ready-made community preset in blind listening.
 
@@ -269,8 +285,8 @@ Evidence: Gate checklists; Chain builder design and fake-engine tests; Blind A/B
 
 **Demonstrated.** One song section was matched and listened to informally (not blind). Pedal-versus-Native agreement on firmware 3.80 is recorded (ticked). Groundwork: a chain-pattern prior from 2,068 curated presets with strong order rules, a block-presence detector (only the cabinet and gain-stage calls pass, so it is a soft hint), a chain builder tested with fake engines, a cabinet-response study, and a blind A/B listening tool (built; no session rated). The Native-versus-pedal comparison on songs has not been run.  
 **Remaining.** [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)"), the chain builder on a real engine, the pedal verification fixes, the 20-song set, blind sessions, and the Native-versus-pedal comparison on songs. A full-library test is not planned (human decision).  
-**Blocking.** Depends on [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)"), on the chain builder, on the pedal fixes, and on song selection.  
-**Next action.** Wait for [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)"). The owner can start choosing songs now.  
+**Blocking.** Depends on [Gate 4](../../board/GATES.md#gate-4--matches-clean-recordings-of-real-pedals-new-human-2026-10-17-was-gate-3-renumbered-2026-10-18 "Gate 4 — matches clean recordings of real pedals (new, human 2026-10-17; was Gate 3, renumbered 2026-10-18)"), on the chain builder, on the pedal fixes, and on song selection.  
+**Next action.** Wait for [Gate 4](../../board/GATES.md#gate-4--matches-clean-recordings-of-real-pedals-new-human-2026-10-17-was-gate-3-renumbered-2026-10-18 "Gate 4 — matches clean recordings of real pedals (new, human 2026-10-17; was Gate 3, renumbered 2026-10-18)"). The owner can start choosing songs now.  
 Evidence: Informal listening to the first real-song matches; Pedal versus Native agreement on firmware 3.80 (spot checks); Time-effect agreement measured with test tones (reverbs, modulation, delays); Gray Flanger and Deluxe Phaser agreement on 20 s tones; Chain-pattern prior built from 129 presets (aggregate statistics only); Song-context research note (MusicBrainz, opt-in); Preset-corpus chain statistics (category level only); Block-presence detector scored once on its test split (single Helix Native blocks); Chain builder design and fake-engine tests; Blind A/B listening tool; Cabinet impulse-response library analysis (aggregate note, vendor-free); Pedal verification, sessions 1-3 on the old pre-roll (setting truth, repeatability, settle timing).
 
 ## What works and what does not
@@ -338,9 +354,9 @@ One list, each action once. Routine work owned by the agents is not listed here.
 
 - **Choose the first real songs for local testing** (High)  
   Why: Separation quality on real songs is unmeasured and the final test needs 20 songs. Pick a few now spanning clean to high-gain tones; the full 20 can follow.  
-  Unblocks: The separation stress test and the song set for [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)").  
+  Unblocks: The separation stress test and the song set for [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)").  
   Recommended: Three to five songs now, local only; audio never leaves the machine.  
-  If deferred: Separation risk stays unmeasured and [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") cannot be scheduled.
+  If deferred: Separation risk stays unmeasured and [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") cannot be scheduled.
 - **Decide whether to commit and push the accumulated work** (Medium)  
   Why: A large body of specialist, job-runner, report and [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") evidence work exists locally and the public repository does not have it.  
   Unblocks: A saved, reviewable history; the public status page stays current.  
@@ -396,6 +412,8 @@ Compared with the report snapshot of 2026-10-17.
 
 - The biggest problem changed from "[Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 1 did not pass: effect category and model choice fall short" to "Delay is the weakest effect: 5 of 12 exact models on the sealed set".
 - [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)"): acceptance criteria evidenced went from 1 of 3 to 3 of 3.
+- [Gate 4](../../board/GATES.md#gate-4--matches-clean-recordings-of-real-pedals-new-human-2026-10-17-was-gate-3-renumbered-2026-10-18 "Gate 4 — matches clean recordings of real pedals (new, human 2026-10-17; was Gate 3, renumbered 2026-10-18)") moved from In Progress to Not Started.
+- New milestone: [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)").
 - New issue: Delay is the weakest effect: 5 of 12 exact models on the sealed set (High).
 - Issue no longer listed: [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 1 did not pass: effect category and model choice fall short.
 - New human action: Sign [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)"), or decline to.
@@ -403,7 +421,7 @@ Compared with the report snapshot of 2026-10-17.
 - Human action removed: Review [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") after the second attempt, and sign off Gates 2 and 3 when evidence exists.
 - Feature family-specialists status moved from designing to working.
 - Board tasks done: 98 to 115 (bookkeeping, not progress by itself).
-- Ledger rows: 1037 to 1196.
+- Ledger rows: 1037 to 1199.
 
 ### Progress and findings
 
@@ -429,7 +447,7 @@ Compared with the report snapshot of 2026-10-17.
 - 2026-10-16 · **New problem.** Model choice tied the old pool pass at 7 of 16 development models under the old provisional score. This was superseded on 2026-10-17: the baselines are now recorded and the hybrid search replaced it. _(Evidence: Baseline "middle of every knob", 96 items (provisional weights, before admission); Decision log)_
 - 2026-10-16 · **Improvement.** Native block fingerprints were measured for 602 of 605 library models (24 of about 3,600 settings were silent, all expected), and rendering many candidates at once is 1.46 times faster than one at a time with identical results. Model choice per slot is built. _(Evidence: Native block fingerprints: 602 models, 24 expected-silent settings)_
 - 2026-10-16 · **Improvement.** The pedal's two-variant pass equals serial renders on firmware 3.80 and is about 1.7 times faster per variant (1.70 s against about 2.9 s). This closes the audio check that was open last report. Pedal restores are now judged by decoded equality, since raw bytes can differ by 3 after the pedal re-encodes. _(Evidence: Pedal two-variant pass equals serial renders, about 1.7 s per variant (firmware 3.80); Pedal restore judged by decoded equality (offline re-check of the hardware buffers))_
-- 2026-10-16 · **Decision that changed the plan.** The human chose the [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") scoring rules (tune the measure for the known-recording case; count identical-sounding look-alikes as ties) and waived the 'right chain structure' target for [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)"), which now covers single blocks only. Chain structure moves to [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)"). Scoring rules 2 and 3 are coded. _(Evidence: Decision log)_
+- 2026-10-16 · **Decision that changed the plan.** The human chose the [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") scoring rules (tune the measure for the known-recording case; count identical-sounding look-alikes as ties) and waived the 'right chain structure' target for [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)"), which now covers single blocks only. Chain structure moves to [Gate 4](../../board/GATES.md#gate-4--matches-clean-recordings-of-real-pedals-new-human-2026-10-17-was-gate-3-renumbered-2026-10-18 "Gate 4 — matches clean recordings of real pedals (new, human 2026-10-17; was Gate 3, renumbered 2026-10-18)"). Scoring rules 2 and 3 are coded. _(Evidence: Decision log)_
 - 2026-10-16 · **New problem.** The first trust check on real Helix sound failed: no tone-comparison measure picks the true preset reliably. On new notes the best managed about 7 times in 40 against a bar of 36; the measures react more to the notes played than to the tone. With the same notes and a lined-up recording one measure reached 0.725 (0.875 if look-alikes that sound identical are ignored). This replaces the earlier stand-in result as the main evidence and is now the biggest problem. _(Evidence: Tone-comparison trust check on real Helix renders (40 known chains, 2,400 renders))_
 - 2026-10-16 · **Improvement.** The software engine now holds 605 of the pedal's 607 effect models as single-block templates (the other 2 are refused by Native). Every template was replayed in a fresh host. This opens model choice from a library, but the blocks are not yet measured. _(Evidence: Native block library: 605 of 605 pedal models captured)_
 - 2026-10-16 · **Improvement.** Delay times in the software engine now move in 10 ms steps instead of 63 ms, because Native honours a narrower control range. Block Level was also given a finer range (0.25 dB steps with 0 dB on the grid). _(Evidence: Narrower control ranges honoured by Native (delay Time in 10 ms steps); Block Level range \[-25.75, +6\] dB and re-captured templates)_
@@ -1145,7 +1163,7 @@ Supporting material: per-feature detail, gate checklists, evidence references, t
 **Still to do**
 
 - Propose admission for the separated-song case with drive as the named weak category
-- Option C: note-proof terms for the no-DI case ([Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)"))
+- Option C: note-proof terms for the no-DI case ([Gate 3](../../board/GATES.md#gate-3--blind-prediction-of-a-single-block-without-the-dry-track-new-human-2026-10-18 "Gate 3 — blind prediction of a single block without the dry track (new, human 2026-10-18)"))
 - Option D: learned guitar embedding (deferred)
 - Freeze [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") thresholds with benchmark
 
@@ -1321,7 +1339,7 @@ Supporting material: per-feature detail, gate checklists, evidence references, t
 - **synthetic**: ledger [2026-10-16T16:09:03+00:00](../../ledger/runs.csv?plain=1#L650 "benchmark · native · synthetic-v1-n3 · rank1_rate = 0.0 (first of 4 rows at this time)") (4 rows) synthetic-v1-n3: provisional 3-item run, category 2 of 3, model 0 of 3, true preset first 0 of 3 on new notes; not gate evidence (earlier run voided)
 - **synthetic**: ledger [2026-10-17T20:18:47+00:00](../../ledger/runs.csv?plain=1#L874 "benchmark · native · synthetic-v1 · block_f1 = 0.802 (first of 7 rows at this time)") (7 rows) [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 1: gate2_pass 0 (4 of 6 criteria pass; category accuracy and model non-inferiority fail), frozen rule, 96 known-answer items; ledger [2026-10-17T16:42:07+00:00](../../ledger/runs.csv?plain=1#L750 "benchmark · native · synthetic-v1 · model_acc_baseline_middle = 0.5417") baseline middle, provisional weights; ledger [2026-10-17T17:35:18+00:00](../../ledger/runs.csv?plain=1#L816 "parity · native · native-verify-v1 · repeat_pass = 216.0 (first of 2 rows at this time)") (2 rows) and [2026-10-17T17:38:13+00:00](../../ledger/runs.csv?plain=1#L831 "parity · native · native-verify-v1 · truth_audit_pass = 116.0 (first of 4 rows at this time)") (4 rows) native-verify-v1: repeat 216 of 216, setting truth 116 of 120
 
-**Live ledger rows:** 536 match (`kind=gate; kind=benchmark; kind=stress; kind=parity; kind=engine-compare`)
+**Live ledger rows:** 539 match (`kind=gate; kind=benchmark; kind=stress; kind=parity; kind=engine-compare`)
 
 | timestamp | agent | kind | dataset | metric | value |
 |---|---|---|---|---|---|
@@ -1414,15 +1432,15 @@ _Nothing implemented yet._
 **Status:** prototype · **Health:** partial · **Evidence:** ear (informal, not blind)
 
 **Purpose.** Prepare level-matched, randomised blind A/B or MUSHRA sessions so the human, who is the final judge, can rate matches against references and baselines.  
-**Done when.** A blind-ab-session script builds a session folder with the answer key kept out, the human has rated the 20-song set, results are ingested as ledger rows, and [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") has the human's sign-off.  
-**Functionality today.** No blind session can be prepared yet. Informal listening happened outside the tool: the human compared the target stem, two matches, the start chain and the raw DI for one section of one song, and played one preset live on the Stomp. Update: [scripts/ab_session.py](../../scripts/ab_session.py "Blind A/B listening sessions (Gate 2 optional, Gate 3 required). Offline; no Native, no pedal.") (build, score, gate2-demo) now exists with 7 tests; no session has been prepared or rated.  
+**Done when.** A blind-ab-session script builds a session folder with the answer key kept out, the human has rated the 20-song set, results are ingested as ledger rows, and [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") has the human's sign-off.  
+**Functionality today.** No blind session can be prepared yet. Informal listening happened outside the tool: the human compared the target stem, two matches, the start chain and the raw DI for one section of one song, and played one preset live on the Stomp. Update: [scripts/ab_session.py](../../scripts/ab_session.py "Blind A/B listening sessions (Gate 2 and Gate 3 optional, Gate 4 pedal listening and Gate 5 real songs require") (build, score, gate2-demo) now exists with 7 tests; no session has been prepared or rated.  
 **Progress note.** Two informal human listening sessions exist as ledger rows (not blind, one song, not scored by any agent). The blind A/B tool ([T107](../../board/TASKS.md#t107 "Blind A/B listening tool scripts/ab_session.py")) is built with 7 tests; no session has been prepared or rated, and the 20-song set does not exist.  
 **Board tasks.** 1 of 1 done: [T107](../../board/TASKS.md#t107 "Blind A/B listening tool scripts/ab_session.py")  
 **Owners.** benchmark
 
 **Implemented**
 
-- Blind A/B session tool (build, score, gate2-demo) [`scripts/ab_session.py`](../../scripts/ab_session.py "Blind A/B listening sessions (Gate 2 optional, Gate 3 required). Offline; no Native, no pedal.") [`tests/test_ab_session.py`](../../tests/test_ab_session.py "Blind A/B session tool: loudness matching, hidden-key randomisation, scoring. Offline.") [`.claude/skills/blind-ab-session/SKILL.md`](../../.claude/skills/blind-ab-session/SKILL.md "blind-ab-session")
+- Blind A/B session tool (build, score, gate2-demo) [`scripts/ab_session.py`](../../scripts/ab_session.py "Blind A/B listening sessions (Gate 2 and Gate 3 optional, Gate 4 pedal listening and Gate 5 real songs require") [`tests/test_ab_session.py`](../../tests/test_ab_session.py "Blind A/B session tool: loudness matching, hidden-key randomisation, scoring. Offline.") [`.claude/skills/blind-ab-session/SKILL.md`](../../.claude/skills/blind-ab-session/SKILL.md "blind-ab-session")
 
 **Evidence**
 
@@ -1437,13 +1455,13 @@ _Nothing implemented yet._
 
 **Challenges and findings**
 
-- The human preferred the loss's runner-up (rank 2) on the one song tried, and found the delay far too wet on the pedal before the snapshot fix: the ear and the metric already disagree. These are single informal sessions, not blind and not [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") evidence. _[ledger [2026-10-15T19:10:17](../../ledger/runs.csv?plain=1#L132 "ab · native · DS-Sample · ab_pref_rank = 2.0") and [19:20:34](../../ledger/runs.csv?plain=1#L133 "ab · stomp · DS-Sample · live_pref_delay_mix = 0.1")]_
+- The human preferred the loss's runner-up (rank 2) on the one song tried, and found the delay far too wet on the pedal before the snapshot fix: the ear and the metric already disagree. These are single informal sessions, not blind and not [Gate 4](../../board/GATES.md#gate-4--matches-clean-recordings-of-real-pedals-new-human-2026-10-17-was-gate-3-renumbered-2026-10-18 "Gate 4 — matches clean recordings of real pedals (new, human 2026-10-17; was Gate 3, renumbered 2026-10-18)") evidence. _[ledger [2026-10-15T19:10:17](../../ledger/runs.csv?plain=1#L132 "ab · native · DS-Sample · ab_pref_rank = 2.0") and [19:20:34](../../ledger/runs.csv?plain=1#L133 "ab · stomp · DS-Sample · live_pref_delay_mix = 0.1")]_
 - The ear is the final judge and no preset has ever been listened to against a reference; every quality claim in this report is metric or hardware-level only. _[CLAUDE.md standing rules]_
 
 **Still to do**
 
 - Assemble the 20-song set and the nearest-community-preset baselines
-- Prepare [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") session, ingest ratings as ledger rows
+- Prepare [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") session, ingest ratings as ledger rows
 
 **Open blockers**
 
@@ -1711,7 +1729,7 @@ _None recorded._
 **Status:** prototype · **Health:** partial · **Evidence:** unit-tests
 
 **Purpose.** Turn the analysis (blocks present, common patterns, per-slot model shortlists) into a whole chain and a preset file.  
-**Done when.** Runs on a real engine and beats the nearest community preset on real songs ([Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)")).  
+**Done when.** Runs on a real engine and beats the nearest community preset on real songs ([Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)")).  
 **Functionality today.** Assembles candidate chains using block-serial composition of single-block templates.  
 **Progress note.** Built ([T105](../../board/TASKS.md#t105 "Chain builder (human 2026-10-17 \"build a chain from the analysis\")")) with fake engines only: presence, top structures from the chain prior, per-slot shortlist, coordinate descent and joint refine, halving across structures. A real run needs a block-library adapter, block-serial rendering in the render pool and the presence estimate keys.  
 **Board tasks.** 3 of 3 done: [T105](../../board/TASKS.md#t105 "Chain builder (human 2026-10-17 \"build a chain from the analysis\")"), [T101](../../board/TASKS.md#t101 "Chain-pattern model for the chain builder"), [T109](../../board/TASKS.md#t109 "Curated corpus analysis")  
@@ -1849,14 +1867,21 @@ _None recorded._
 - [x] Block-type F1, model accuracy and parameter MAE meet the week-2 thresholds on synthetic-v3 and beat both baselines: category 0.885 (&gt;= 0.85), model 0.771 (&gt;= 0.60), settings error 0.101 on right-model items under the rule's definition (&lt;= 0.15; ledger param_mae 0.135 also under), model vs random walk +0.208 CI \[+0.094, +0.323\], settings error vs random walk -0.083 CI \[-0.109, -0.058\] (ledger rows: [2026-10-18T15:46:15+00:00](../../ledger/runs.csv?plain=1#L1178 "benchmark · native · synthetic-v3 · block_f1 = 0.885417") block_f1 0.885417, model_acc 0.770833, param_mae 0.134751, heldout_ratio 0.900035; baselines [2026-10-18T16:31:24](../../ledger/runs.csv?plain=1#L1187 "benchmark · native · synthetic-v3 · baseline_middle_model_acc_cat_given = 0.520833")..25+00:00 v3_base_middle model_acc_cat_given 0.520833, model_acc_no_cat 0.375, block_f1_no_cat 0.666667, param_mae 0.206848; v3_base_random model_acc 0.5625, block_f1 0.770833, param_mae 0.224243; split-80 carries no information on v3 and is not counted)
 - [x] Separation stress curve recorded (ledger row: [2026-10-16T15:22:49](../../ledger/runs.csv?plain=1#L454 "stress · - · sep-stress-v1 · guitar_sdr_db_D1 = 21.1869 (first of 2 rows at this time)") (2 rows)..51, dataset sep-stress-v1: htdemucs_6s SDR 21.2/15.9/15.4/11.2/7.3 dB for densities D1-D5; SYNTHETIC set (Guitar-TECHS DI through a numpy drive/cab, synthesised accompaniment), real-song stress not yet measured — ticked by tone-matcher-lead)
 
-**[Gate 3](../../board/GATES.md#gate-3--matches-clean-recordings-of-real-pedals-new-human-2026-10-17 "Gate 3 — matches clean recordings of real pedals (new, human 2026-10-17)"): matches clean recordings of real pedals (new, human 2026-10-17)** (0 of 4 criteria ticked, sign-off pending)
+**[Gate 3](../../board/GATES.md#gate-3--blind-prediction-of-a-single-block-without-the-dry-track-new-human-2026-10-18 "Gate 3 — blind prediction of a single block without the dry track (new, human 2026-10-18)"): blind prediction of a single block without the dry track (new, human 2026-10-18)** (0 of 4 criteria ticked, sign-off pending)
+
+- [ ] Sealed blind set generated: one block per item, random model and settings, random held-out guitar sample, hashes recorded, labels and dry samples unread by the matcher (ledger row: )
+- [ ] Bars and baselines registered before the run: category, model and settings-error thresholds; middle-of-every-knob and random-walk baselines run under the same no-dry-track condition (ledger row: )
+- [ ] Blind prediction meets the registered bars and beats both baselines on the sealed set (ledger rows: )
+- [ ] Short blind listen: the prediction re-rendered from the held-out dry sample against the target (ledger row: )
+
+**[Gate 4](../../board/GATES.md#gate-4--matches-clean-recordings-of-real-pedals-new-human-2026-10-17-was-gate-3-renumbered-2026-10-18 "Gate 4 — matches clean recordings of real pedals (new, human 2026-10-17; was Gate 3, renumbered 2026-10-18)"): matches clean recordings of real pedals (new, human 2026-10-17; was [Gate 3](../../board/GATES.md#gate-3--blind-prediction-of-a-single-block-without-the-dry-track-new-human-2026-10-18 "Gate 3 — blind prediction of a single block without the dry track (new, human 2026-10-18)"), renumbered 2026-10-18)** (0 of 4 criteria ticked, sign-off pending)
 
 - [ ] Dry reference captured: the player's guitar, random playing, over USB 5/6 or the interface; the only dry signal the matcher may use (ledger row: )
 - [ ] Single-pedal set recorded: at least one pedal per available category (drive, delay, reverb, modulation, compressor, EQ or amp-in-a-box), several random settings each, with the matching dry take kept aside for scoring (ledger row: )
 - [ ] Single-pedal match quality meets the bar \`benchmark\` sets BEFORE the run (score of the matched preset re-rendered from the held-out dry take vs the pedal recording, against baselines), plus a short blind listen (ledger rows: )
 - [ ] Combinations: two- and three-pedal chains recorded and matched by the chain builder at the same bar (ledger rows: )
 
-**[Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)"): beats the nearest preset on real songs (was [Gate 3](../../board/GATES.md#gate-3--matches-clean-recordings-of-real-pedals-new-human-2026-10-17 "Gate 3 — matches clean recordings of real pedals (new, human 2026-10-17)"); renumbered 2026-10-17)** (1 of 3 criteria ticked, sign-off pending)
+**[Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)"): beats the nearest preset on real songs (was [Gate 3](../../board/GATES.md#gate-3--blind-prediction-of-a-single-block-without-the-dry-track-new-human-2026-10-18 "Gate 3 — blind prediction of a single block without the dry track (new, human 2026-10-18)"), then [Gate 4](../../board/GATES.md#gate-4--matches-clean-recordings-of-real-pedals-new-human-2026-10-17-was-gate-3-renumbered-2026-10-18 "Gate 4 — matches clean recordings of real pedals (new, human 2026-10-17; was Gate 3, renumbered 2026-10-18)"); renumbered 2026-10-17 and 2026-10-18)** (1 of 3 criteria ticked, sign-off pending)
 
 - [ ] Blind A/B on the 20-song set: the matched preset is preferred over the nearest community preset on a majority of songs (ledger row: )
 - [x] Parity null residual recorded for firmware 3.80 (ledger row: [2026-10-16T02:31:10](../../ledger/runs.csv?plain=1#L356 "parity · both · parity-spot-fw380 · null_residual_db = -37.45 (first of 15 rows at this time)") (15 rows), dataset parity-spot-fw380: amps -37.5..-47.5 dB, cabs -35.4..-37.4 dB, dynamics/EQ pass, distortion 2 of 5, reverb and modulation do not null, delays match in echo level; see [docs/BENCHMARKING.md](../../docs/BENCHMARKING.md "How Benchmarking Works"))
@@ -1885,7 +1910,7 @@ _None recorded._
 | `ev-gates` | Gate checklists | [`board/GATES.md`](../../board/GATES.md "Gates") |
 | `ev-decisions` | Decision log | [`docs/DECISIONS.md`](../../docs/DECISIONS.md "Decision log") |
 | `ev-chain-builder` | Chain builder design and fake-engine tests | [`docs/notes/chain-builder.md`](../../docs/notes/chain-builder.md "Chain builder (T105\"))") |
-| `ev-ab-tool` | Blind A/B listening tool | [`scripts/ab_session.py`](../../scripts/ab_session.py "Blind A/B listening sessions (Gate 2 optional, Gate 3 required). Offline; no Native, no pedal.") |
+| `ev-ab-tool` | Blind A/B listening tool | [`scripts/ab_session.py`](../../scripts/ab_session.py "Blind A/B listening sessions (Gate 2 and Gate 3 optional, Gate 4 pedal listening and Gate 5 real songs require") |
 | `ev-ab-informal` | Informal listening to the first real-song matches | ledger row [2026-10-15T19:10:17+00:00](../../ledger/runs.csv?plain=1#L132 "ab · native · DS-Sample · ab_pref_rank = 2.0") (ab / native / DS-Sample) |
 | `ev-parity-380` | Pedal versus Native agreement on firmware 3.80 (spot checks) | ledger row [2026-10-16T02:31:10+00:00](../../ledger/runs.csv?plain=1#L356 "parity · both · parity-spot-fw380 · null_residual_db = -37.45 (first of 15 rows at this time)") (15 rows) (parity / both / parity-spot-fw380, 15 rows at that time) |
 | `ev-parity-stimuli` | Time-effect agreement measured with test tones (reverbs, modulation, delays) | ledger row [2026-10-16T15:36:36+00:00](../../ledger/runs.csv?plain=1#L476 "parity · both · parity-timefx-stimuli-fw380 · rt60_max_abs_diff_pct = 6.494 (first of 10 rows at this time)") (10 rows) (parity / both / parity-timefx-stimuli-fw380, 10 rows at that time) |
@@ -1975,10 +2000,11 @@ _None recorded._
 
 ### Ledger and board
 
-1196 ledger rows (ab: 2, benchmark: 122, gate: 1, loss-trust: 151, parity: 363, render-cost: 120, search: 211, separate: 9, smoke: 167, stress: 50). Board: 115 tasks done, 11 in progress, 129 listed.
+1199 ledger rows (ab: 2, benchmark: 125, gate: 1, loss-trust: 151, parity: 363, render-cost: 120, search: 211, separate: 9, smoke: 167, stress: 50). Board: 115 tasks done, 11 in progress, 138 listed.
 
 ### Recent commits
 
+- 25201fb 2026-10-18 [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 3: all 7 checks met on sealed synthetic-v3 (awaiting human sign-off)
 - 9090f1b 2026-10-17 Verified engines, hybrid search, [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 1 (not passed, 4 of 6), corpus and IR analyses
 - f90cd11 2026-10-17 Docs, reports and ledger refresh; song-metadata probe; blind A/B listening tool
 - 68f0310 2026-10-17 [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") scoring admitted: mrstft_v2 for the known-DI mode; model choice, baselines, restore verdict
@@ -1986,7 +2012,6 @@ _None recorded._
 - 44591df 2026-10-16 Block library, narrowed CC ranges, parity by measurement, trust check, synthetic-v1
 - dc71ab1 2026-10-16 Parity on fw 3.80, time-effect parity metrics, search clip-length study
 - 59dcde5 2026-10-15 Native phase 3, two-path layout fix, Stomp speed in search, Hum/Ripple freeze
-- 07b66ed 2026-10-15 Fix CI: skip the CC-grid snap test when the local-only known.hlx is absent
 
 ## Glossary
 
@@ -2049,10 +2074,10 @@ _None recorded._
 
 ## Report information
 
-Generated 2026-10-18 16:47:02 UTC for Cycle 4 (mode 2), refresh after [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 2 (not passed, 6 of 7): [T117](../../board/TASKS.md#t117 "Linear specialist for cab and EQ"), [T122](../../board/TASKS.md#t122 "Family dispatch and time-based specialist"), [T134](../../board/TASKS.md#t134 "Specialist adapters (blocking --specialists all for Gate 2 attempt 2)"), [T138](../../board/TASKS.md#t138 "Elastic jobs for the host scaler")-[T141](../../board/TASKS.md#t141 "Local Gate 2 report updated for Gate 2 attempt 2"). Git commits: 18, last: 9090f1b 2026-10-17 Verified engines, hybrid search, [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 1 (not passed, 4 of 6), corpus and IR analyses, 106 uncommitted paths.
+Generated 2026-10-18 17:30:28 UTC for Cycle 4 (mode 2), refresh after [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 2 (not passed, 6 of 7): [T117](../../board/TASKS.md#t117 "Linear specialist for cab and EQ"), [T122](../../board/TASKS.md#t122 "Family dispatch and time-based specialist"), [T134](../../board/TASKS.md#t134 "Specialist adapters (blocking --specialists all for Gate 2 attempt 2)"), [T138](../../board/TASKS.md#t138 "Elastic jobs for the host scaler")-[T141](../../board/TASKS.md#t141 "Local Gate 2 report updated for Gate 2 attempt 2"). Git commits: 19, last: 25201fb 2026-10-18 [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") attempt 3: all 7 checks met on sealed synthetic-v3 (awaiting human sign-off), 15 uncommitted paths.
 
-- **PASS** pytest: 1213 passed, 2 skipped, 6 warnings in 195.38s (0:03:15)
+- **PASS** pytest: 1213 passed, 2 skipped, 6 warnings in 199.11s (0:03:19)
 - **PASS** ruff: All checks passed!
 - **PASS** licence-check: PASS
 
-Gates: [Gate 1](../../board/GATES.md#gate-1--both-engines-driven-by-code-end-of-week-1 "Gate 1 — both engines driven by code (end of week 1)") signed; [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") not signed; [Gate 3](../../board/GATES.md#gate-3--matches-clean-recordings-of-real-pedals-new-human-2026-10-17 "Gate 3 — matches clean recordings of real pedals (new, human 2026-10-17)") not signed; [Gate 4](../../board/GATES.md#gate-4--beats-the-nearest-preset-on-real-songs-was-gate-3-renumbered-2026-10-17 "Gate 4 — beats the nearest preset on real songs (was Gate 3; renumbered 2026-10-17)") not signed.
+Gates: [Gate 1](../../board/GATES.md#gate-1--both-engines-driven-by-code-end-of-week-1 "Gate 1 — both engines driven by code (end of week 1)") signed; [Gate 2](../../board/GATES.md#gate-2--recovers-known-presets-end-of-week-3 "Gate 2 — recovers known presets (end of week 3)") not signed; [Gate 3](../../board/GATES.md#gate-3--blind-prediction-of-a-single-block-without-the-dry-track-new-human-2026-10-18 "Gate 3 — blind prediction of a single block without the dry track (new, human 2026-10-18)") not signed; [Gate 4](../../board/GATES.md#gate-4--matches-clean-recordings-of-real-pedals-new-human-2026-10-17-was-gate-3-renumbered-2026-10-18 "Gate 4 — matches clean recordings of real pedals (new, human 2026-10-17; was Gate 3, renumbered 2026-10-18)") not signed; [Gate 5](../../board/GATES.md#gate-5--beats-the-nearest-preset-on-real-songs-was-gate-3-then-gate-4-renumbered-2026-10-17-and-2026-10-18 "Gate 5 — beats the nearest preset on real songs (was Gate 3, then Gate 4; renumbered 2026-10-17 and 2026-10-18)") not signed.

@@ -77,7 +77,7 @@ def link_html(tid: str, index: dict, board_rel: str) -> str:
 
 _MD_PROTECTED = re.compile(
     r"`+[^`]*`+"                                    # inline code
-    r"|\[[^\]]*\]\((?:[^()\"]|\"[^\"]*\")*\)"       # existing inline link
+    r"|\[[^\]]*\]\((?:[^()\"]|\"(?:[^\"\\]|\\.)*\")*\)"   # existing inline link (title may hold \\")
     r"|\[[^\]]*\]\[[^\]]*\]"                        # reference link
     r"|<a\b[^>]*>.*?</a>"                           # html anchor
     r"|<[^>]+>"                                     # any other tag

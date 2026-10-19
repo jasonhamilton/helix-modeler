@@ -20,6 +20,8 @@ from tonematch.search.space import ParamSpace, Prior
 from tonematch.search.types import Budget, LossKitLike, Plan, RankedPreset, Section
 
 BAD = 1e9
+TOL_MIN_GENS = 4     # knob tolerance (T176): generations before a stage may stop early
+TOL_QUIET = 2        # ... and successive sub-tolerance improvements that count as converged
 # Native's reset render costs ~the same for any clip length; Stomp renders in real time.
 FIXED_COST_ENGINES = {"native"}
 
@@ -114,11 +116,18 @@ class Evaluator:
 
 
 def refine_chain(ev: Evaluator, x0_values: np.ndarray, render_cap: float, sigma0: float = 0.25,
-                 seed: int = 0, eta: int = 3) -> tuple[np.ndarray, float, dict, list[dict]]:
+                 seed: int = 0, eta: int = 3, tol: float = 0.0) -> tuple[np.ndarray, float, dict, list[dict]]:
     """Stage-wise CMA-ES: gain/EQ group first, then time-based group. Budget split by dimension.
 
     Returns (best values, best score, best terms, per-stage log). Spends at most ~render_cap
     full-render equivalents on top of what `ev.spent` already holds.
+
+    `tol` (T176, parameter units, e.g. 0.15 on a 0..1 knob; 0 = off, the old behaviour) stops a stage early
+    when the knobs are inside the tolerance the ear can tell apart: (a) the CMA-ES step size on every free knob
+    (`sigma * sqrt(C_ii)` times the knob range) is below `tol` after at least `TOL_MIN_GENS` generations, or
+    (b) `TOL_QUIET` successive improvements each moved every knob of the stage by less than `tol`.
+    `tol` may be a `search.knob_tol.KnobTol`: then each knob has its own tolerance (T178).
+    The stage log carries `stop` ("sigma", "quiet" or None). Unspent renders are left to the caller.
     """
     space, plan = ev.space, ev.plan
     start_spent = ev.spent
@@ -134,9 +143,13 @@ def refine_chain(ev: Evaluator, x0_values: np.ndarray, render_cap: float, sigma0
         u0 = space.to_unit(best)[idx]
         es = CMAES(u0, sigma0=sigma0, popsize=max(plan.popsize if n > 8 else 4 + int(3 * math.log(max(n, 2))),
                                                   plan.parallelism), seed=seed + si)
+        prev_best = best.copy()
         gens, stage_start = 0, ev.spent
         stage_best_f = best_f
-        while not ev.exhausted(stage_end):
+        rng_idx = np.maximum((space.hi - space.lo)[idx], 1e-12)
+        vec = getattr(tol, "vector", None)       # T178: a KnobTol gives a tolerance per knob
+        stop, quiet = None, 0
+        while not ev.exhausted(stage_end) and stop is None:
             xs = es.ask()
             vecs = []
             for x in xs:
@@ -163,11 +176,26 @@ def refine_chain(ev: Evaluator, x0_values: np.ndarray, render_cap: float, sigma0
                 scores = {i: res[i] for i in range(len(vecs))}
             es.tell(xs, order_f)
             gens += 1
+            improved_to = None
             for i, (f, t) in scores.items():
                 if f < best_f:
                     best_f, best_terms, best = f, t, vecs[i]
+                    improved_to = vecs[i]
+            if tol > 0:
+                if improved_to is not None:
+                    tv = vec(space, idx, improved_to) if vec else np.full(len(idx), float(tol))
+                    moved = float(np.max(np.abs(improved_to[idx] - prev_best[idx]) / tv))
+                    quiet = quiet + 1 if moved < 1.0 else 0
+                    prev_best = np.asarray(improved_to, float).copy()
+                step = es.sigma * np.sqrt(np.diag(es.C)) * rng_idx
+                tv = vec(space, idx, best) if vec else np.full(len(idx), float(tol))
+                if gens >= TOL_MIN_GENS and float(np.max(step / tv)) < 1.0:
+                    stop = "sigma"
+                elif quiet >= TOL_QUIET:
+                    stop = "quiet"
         log.append({"stage": si, "params": [space.refs[j] for j in idx], "generations": gens,
-                    "renders": round(ev.spent - stage_start, 2), "score_in": stage_best_f, "score_out": best_f})
+                    "renders": round(ev.spent - stage_start, 2), "score_in": stage_best_f, "score_out": best_f,
+                    "stop": stop})
     return best, best_f, best_terms, log
 
 

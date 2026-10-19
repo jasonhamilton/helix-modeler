@@ -956,6 +956,7 @@ class StompEngine:
             raise EngineError(f"{ENV_TEMPLATES} must be auto or off, got {tmode!r}")
         self.template_mode = tmode
         self.templates_captured: list[str] = []
+        self.putbacks_skipped = 0   # T168: capture put-backs left out before a whole load
         # T111: whole writes for in-place changes on delay/reverb blocks.
         self.ambient_inplace = os.environ.get(ENV_AMBIENT_INPLACE, "") == "1"
         self.ambient_whole = 0
@@ -1109,7 +1110,7 @@ class StompEngine:
     def _load_whole(self, preset, t_start: float) -> None:
         """Compile the preset onto a backup of the current edit buffer and write it whole (op 21,
         edit buffer only). See the module docstring."""
-        self._ensure_templates(preset)
+        self._ensure_templates(preset, followed_by_load=True)
         before = _block_slots(self.chain)
         hlx_dict = reamp_hlx_dict(preset, self.cal.input_usb56, sync_snapshots=False)
         synced = snapshot_conflicts(hlx_dict)
@@ -1273,28 +1274,57 @@ class StompEngine:
                 out.append((s.model_id, cab))
         return out
 
-    def _ensure_templates(self, preset) -> None:
+    def _ensure_templates(self, preset, followed_by_load: bool = False) -> None:
         if self.template_mode == "off" or self._custom_compiler:
             return
         need = self.needed_templates(preset)
         if need:
-            self.capture_templates(need)
+            self.capture_templates(need, then_load=preset if followed_by_load else None)
 
-    def capture_templates(self, models: list[tuple[str, str | None]]) -> dict:
+    def _capture_pos(self) -> int:
+        blocks = sorted(p for p in _block_slots(self.chain) if p < 10)
+        return blocks[0] if blocks else 1
+
+    def put_back_needed(self, preset, pos: int) -> bool:
+        """T168: whether a capture at slot ``pos`` must put the buffer back before the whole-preset
+        load of ``preset``. Not needed when that load rebuilds the slot (another model) or empties
+        it: the compiled document is then the same whichever base it starts from. Needed when the
+        preset keeps the slot's current model there (the base must hold the device's own block)."""
+        cur = _block_slots(self.chain).get(pos) or {}
+        if not cur.get("model_id"):
+            return False
+        by_key = {s.key: s for s in preset.slots if s.key}
+        for s in _main_blocks(preset):
+            if s.position is None or device_pos(int(s.extra.get("@path", 0)), s.position) != pos:
+                continue
+            link = s.extra.get("@cab")
+            cab = by_key[link].model_id if link in by_key else None
+            if s.model_id == cur.get("model_id") and cab == cur.get("paired_id"):
+                return True
+        return False
+
+    def capture_templates(self, models: list[tuple[str, str | None]], then_load=None) -> dict:
         """Let the device build each (model, cab) itself: back the edit buffer up, issue the `model`
         command on a Path A block slot, back the buffer up again as the template, and finally write
         the first backup back (the device's own document, same session) and check the chain
-        signature. A model the device refuses is recorded and raised as ModelRefused."""
+        signature. A model the device refuses is recorded and raised as ModelRefused.
+
+        ``then_load`` (T168, approved by the human 2026-10-18): the preset whose whole-preset load
+        follows at once. When that load overwrites the capture slot anyway (``put_back_needed``
+        false) the put-back write is skipped: one op-21 write fewer, and no op-21 straight after a
+        model change, the sequence behind both wedges of 2026-10-18. On any error the buffer is
+        still put back. ``putbacks_skipped`` counts the skips."""
         d = self._template_dir()
         d.mkdir(parents=True, exist_ok=True)
         idx = self._template_index()
         self._refresh()
         before = chain_signature(self.chain)
-        blocks = sorted(p for p in _block_slots(self.chain) if p < 10)
-        pos = blocks[0] if blocks else 1
+        pos = self._capture_pos()
+        skip_put_back = then_load is not None and not self.put_back_needed(then_load, pos)
         keep = Path(self.session_dir) / f"template_keep_{os.getpid()}.bin"
         self.bridge.call("backup", path=str(keep))
         refused, got = [], {}
+        ok = False
         try:
             for model, cab in models:
                 k = template_key(model, cab)
@@ -1321,13 +1351,20 @@ class StompEngine:
                                     "captured_utc": dt.datetime.now(dt.UTC).isoformat(timespec="seconds")}
                 got[k] = name
                 self.templates_captured.append(k)
+            ok = True
         finally:
             self._save_template_index(idx)
-            self.bridge.call("restore", path=str(keep), timeout_s=30)
-            self._refresh()
-            keep.unlink(missing_ok=True)
-            if chain_signature(self.chain) != before:
-                raise EngineError("template capture: the edit buffer did not return to its state")
+            if skip_put_back and ok and not refused:
+                # The whole-preset load that follows rebuilds this slot; self.chain still shows
+                # the buffer as it was before the capture, which is what that load compares with.
+                self.putbacks_skipped += 1
+                keep.unlink(missing_ok=True)
+            else:
+                self.bridge.call("restore", path=str(keep), timeout_s=30)
+                self._refresh()
+                keep.unlink(missing_ok=True)
+                if chain_signature(self.chain) != before:
+                    raise EngineError("template capture: the edit buffer did not return to its state")
         if refused:
             raise ModelRefused(f"the device refuses {refused} on its own model command")
         return got

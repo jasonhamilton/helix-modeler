@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from tonematch import catalog as C
+from tonematch import cli_result
 from tonematch import preset as P
 
 
@@ -30,7 +31,12 @@ def main(argv=None) -> int:
     ap.add_argument("--keep-snapshot-values", action="store_true",
                     help="accept snapshot-controlled (@controller 9) parameters that vary by snapshot")
     ap.add_argument("--no-report", action="store_true")
+    cli_result.add_result_arg(ap)
     a = ap.parse_args(argv)
+    return cli_result.run(a, tool="hlx_validate", body=lambda res: _run(a, res), inputs={"preset": a.preset})
+
+
+def _run(a, res) -> int:
     cache = Path(a.cache_dir) if a.cache_dir else C.default_cache_dir()
     try:
         cat = C.load_catalog("current", cache)
@@ -75,6 +81,11 @@ def main(argv=None) -> int:
     print(text)
     if not a.no_report:
         Path(a.preset).with_suffix(".validate.md").write_text(text + "\n", encoding="utf-8")
+        res.outputs["report_md"] = Path(a.preset).with_suffix(".validate.md")
+    res.metrics.update({"result": "FAIL" if nfail else "ok", "n_fail": nfail,
+                        "n_warn": sum(v.severity == "warn" for v in viol),
+                        "device_version": f"{pre.device_version:#x}", "blocks": len(pre.blocks()),
+                        "findings": [str(v) for v in viol]})
     return 1 if nfail else 0
 
 

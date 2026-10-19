@@ -18,6 +18,9 @@ import sys
 from importlib import metadata
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from tonematch import cli_result
+
 PEDALBOARD_HOST = "src/tonematch/engines/native_host.py"
 BOUNDARY_DECLARED_IN = "src/tonematch/engines/native.py"
 SKIP_DIRS = {".venv", ".git", "cache", "__pycache__", ".ruff_cache", ".pytest_cache", "node_modules"}
@@ -269,13 +272,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     ap.add_argument("--date", default=dt.date.today().isoformat())
     ap.add_argument("--no-write", action="store_true")
+    cli_result.add_result_arg(ap)
     a = ap.parse_args(argv)
+    return cli_result.run(a, tool="licence_check", body=lambda res: _run(a, res))
+
+
+def _run(a, res) -> int:
     text, failed = build_report(a.root, a.date)
     if not a.no_write:
         path = a.root / "reviews" / f"licence-{a.date}.md"
         path.parent.mkdir(exist_ok=True)
         path.write_text(text, encoding="utf-8")
         print(f"wrote {path}")
+        res.outputs["report_md"] = path
+    sections = dict(re.findall(r"^## (.+?): (PASS|WARN|FAIL)$", text, re.M))
+    res.metrics.update({"overall": "FAIL" if failed else "PASS", "sections": sections,
+                        "n_dependencies": max(0, len([ln for ln in text.split("| Name | Version | Licence |")[-1].splitlines()
+                                                      if ln.startswith("| ")]) - 1)})
     print("FAIL" if failed else "PASS")
     return 1 if failed else 0
 
