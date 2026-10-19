@@ -32,3 +32,20 @@ For each trial: rate A and B from 1 (not close) to 5 (indistinguishable from the
 - Sanity and retest consistency come from the standard report.
 
 The ear is the judge. Nothing here is a score, and the result adopts nothing.
+
+## Results (answered 2026-10-19T16:58Z; scored by `ab_session.py rating-score human-ratings-v5`; ledger ab-human-ratings-v5)
+
+A measurement only: nothing is admitted.
+
+- **Answers:** 28 of 28; 21 decided, 5 ties.
+- **Sanity:** the target copy was picked; the near-identical pair was called a tie; both retests were consistent.
+- **AFx-ordered pick vs the other pick:**
+  - judged closer on 18, against 3 the other way, with 5 ties (86%, p = 0.001);
+  - blind 14 vs 2 (p = 0.004);
+  - same player 4 vs 1;
+  - Guitar-TECHS DIs 12 vs 0; the human's own takes 6 vs 3.
+- **Mean rating (1–5):**
+  - AFx pick 4.04 vs provisional pick 2.78; blind 4.00 vs 2.53;
+  - right model 4.55 vs wrong model 3.11.
+- **Scores:** on these same-performance trials most scores agree with the human (texmod 21/21; embed_afxrep, mrstft_v2, provisional_kit, ltas_eqfit and mmd_cep 20/21). This is expected when target and candidates share the DI; it is not evidence for the blind case.
+- **Reading:** the human's ear confirms [T185](../../board/TASKS.md#t185 "Larger no-DI drive e2e measurement"). In blind matching, AFx-Rep ordering gives picks the human hears as clearly closer than the provisional score's picks.

@@ -31,3 +31,28 @@ Gate 2 has no evidence. No loss term is admitted. Nothing has been judged by ear
 Blocked on the human: three Native chain captures (A_clean, B_crunch, C_highgain), a reference DI set, the AFx-Rep checkpoint go, a real song for separation, EULA reading ([T017](./TASKS.md#t017 "Read the EULA shipped with the Native and HX Edit installers")), the [T018](./TASKS.md#t018 "Spike: emit .hlx with knob/switch assignments pre-written so a new…") spike go, firmware decision ([T020a](./TASKS.md#t020a "Stomp firmware 3.50 vs 3.80")), project licence.
 Next: capture templates, then render synthetic-v1 and run the real Helix loss-trust check; freeze Gate 2 thresholds after baselines.
 Living doc not synced.
+
+
+## 2026-10-18 to 2026-10-19: distortion-first round (mode 2)
+
+- **Human directions.** Distortion pedals only, from first principles. Model and method decisions go through the human (CLAUDE.md). New Gate 3, blind single-block; real pedals is now Gate 4 and real songs Gate 5.
+- **Shipped:**
+  - the Stomp USB freeze fix ([T168](./TASKS.md#t168 "TOP PRIORITY (human 2026-10-18 \"fix the stomp freezing issue"));
+  - distortion research ([T167](./TASKS.md#t167 "TOP PRIORITY (human 2026-10-18)")) and the fingerprint probe on all 60 drives, with tone ends, measured families and the real-guitar test ([T171](./TASKS.md#t171 "Distortion identification steps 0 and 1")–[T174](./TASKS.md#t174 "Distortion measurement step 3"), [T179](./TASKS.md#t179 "Tone-knob ends at 0/0.1/0.9/1 on all drive models")–[T181](./TASKS.md#t181 "Step 4: identify model and settings from real guitar takes at random…"));
+  - rating sessions v2–v5 ([T170](./TASKS.md#t170 "Human rating session"), [T177](./TASKS.md#t177 "Rating session v4: about 20 trials on near-twin models and large knob…"), [T188](./TASKS.md#t188 "Rating session v5: blind predictions re-rendered on the target's own…"));
+  - no-DI drive matching measured at scale ([T183](./TASKS.md#t183 "End-to-end check of no-DI drive matching"), [T185](./TASKS.md#t185 "Larger no-DI drive e2e measurement")): AFx-Rep final ordering gives blind top-1 39% vs 10%, and the human's v5 ratings agree (18 vs 3);
+  - predictor pilots v0 and v1 ([T186](./TASKS.md#t186 "Predictor pilot v0, drive only, on renders on disk"), [T189](./TASKS.md#t189 "Drive predictor pilot v1"));
+  - measured-pedal mode prepared ([T187](./TASKS.md#t187 "Measured-pedal mode preparation"));
+  - the AFx-Rep licence trail ([T190](./TASKS.md#t190 "AFx-Rep licence and alternatives, 12-hour run, research only"));
+  - CLI tools reference and result manifests ([T172](./TASKS.md#t172 "Command-line tools reference + agent-readable results"));
+  - the overnight dataset job ([T191](./TASKS.md#t191 "Unattended overnight drive dataset render")).
+- **Blocked on the human:**
+  - AFx-Rep final ranking as default;
+  - a first measured-pedal session;
+  - dropping families and the output-only fingerprint route;
+  - testing PANNs/DAC;
+  - the P3 reserve;
+  - disk clean-up;
+  - the [T191](./TASKS.md#t191 "Unattended overnight drive dataset render") batch renders, which the human runs.
+- **Next:** read the [T191](./TASKS.md#t191 "Unattended overnight drive dataset render") summaries (50k vs 100k) and propose the predictor direction.
+- **Living doc:** not synced.

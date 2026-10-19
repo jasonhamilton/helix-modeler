@@ -1,12 +1,12 @@
 # Command-line tools
 
-Reference for the scripts in `scripts/` (122 Python files, 1 shell driver, 1 README), written for a person who wants to run a tool on their own and for an agent that is handed the result. Written for [T172](../board/TASKS.md#t172 "Command-line tools reference + agent-readable results") (2026-10-18, `platform`). Every flag in an example was checked against the tool's `--help` (and `tests/test_tools_doc.py` re-checks them against the source).
+Reference for the scripts in `scripts/` (123 Python files, 2 shell drivers, 1 README), written for a person who wants to run a tool on their own and for an agent that is handed the result. Written for [T172](../board/TASKS.md#t172 "Command-line tools reference + agent-readable results") (2026-10-18, `platform`). Every flag in an example was checked against the tool's `--help` (and `tests/test_tools_doc.py` re-checks them against the source).
 
-How the 120 scripts split:
+How the 123 scripts split:
 
 | Class | Count | Meaning |
 |---|---|---|
-| user-runnable | 67 | A person can run it for a useful result. Documented in full below. |
+| user-runnable | 68 | A person can run it for a useful result. Documented in full below. |
 | internal | 19 | A helper that other tools call, a library with a thin command line, or bookkeeping. One line each at the end. |
 | historical spike | 36 | A one-off experiment or live check, kept for the record. One line each at the end. |
 
@@ -1134,6 +1134,24 @@ for s in 0 1 2; do .venv/bin/python scripts/nodi_drive_e2e_v2.py run --shard $s/
 ```
 
 **Safety.** Native only, no pedal, no song audio. At most 2 Native hosts. The target clips are deleted by `clean`. Run `scripts/proc_check.py` before and after.
+
+### `drive_dataset_render.py` and `overnight_drive.sh` (T191, learning; measurement only)
+
+Unattended single-drive dataset render on Helix Native plus a retrain of the T189 predictor heads. Every searchable drive model (minus the six flagged fuzzes) x random knob settings (CC grid, level knobs at default) x random 10 s excerpts with real playing from the Guitar-TECHS P1/P2 DI files; P3 is never read. Split by whole DI file: `test` (about 20 % of the files, never used by T186/T189), `v1test` (the T186/T189 test files, evaluation only), `cal`, `train`. Features only (frozen AFx-Rep `mid`: 6 s centre crop + three 3.33 s crops, float16); the audio is dropped.
+
+- `plan` (seeded; `--target` cap, default 60,000; `--hours`, `--hosts`, `--sec-per-clip` size the plan; `--limit` for a shakedown) writes `cache/drive-dataset-v1/plan.json`.
+- `render` is an elastic job: a supervisor asks the host scaler for at most 4 hosts (`--hosts`); each worker claims a 100-clip shard, pauses while the 1-minute load is above `--max-load` (9), stops cleanly when free disk is below `--min-free-gb` (8.5) or `--hours` elapse. Shards in `shards/` (`<id>.single.npy`, `<id>.crops.npy`, `<id>.labels.jsonl`, then `<id>.json` last); a rerun resumes. A failed or silent render is retried once, then skipped and logged in the shard JSON. SIGTERM: the current shard finishes and the hosts close.
+- `train` retrains logistic + MLP heads (multi-crop) on T186 train (`v1data`) and on T186 train + new train (`v2data`); evaluates on the T186/T189 test split, the new held-out files and new renders on the v1 test files, within player and across players. Writes `summary.json`, `summary.md`, checkpoints in `cache/models/predictor-dataset-v1/`, and `benchmark / - / predictor-dataset-v1` ledger rows (`--no-ledger` to skip; a `--limit` run never writes them).
+- `all`: plan if needed, render, train, then `proc_check.py --kill`. `scripts/overnight_drive.sh` starts `all` with nohup, nice 10 and `caffeinate -i`, logging to `cache/drive-dataset-v1/run.log`, and prints the PID.
+
+```bash
+scripts/overnight_drive.sh
+cat cache/drive-dataset-v1/progress.json
+.venv/bin/python scripts/drive_dataset_render.py all --out /tmp/dd-shake --limit 40 --hours 0.1 --old-limit 1500 --epochs 5 --seeds 1
+.venv/bin/python scripts/drive_dataset_render.py train --no-ledger
+```
+
+**Safety.** Native only, no pedal, no song audio, P3 never read. At most 4 hosts, load guard 9, disk floor 8.5 GB. Stop with `kill <PID>` (never a pattern kill); run `scripts/proc_check.py` afterwards. Docs: `docs/notes/drive-dataset-v1.md`.
 
 ## Internal helpers
 

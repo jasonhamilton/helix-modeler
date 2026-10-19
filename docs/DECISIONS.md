@@ -2472,3 +2472,33 @@ The learning agent stalled after writing docs/notes/predictor-pilot-v1.md. Its l
   - DI diversity, P1 especially, as the limit for a new player.
 
 — lead
+
+## 2026-10-19 (human): build an unattended overnight drive dataset render plus predictor retrain
+
+**Approval.** The lead offered to build a render-and-train job the human can start alone for about 20 hours while agents are offline. The human answered **"yes"**.
+- **T191, learning:** `scripts/drive_dataset_render.py` plus one driver command.
+  - Random single-drive settings across many Guitar-TECHS P1/P2 DI files; P3 untouched; no song audio.
+  - Features only; resumable.
+  - Pauses when load is above 9 and stops before free disk reaches 8 GB.
+  - Then retrains and evaluates the pilot-v1 heads on the larger set, and writes a summary file.
+- **A measurement only.** Nothing is adopted. The checkpoints stay local in cache/.
+
+— lead
+
+## 2026-10-19 (learning, T191): drive-dataset-v1 built; the human starts it (measurement only, nothing adopted)
+
+- **Tool.** `scripts/drive_dataset_render.py` (`plan`, `render`, `train`, `all`) and `scripts/overnight_drive.sh`. Notes and commands are in docs/notes/drive-dataset-v1.md.
+- **Plan (seed 191).** 60,000 clips (the default cap; 18 h at 4 hosts would fit about 305,000).
+  - 54 drive models: the six T181 fuzzes are excluded. Knobs are uniform on the CC grid; level-type knobs stay at their default.
+  - Random 10 s active excerpts from all 92 Guitar-TECHS P1/P2 files. P3 is never read.
+- **Split by whole file.**
+  - test: 18 files, drawn only from files T186/T189 never used, 9 per player.
+  - v1test: the 29 T186/T189 test files, rendered for evaluation only and never trained on.
+  - cal: the 5 T186/T189 calibration files.
+  - train: the other 40 files.
+  - Why: the new held-out files and the v1 test split both stay clean, so results compare with v1.
+- **Retrain.** v1data (the T186 train set only) against v2data (T186 train plus the new train renders). Logreg and MLP, multi-crop, T189 calibration. Within player and across players, each on three evaluation sets. The train step writes `benchmark / - / predictor-dataset-v1` rows.
+- **Guards.** At most 4 hosts through the scaler; pause above load 9; stop below 8.5 GB free or after `--hours`. Resumable by shard. SIGTERM finishes the current shard. One retry, then skip and log.
+- **Shakedown.** 40 clips real, 0 failed, about 0.49 s per clip per host; train ran end to end; SIGTERM stop was clean; proc_check showed no orphans; output deleted. Disk use for 60,000 clips is about 0.3 GB.
+
+— learning

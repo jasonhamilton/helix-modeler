@@ -1,0 +1,247 @@
+{
+ "actions": {
+  "choose-songs": {
+   "group": "soon",
+   "title": "Choose the first real songs for local testing"
+  },
+  "commit-push": {
+   "group": "soon",
+   "title": "Decide whether to commit and push the accumulated work"
+  },
+  "discogs-terms": {
+   "group": "later",
+   "title": "Read the Discogs terms if Discogs is wanted as a second source"
+  },
+  "hx-edit-import": {
+   "group": "later",
+   "title": "Open newly generated presets in HX Edit and report errors"
+  },
+  "licence-agreements": {
+   "group": "later",
+   "title": "Record what the Line 6 licence agreements say about training and automation"
+  },
+  "licence-copyright": {
+   "group": "later",
+   "title": "Confirm the copyright line in the project licence"
+  },
+  "other-os": {
+   "group": "later",
+   "title": "Provide a Windows and a Linux machine, or accept macOS only"
+  },
+  "pedal-delay-check": {
+   "group": "later",
+   "title": "Check the delay settings on the pedal after loading a regenerated preset"
+  },
+  "play-along": {
+   "group": "soon",
+   "title": "Record the play-along takes and report what happened"
+  },
+  "signoff-gate2": {
+   "group": "blocking",
+   "title": "Sign Gate 2, or decline to"
+  },
+  "song-list": {
+   "group": "soon",
+   "title": "Provide about 130 songs with known artist and title for the song-context test"
+  }
+ },
+ "biggest_problem": "Delay is the weakest effect: 5 of 12 exact models on the sealed set",
+ "capabilities": {
+  "missing": [
+   "A specialist for each effect family",
+   "Learned predictor for good starting points",
+   "Look up song context",
+   "Pass the known-answer test (Gate 2)",
+   "Pedal control on Windows or Linux",
+   "Produce up to three tone snapshots from one song",
+   "Run blind listening sessions",
+   "Stereo blocks and dual cabinets in Native",
+   "Turn a song into a pedal-verified preset with one command"
+  ],
+  "unproven": [
+   "Build a whole chain from analysis",
+   "Choose a clean reference guitar recording",
+   "Detect which kinds of block a tone contains",
+   "Estimate a cabinet by deconvolution",
+   "Isolate the guitar from a full mix",
+   "Judge tone similarity reliably",
+   "Measure each block's behaviour with a test signal",
+   "Pedal renders are sample-stable and settings land exactly",
+   "Pick a preset that matches a recorded tone",
+   "Predict typical chain order",
+   "Record the player's own guitar alongside the song",
+   "Render a chain one block at a time",
+   "Search for blocks and settings"
+  ],
+  "verified": [
+   "Catch a mismatch between what was written and what the pedal holds",
+   "Control Helix Native from code",
+   "Control the HX Stomp from code and restore it",
+   "Hold the pedal's effect models in Native as single-block templates",
+   "Native and the pedal agree on simple presets",
+   "Native applies the requested settings exactly and repeats renders",
+   "Native stands in for the pedal on most effect types",
+   "Read, write and check preset files",
+   "Render two variants in one pedal pass",
+   "Restore the pedal after a session, judged by decoded equality"
+  ]
+ },
+ "components": {
+  "engines": {
+   "name": "Sound engines: Helix Native and the HX Stomp pedal",
+   "status": "Working"
+  },
+  "foundations": {
+   "name": "Foundations: installation, licensing and the working process",
+   "status": "Working"
+  },
+  "judging": {
+   "name": "Judging tone similarity: comparison measures and block measuring",
+   "status": "Partially Working"
+  },
+  "learning": {
+   "name": "Learning from data",
+   "status": "Not Started"
+  },
+  "prep": {
+   "name": "Preparing the song: guitar isolation and a clean reference guitar",
+   "status": "Partially Working"
+  },
+  "presets": {
+   "name": "Preset files and the block catalog",
+   "status": "Partially Working"
+  },
+  "searching": {
+   "name": "Searching for the preset and the song-to-preset pipeline",
+   "status": "Partially Working"
+  },
+  "testing": {
+   "name": "Testing, benchmarks and listening",
+   "status": "Partially Working"
+  }
+ },
+ "date": "2026-10-19",
+ "features": {
+  "block-probe": "prototype",
+  "cab-estimation": "prototype",
+  "chain-builder": "prototype",
+  "dry-signal": "prototype",
+  "engine-interface": "working",
+  "evaluation": "prototype",
+  "family-specialists": "working",
+  "learning": "not-started",
+  "licensing": "working",
+  "listening": "prototype",
+  "loss-kit": "working",
+  "native-engine": "working",
+  "pipeline": "prototype",
+  "platform": "prototype",
+  "presence": "prototype",
+  "preset": "working",
+  "process": "working",
+  "search": "prototype",
+  "separation": "prototype",
+  "stomp-engine": "working"
+ },
+ "health": "At Risk",
+ "issues": {
+  "board-hygiene": {
+   "classification": "Confirmed Problem",
+   "priority": "Low",
+   "title": "A few task-board lines are stale"
+  },
+  "cab-reflections-mismatch": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "The pedal and Native disagree on one cabinet setting"
+  },
+  "chain-builder-unproven": {
+   "classification": "Unknown/Unverified",
+   "priority": "Medium",
+   "title": "Building whole chains from single blocks is not yet shown to work"
+  },
+  "delay-model-accuracy": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "Delay is the weakest effect: 5 of 12 exact models on the sealed set"
+  },
+  "eula-findings-unrecorded": {
+   "classification": "Unknown/Unverified",
+   "priority": "Low",
+   "title": "What the Line 6 licence agreements allow for training is not recorded"
+  },
+  "native-coverage-gaps": {
+   "classification": "Risk",
+   "priority": "Medium",
+   "title": "The software engine cannot stand in for every pedal effect"
+  },
+  "native-verification-misses": {
+   "classification": "Confirmed Problem",
+   "priority": "Medium",
+   "title": "Native verification leaves recorded misses that are explained, not fixed"
+  },
+  "no-blind-listening": {
+   "classification": "Unknown/Unverified",
+   "priority": "Medium",
+   "title": "No blind listening has happened (the tool is now built)"
+  },
+  "separation-unmeasured": {
+   "classification": "Unknown/Unverified",
+   "priority": "High",
+   "title": "Guitar separation quality on real songs is unknown"
+  },
+  "single-platform-unpublished-helper": {
+   "classification": "Risk",
+   "priority": "Medium",
+   "title": "Everything is verified on one computer, one pedal firmware, with a private helper"
+  },
+  "stomp-results-not-countable": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "No pedal measurement counts until the sampling defects are handled"
+  },
+  "tone-comparison-known-di-only": {
+   "classification": "Risk",
+   "priority": "High",
+   "title": "The tone comparison is only admitted when the clean recording is known"
+  }
+ },
+ "ledger_rows": 1677,
+ "milestones": {
+  "Gate 1": {
+   "done": 4,
+   "signed": true,
+   "state": "Complete",
+   "total": 4
+  },
+  "Gate 2": {
+   "done": 3,
+   "signed": false,
+   "state": "At Risk",
+   "total": 3
+  },
+  "Gate 3": {
+   "done": 0,
+   "signed": false,
+   "state": "Not Started",
+   "total": 4
+  },
+  "Gate 4": {
+   "done": 0,
+   "signed": false,
+   "state": "Not Started",
+   "total": 4
+  },
+  "Gate 5": {
+   "done": 1,
+   "signed": false,
+   "state": "In Progress",
+   "total": 3
+  }
+ },
+ "readiness": "Prototype",
+ "schema": "tonematch.status-snapshot",
+ "tasks_done": 142,
+ "technical": "Advancing",
+ "version": 1
+}
