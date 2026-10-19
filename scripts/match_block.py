@@ -199,6 +199,17 @@ def final_check(engine, blocks: dict, rows: list[dict], section, kit, top: int, 
     return out
 
 
+def rank_by_afxrep(final: list[dict], ranked: list[dict]) -> list[dict]:
+    """T185 option `--final-rank afxrep`: the final models in AFx-Rep order (nearest first). Each row keeps its provisional
+    `loss`; `provisional_rank` records where the re-score had put it. A model AFx-Rep did not rank goes last, by its loss."""
+    order = {r["model"]: i for i, r in enumerate(ranked)}
+    prov = {d["model"]: i + 1 for i, d in enumerate(final)}
+    out = sorted(final, key=lambda d: (order.get(d["model"], len(order)), d["loss"]))
+    for d in out:
+        d["provisional_rank"] = prov[d["model"]]
+    return out
+
+
 def reference_scores(engine, winner: dict, section, kit) -> dict:
     """Raw-DI baseline (provisional loss) and the winner's mrstft_v2 + level_db (reference only, unadmitted here)."""
     from tonematch.metrics import LossKit
@@ -481,7 +492,8 @@ def write_outputs(out: Path, ctx: dict) -> None:
              f"{ctx['search_clip']:.0f} s, final check on the full {ctx['window']['dur_s']:.0f} s with stems and mask; "
              f"specialists: {', '.join(ctx['specialists']) or 'none'}",
              f"- parameters: continuous, CC-verified, `Level`/`ChVol` and power-supply minutiae fixed (as in the Gate 2 pool)", "",
-             f"## Top {len(top)} models (final check, full excerpt)", ""] + table_rows(top, ctx["blocks"]) + [
+             f"## Top {len(top)} models (final check, full excerpt"
+             + ("; ordered by AFx-Rep distance, losses shown for information" if ctx.get("final_rank") == "afxrep" else "") + ")", ""] + table_rows(top, ctx["blocks"]) + [
              "", f"Raw DI, no block: **{ref['dry_loss']:.4f}** (same loss, same excerpt).",
              f"The previous amp/cab winner (EssexA15 + 1x12 BlueBell, `cache/matches/Mother-0-68s/report.md`): **{ctx['amp_cab_loss']}**. "
              "Losses on different candidate sets are only roughly comparable (different free parameters, the amp/cab run used the "
@@ -515,7 +527,7 @@ def write_outputs(out: Path, ctx: dict) -> None:
     (out / "result.json").write_text(json.dumps({
         "label": LABEL, "window": ctx["window"], "reference": ref, "wall_s": ctx["wall_s"], "renders": ctx["renders"],
         "workers": ctx["workers"], "n_models": ctx["n_models"], "pack": pack,
-        "knob_path": ctx.get("knob_path"), "shortlist": ctx.get("shortlist"),
+        "knob_path": ctx.get("knob_path"), "final_rank": ctx.get("final_rank", "provisional"), "shortlist": ctx.get("shortlist"),
         "low_confidence": ctx.get("knob_path") == "coarse_grid",
         "finals": [{k: v for k, v in d.items() if k not in ("preset", "y")} for d in final]}, default=MS.jsonable, indent=1))
 
@@ -562,6 +574,9 @@ def parse(argv=None):
     ap.add_argument("--second-choice", type=float, default=None, metavar="CONF",
                     help="with --shortlist: also add the second-choice family of every shortlisted model whose member_confidence "
                          "in the families file is below CONF (T183 test setting)")
+    ap.add_argument("--final-rank", choices=["provisional", "afxrep"], default="provisional",
+                    help="with --shortlist: order the final models by the provisional re-score (default) or by AFx-Rep order "
+                         "(T183 proposal, T185 test; the re-score is still computed and kept in each row)")
     ap.add_argument("--lean", action="store_true", help="skip the listening pack (batch runs, no audio kept)")
     ap.add_argument("--only-models", help=argparse.SUPPRESS)
     ap.add_argument("--specialists", nargs="*", default=["gain"], help="families; empty for none")
@@ -687,6 +702,11 @@ def run(args, engine=None, rows_by_shard=None) -> int:
     try:
         final = final_check(engine, blocks, [r for r in rows if r["refined"] is not None] or rows, section, kit,
                             args.final_top, log)
+        if getattr(args, "final_rank", "provisional") == "afxrep":
+            if not sl or not sl.get("ranked"):
+                raise SystemExit("--final-rank afxrep needs --shortlist afxrep")
+            final = rank_by_afxrep(final, sl["ranked"])
+            log("final order: AFx-Rep (the provisional re-score is kept in each row)")
         ref = reference_scores(engine, final[0], section, kit)
         if args.progress_dir:
             ProgressWriter(args.progress_dir, blocks, args.category, args.preset_name, log=log,
@@ -697,7 +717,7 @@ def run(args, engine=None, rows_by_shard=None) -> int:
                "renders": renders + getattr(engine, "renders", 0), "wall_s": time.time() - t0, "wall_min": args.wall_min,
                "n_models": len(pool), "knob_tol": args.knob_tol, "hybrid_f": args.hybrid_f, "hybrid_scale": args.hybrid_scale, "k": args.k,
                "search_clip": args.search_clip, "specialists": args.specialists, "level_tol_db": args.level_tol_db,
-               "level_slope": args.level_slope, "shortlist": sl, "knob_path": path, "aligned": _ALIGNED, "amp_cab_loss": args.amp_cab_loss, "preset_name": args.preset_name, "lean": args.lean}
+               "level_slope": args.level_slope, "shortlist": sl, "knob_path": path, "final_rank": getattr(args, "final_rank", "provisional"), "aligned": _ALIGNED, "amp_cab_loss": args.amp_cab_loss, "preset_name": args.preset_name, "lean": args.lean}
         write_outputs(out, ctx)
         log(f"done: {ctx['wall_s']:.0f} s; report {out / 'report.md'}")
         return 0

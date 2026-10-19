@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3]
-FAMILIES_PATH = ROOT / "data" / "drive-families-v1.json"
+FAMILIES_PATH = ROOT / "cache" / "drive-maps" / "drive-families-v1.json"
 COARSE_DRIVE = (0.2, 0.5, 0.85)
 COARSE_TONE = (0.3, 0.7)
 INVERSION_MODULE = "tonematch.metrics.distortion_step4"     # T181 interface: estimate_knobs(target, di, models) -> {model: {knob: value}}

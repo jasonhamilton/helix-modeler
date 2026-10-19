@@ -1,14 +1,14 @@
 # Command-line tools
 
-Reference for the scripts in `scripts/` (113 Python files, 1 shell driver, 1 README), written for a person who wants to run a tool on their own and for an agent that is handed the result. Written for [T172](../board/TASKS.md#t172 "Command-line tools reference + agent-readable results") (2026-10-18, `platform`). Every flag in an example was checked against the tool's `--help` (and `tests/test_tools_doc.py` re-checks them against the source).
+Reference for the scripts in `scripts/` (122 Python files, 1 shell driver, 1 README), written for a person who wants to run a tool on their own and for an agent that is handed the result. Written for [T172](../board/TASKS.md#t172 "Command-line tools reference + agent-readable results") (2026-10-18, `platform`). Every flag in an example was checked against the tool's `--help` (and `tests/test_tools_doc.py` re-checks them against the source).
 
-How the 113 scripts split:
+How the 120 scripts split:
 
 | Class | Count | Meaning |
 |---|---|---|
-| user-runnable | 64 | A person can run it for a useful result. Documented in full below. |
-| internal | 18 | A helper that other tools call, a library with a thin command line, or bookkeeping. One line each at the end. |
-| historical spike | 31 | A one-off experiment or live check, kept for the record. One line each at the end. |
+| user-runnable | 67 | A person can run it for a useful result. Documented in full below. |
+| internal | 19 | A helper that other tools call, a library with a thin command line, or bookkeeping. One line each at the end. |
+| historical spike | 36 | A one-off experiment or live check, kept for the record. One line each at the end. |
 
 Thirteen of the user-runnable tools write a result manifest with `--result-json PATH` (see "Handing results to an agent"). The others print to stdout and write their own files; each entry says which.
 
@@ -344,6 +344,31 @@ All tools here need the HX Stomp on USB, HX Edit closed, and (macOS) Microphone 
 Reference values (Mother, 2026-10-18): take1 score 0.344, take2 0.343, take3 0.312.
 
 **Safety.** Offline, local. **Machine-readable output.** `--result-json`. `metrics`: `best_take`, `best_score`, `takes.<name>` = `{score, median_corr, lag_iqr_ms, global_lag_s, windows}`; `outputs.align_json` is the list of per-take files.
+
+### `pedal_probe.py` (result manifest: to add; owned by stomp-engine)
+
+**What it does.** [T187](../board/TASKS.md#t187 "Measured-pedal mode preparation"), measured-pedal mode, **prepared but not approved**. It fingerprints a real drive pedal with the dfp-v1 probe through the HX Stomp's FX loop (host USB out 5/6 -> Input on USB 5/6 -> FX Loop 1 -> Send L -> pedal -> Return L -> Path A -> USB in 1/2) and matches it against the 54-model Native library (dfp-v1 + tone ends).
+- `checklist` prints the human's steps (cables, knob notes, what changes on the pedal: only the edit buffer).
+- `template` builds the routing preset offline from the 04C backup and, with `--compile`, tries `stompd compile` offline. The v0 compiler refuses Send/Return blocks, so the tool loads the template **in place**: the device's own `model` command turns 04C's delay slot into FX Loop 1, the amp is bypassed, the Input is routed to USB 5/6 (`StompEngine(whole_preset="off")`), and `close()` puts the buffer back.
+- `loopback --human [--l2]`: L1, a cable from Send L to Return L, at Send -6 dB (a unity loop puts the probe's 0 dBFS sweeps at full scale). It measures the latency (3 impulses), the loop gain, its response, noise floor and linearity. `--l2` then asks for the cable from Send L to the guitar input and measures the input scale, which sets the Send so the pedal sees the probe at Native's level.
+- `capture --human --pedal NAME --setting TEXT --knob k=clock ... [--repeats N] [--noise-take]` plays the 115 s probe, trims and corrects it with the latest loopback, writes the fingerprint and prints the nearest models, families and knob readings.
+- `identify FP.npz [--noise NOISE.npz]` matches a stored fingerprint offline.
+- `selftest [--identify]` runs the whole pipeline on a fake loop and a toy pedal: no hardware.
+
+**Needs.** Hardware steps: the pedal on USB, HX Edit closed, 04C selected, `cache/stomp/latency.json` from this firmware, `TONEMATCH_STOMPD`, the human at the pedal (`--human`). Offline steps: the catalog cache and the dfp-v1 fingerprints.
+
+**Outputs.** `cache/pedal-probe/` (`template.hlx`, `loopback/<UTC>.json` + its fingerprint, `runs/` engine session backups) and `cache/distortion-fp/pedals/<pedal>/<setting>.npz` + `index.json` (dfp-v1 format, tagged `measured-pedal`, so the Helix library loader never mixes them in). No audio is kept.
+
+```bash
+.venv/bin/python scripts/pedal_probe.py checklist
+.venv/bin/python scripts/pedal_probe.py template --compile
+.venv/bin/python scripts/pedal_probe.py selftest --identify
+.venv/bin/python scripts/pedal_probe.py loopback --human --l2
+.venv/bin/python scripts/pedal_probe.py capture --human --pedal "My TS" --setting "D 2:00 T 12:00 L 10:00" --knob drive=2:00 --noise-take
+.venv/bin/python scripts/pedal_probe.py identify cache/distortion-fp/pedals/My_TS/D_2_00_T_12_00_L_10_00.npz
+```
+
+**Safety.** Hardware steps refuse to run without `--human`; they take the pedal lock, write the edit buffer only and restore it (`restore_report`). Nothing is saved on the pedal. Turn the Stomp's volume knob down: the probe reaches 0 dBFS on the main outputs. Design and simulation: `docs/notes/measured-pedal-mode.md`.
 
 ### `stomp_live_preview.py` (result manifest: to add; owned by stomp-engine)
 
@@ -1052,6 +1077,26 @@ TONEMATCH_AGENT=tone-metrics .venv/bin/python scripts/distortion_step4.py ledger
 
 ---
 
+### `pedal_probe_sim.py` (result manifest: to add; owned by stomp-engine)
+
+**What it does.** [T187](../board/TASKS.md#t187 "Measured-pedal mode preparation"), measurement only. A Native simulation of measured-pedal mode's real-world nuisances on drive identification, with 54 step-4 targets (one per model, hidden off-grid Drive/Tone) standing in for real pedals; 810 new probe renders.
+- `plan` writes the conditions: input side (rendered: probe level offsets -12 to +12 dB, a pickup-like load of 10 k to 1 M ohm, interface tilt +-2 dB/decade), output side (on the base render: noise -90/-80/-70 dBFS, tilt with and without the simulated loopback correction, 2 to 1207 samples of latency, return gain with clipping) and three combinations.
+- `run` renders 15 probe variants per target through at most 2 Native hosts and fingerprints every condition in up to 4 processes. It pauses above `--max-load` and while the disk has less than `--min-free-gb` free (it then closes its hosts). Resumes.
+- `analyse` matches every fingerprint against the library with the fixes (none, input-level search, noise mask, noise floor) and runs the leave-one-model-out test (a pedal not in the library). `ledger` appends `benchmark / native / pedal-probe-sim-v1`.
+
+**Outputs.** `cache/pedal-probe-sim/` (plan, `fp/<target>/<condition>.npz`, noise takes, runs) and `reports/local/pedal-probe-sim/` (`summary.json`, `rows.json`, `loo_rows.json`, `table.md`). No audio kept.
+
+```bash
+.venv/bin/python scripts/pedal_probe_sim.py plan
+TONEMATCH_NATIVE_PYTHON=cache/native/hostvenv/bin/python nice -n 10 .venv/bin/python scripts/pedal_probe_sim.py run --hosts 2 --workers 4 --max-load 9 --min-free-gb 8
+nice -n 10 .venv/bin/python scripts/pedal_probe_sim.py analyse --workers 4
+TONEMATCH_AGENT=stomp-engine .venv/bin/python scripts/pedal_probe_sim.py ledger
+```
+
+**Safety.** Native only, no pedal, no song audio. Run `scripts/proc_check.py` before and after.
+
+---
+
 ### `nodi_drive_e2e.py` (result manifest: to add; owned by search)
 
 **What it does.** [T183](../board/TASKS.md#t183 "End-to-end check of no-DI drive matching"), measurement only. It runs the no-DI drive matcher (`match_block.py --shortlist afxrep`) end to end on 24 held-out random single-drive targets rendered from real guitar DI excerpts, with the matcher rendering through a different DI (another player or another take).
@@ -1073,6 +1118,21 @@ nice -n 10 .venv/bin/python scripts/nodi_drive_e2e.py match --path coarse_grid -
 .venv/bin/python scripts/nodi_drive_e2e.py clean
 ```
 
+### `match_block.py --final-rank` and `nodi_drive_e2e_v2.py` (T185, measurement only)
+
+**`--final-rank provisional|afxrep`** (match_block.py, with `--shortlist afxrep`). Default `provisional`: the final models are ordered by the unadmitted re-score, as before. `afxrep` orders them by AFx-Rep distance (the T183 proposal); the re-score is still computed and kept in each row of `result.json` (`loss`, `provisional_rank`). Not a default; the human decides. Tests in `tests/test_match_block.py`. The default families file is now `cache/drive-maps/drive-families-v1.json` (the old `data/` path was stale after the lead's move).
+
+**`nodi_drive_e2e_v2.py`.** 96 held-out random drive targets (seed 185; T181 and T183 settings and excerpts excluded) from 15 real DI excerpts (5 each: Guitar-TECHS P1, P2, the human's takes). Three conditions: `blind` (the matcher's DI is another player), `same_player` (same player, other excerpt), `same_di` (the target's own DI, upper bound; the fingerprint inversion can run). Four arms: final order (provisional | AFx-Rep) x shortlist (top 8 + families + second choice | plain top 8). One job per (target, condition) renders the shared coarse grid once and scores the whole expanded shortlist once; the arms are read off afterwards.
+
+- `plan`, `render` (target audio on one host), `run --shard i/n` (one process, one Native host; pauses above `--max-load` 9; `--stop-file`), `analyse` (tables, Wilson CIs, McNemar; writes `reports/local/t185/{rows,summary,predictions}.json`), `ledger` (`search / native / nodi-drive-e2e-v2`), `clean` (deletes the target audio).
+- Set `TONEMATCH_AFXREP_DEVICE=cpu` (the script sets it by default).
+
+```bash
+.venv/bin/python scripts/nodi_drive_e2e_v2.py plan && .venv/bin/python scripts/nodi_drive_e2e_v2.py render
+for s in 0 1 2; do .venv/bin/python scripts/nodi_drive_e2e_v2.py run --shard $s/3 & done
+.venv/bin/python scripts/nodi_drive_e2e_v2.py analyse && .venv/bin/python scripts/nodi_drive_e2e_v2.py clean
+```
+
 **Safety.** Native only, no pedal, no song audio. At most 2 Native hosts. The target clips are deleted by `clean`. Run `scripts/proc_check.py` before and after.
 
 ## Internal helpers
@@ -1089,6 +1149,7 @@ Not meant to be run on their own for a result. Libraries with a thin or no comma
 | `rating_v2.py` | Library for human-ratings-v2 (hidden Helix settings over your own take); used through `ab_session.py rating-build-v2`. |
 | `rating_v3.py` | Library for human-ratings-v3 (hard pairs where the scores disagree, over your own take); used through `ab_session.py rating-build-v3`. |
 | `rating_v4.py` | Library for human-ratings-v4 (near-twin models vs large knob moves, over your own take); used through `ab_session.py rating-build-v4`. |
+| `rating_v5.py` | Library for human-ratings-v5 (T185 blind predictions re-rendered on the target's own DI: AFx-ordered pick vs provisional-ordered pick); used through `ab_session.py rating-build-v5`. |
 | `synthetic_benchmark.py` | Manifest, label generator, metrics and cost estimate behind the `synthetic-benchmark` skill; the runnable harness is `synthetic_v1.py`. |
 | `corpus_report.py` | Library for `chain_patterns.py --corpus`: corpus statistics and the README under `reports/local/preset-corpus/`. |
 | `drive_seed_eval.py` | Offline check of the drive calibration table on a dev set's saved targets (no renders). |
@@ -1106,6 +1167,11 @@ One-off experiments and live checks, kept for the record. Their findings are in 
 
 | Script | What it was |
 |---|---|
+| `predictor_pilot_v0.py` | T186 drive-only predictor pilot: a small log-mel CNN trained on drive renders on disk, held-out DI files; measurement only (docs/notes/predictor-pilot-v0.md). |
+| `predictor_pilot_v0_afx.py` | T186 paired baseline: frozen AFx-Rep embeddings plus a logistic-regression head on the same split. |
+| `predictor_pilot_v0_paired.py` | T186 paired comparison of the CNN and the AFx-Rep head per test file, with bootstrap intervals. |
+| `predictor_pilot_v1_embed.py` | T189: frozen AFx-Rep embeddings for predictor-pilot-v1 (6 s centre crop, reused from T186, plus three 3.33 s crops per 10 s clip); CPU, 2 threads, resumable; about 54 min for 14,631 clips. |
+| `predictor_pilot_v1.py` | T189 drive-only predictor pilot v1: small heads (hierarchical logistic regression + ridge, or an MLP) on frozen AFx-Rep, single vs multi-crop, multi-file calibration, within- and cross-player arms; measurement only (docs/notes/predictor-pilot-v1.md). |
 | `native_spike.py` | T002/T013: can a whole preset be written into Helix Native's saved state from code. |
 | `native_drop_load.py` | [T018n](../board/TASKS.md#t018n "Hands-off Native loading") prototype: hands-off chain capture by in-process file drop (macOS). |
 | `native_capture_bench.py` | Times Native chain captures step by step (one host per file against one editor session). |

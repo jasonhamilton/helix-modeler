@@ -643,6 +643,9 @@ def score_all(key: dict, answers: dict, scorer, *, log=print, pooled_records=Non
     if key.get("version") == 4:                     # v4: twin swaps versus large knob moves
         import rating_v4
         out["v4"] = rating_v4.analyse(key, byid, sc)
+    if key.get("version") == 5:                     # v5: AFx pick versus the other pick on the target's own DI
+        import rating_v5
+        out["v5"] = rating_v5.analyse(key, byid, sc)
     out["decided"] = sum(1 for t in regs if byid.get(t["id"], {}).get("choice") in ("A", "B"))
     out["too_close"] = sum(1 for t in regs if byid.get(t["id"], {}).get("choice") == "tie")
     out["per_trial"] = [{"n": t["n"], "family": t["family"], "kind": t["kind"],
@@ -742,6 +745,9 @@ def fmt(res: dict) -> str:
     if "v4" in res:
         import rating_v4
         L.append(rating_v4.fmt_extras(res["v4"]))
+    if "v5" in res:
+        import rating_v5
+        L.append(rating_v5.fmt_extras(res["v5"]))
     L.append("\nThis is a measurement. It admits and rejects nothing.")
     return "\n".join(L)
 

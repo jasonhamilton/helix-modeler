@@ -391,3 +391,25 @@ def test_inversion_that_declines_falls_back_to_the_coarse_grid_and_says_so(monke
 def test_shortlist_renders_are_not_counted_twice():
     assert MB.shortlist_renders_to_add({"renders": 336}, "coarse_grid", CountingEngine()) == 0
     assert MB.shortlist_renders_to_add({"renders": 336}, "coarse_grid", object()) == 336
+
+
+# ---------------------------------------------------------------- T185: --final-rank afxrep
+
+def test_final_rank_option_defaults_to_the_provisional_score():
+    assert _args().final_rank == "provisional"
+    assert _args("--final-rank", "afxrep").final_rank == "afxrep"
+
+
+def test_rank_by_afxrep_orders_by_distance_and_keeps_the_rescore():
+    final = [{"model": "C", "loss": 0.1}, {"model": "A", "loss": 0.2}, {"model": "B", "loss": 0.3}, {"model": "Z", "loss": 0.05}]
+    ranked = [{"model": "A", "distance": 0.1}, {"model": "B", "distance": 0.2}, {"model": "C", "distance": 0.3}]
+    out = MB.rank_by_afxrep(final, ranked)
+    assert [d["model"] for d in out] == ["A", "B", "C", "Z"]          # unranked last
+    assert [d["provisional_rank"] for d in out] == [2, 3, 1, 4]
+    assert out[0]["loss"] == 0.2                                       # the re-score is untouched
+
+
+def test_final_rank_afxrep_needs_a_shortlist(monkeypatch):
+    # run() raises before changing the order when there is no shortlist (checked at the call, not at parse time)
+    final = [{"model": "A", "loss": 1.0}]
+    assert MB.rank_by_afxrep(final, [])[0]["provisional_rank"] == 1

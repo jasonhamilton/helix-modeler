@@ -394,6 +394,8 @@ These are the documents gathered so far, grouped by what each one is for. Line 6
 | [Gaussian prior for ITO (Yu et al., 2025)](https://arxiv.org/abs/2505.11315) | Preset prior as MAP estimation |
 | [Fx-Encoder++ (ISMIR 2025)](https://arxiv.org/html/2507.02273v1) | Per-instrument effect embeddings from mixtures |
 | [Open-Amp](https://arxiv.org/html/2411.14972v1) | Synthetic data for guitar-effect encoders |
+| [AFx-Rep licence and alternatives (T190)](notes/afxrep-licence.md) | Licence trail of the AFx-Rep weights and training data; permissive and NC alternatives |
+| [RelFx (ISMIR 2026)](https://arxiv.org/abs/2608.10573) | Relative effect-distance encoder; code MIT, checkpoint CC BY-NC-SA 4.0 ([repo](https://github.com/TMEGalaxyAudioEffect/relfx)) |
 | [DeepAFx-ST](https://arxiv.org/pdf/2207.08759) | Neural proxies for non-differentiable effects |
 | [Comunità et al., guitar effect recognition](https://arxiv.org/abs/2012.03216v1) | Effect classification and parameter regression |
 | [Hinrichs et al., effects from mixes](https://doaj.org/article/aa41cd04717743b5b0c1fc3b97a16ad9) | Parameter extraction inside full mixes |

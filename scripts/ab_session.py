@@ -353,6 +353,10 @@ def main(argv=None) -> int:
     r4.add_argument("--name", default="human-ratings-v4")
     r4.add_argument("--seed", type=int, default=None, help="default: random, stored in the key")
     r4.add_argument("--no-ledger", action="store_true")
+    r5 = sub.add_parser("rating-build-v5", help="T188 v5: blind T185 predictions re-rendered on the target's own DI")
+    r5.add_argument("--name", default="human-ratings-v5")
+    r5.add_argument("--seed", type=int, default=None, help="default: random, stored in the key")
+    r5.add_argument("--no-ledger", action="store_true")
     pl = sub.add_parser("play", help="play T, A, B of one rating trial on the HX Stomp USB outputs 1/2 (audio only)")
     pl.add_argument("session")
     pl.add_argument("--trial", type=int, required=True, help="trial number as shown on the page")
@@ -365,7 +369,7 @@ def main(argv=None) -> int:
     rs.add_argument("--no-ledger", action="store_true")
     rs.add_argument("--no-embed", action="store_true", help="skip embed_afxrep")
     a = ap.parse_args(argv)
-    if a.cmd in ("rating-build", "rating-build-v2", "rating-build-v3", "rating-build-v4", "play", "rating-score"):
+    if a.cmd in ("rating-build", "rating-build-v2", "rating-build-v3", "rating-build-v4", "rating-build-v5", "play", "rating-score"):
         import rating_session as RS
         if a.cmd == "rating-build-v2":
             import rating_v2 as R2
@@ -401,6 +405,19 @@ def main(argv=None) -> int:
                        f"v4 near-twin models vs large knob moves: {n} trials (regular + sanity + retests), seed {kj['seed']}, "
                        f"{kj['n_renders']} renders on one Native host; page {RS.URL_BASE}/{a.name}/index.html; "
                        "built for the human's ratings; nothing scored")
+            return 0
+        if a.cmd == "rating-build-v5":
+            import rating_v5 as R5
+            folder, keyf = R5.build_session(a.name, seed=a.seed)
+            kj = json.loads(keyf.read_text())
+            n = len(kj["trials"])
+            print(f"page: {RS.URL_BASE}/{a.name}/index.html  (folder {folder}); {n} trials, {kj['n_renders']} renders\n"
+                  f"hidden key: {keyf}  (do not open before scoring)")
+            if not a.no_ledger:
+                ledger(f"ab-{a.name}", "trials_built", float(n),
+                       f"v5 blind T185 predictions re-rendered on the target's own DI (AFx pick vs provisional pick): {n} trials "
+                       f"(regular + sanity + retests), seed {kj['seed']}, {kj['n_renders']} renders on one Native host; "
+                       f"page {RS.URL_BASE}/{a.name}/index.html; built for the human's ratings; nothing scored")
             return 0
         if a.cmd == "rating-build":
             folder, keyf = RS.build_session(a.name, seed=a.seed, excerpt_s=a.excerpt_s)
