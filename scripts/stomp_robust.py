@@ -400,14 +400,17 @@ PAIR_TESTS = (("HD2_AmpMoonNrm", WITHPAN), ("HD2_AmpMoonNrm", "HD2_CabMicIr_4x12
 
 
 def load_ok() -> float:
-    """The 1-minute load average (the human's machine load rule, docs/DECISIONS.md 2026-10-17)."""
-    return os.getloadavg()[0]
+    """Busy cores now (the human's machine load rule, docs/DECISIONS.md 2026-10-17; busy cores since T193)."""
+    from tonematch.engines.host_budget import LoadGuard
+    return LoadGuard().demand()
 
 
-def wait_for_load(limit: float = 7.0, poll_s: float = 60.0, log=print) -> None:
-    while load_ok() >= limit:
-        log(f"load {load_ok():.1f} >= {limit}: waiting {poll_s:.0f} s", flush=True)
-        time.sleep(poll_s)
+def wait_for_load(limit: float | None = None, poll_s: float = 60.0, log=print) -> None:
+    """Wait while the busy cores are above `limit` (default 0.95 x cores; resume below 0.85 x cores)."""
+    from tonematch.engines.host_budget import LoadGuard
+    guard = LoadGuard(limit)
+    guard.wait(lambda d: log(f"busy cores {d:.1f} > {guard.gate.pause_above:.1f}: waiting {poll_s:.0f} s",
+                             flush=True), poll_s=poll_s)
 
 
 def windowed_rel_db(ref: np.ndarray, y: np.ndarray, win: int = 120, floor_rel_db: float = -30.0) -> float:

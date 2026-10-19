@@ -206,3 +206,49 @@ def test_stop_request_leaves_between_shards(tmp_path):
             return Watch.k > 1
     n, eng = _run(plan, tmp_path, watch=Watch())
     assert n == 1 and eng[0].closed
+
+
+def test_render_pauses_on_busy_cores_with_hysteresis_and_resumes(tmp_path):
+    plan = _plan(target=10, shard_size=10)
+    seq = iter([9.8, 9.2, 8.9, 8.6, 8.4] + [1.0] * 500)   # over 9.5, then not yet below 8.5, then clear
+    slept, logs = [], []
+    state = {"v": 1.0}
+
+    def demand():
+        return (state["v"], 0.0, 0.0)
+
+    def sleep(s):
+        slept.append(s)
+        state["v"] = next(seq)
+
+    state["v"] = 9.8
+    gate = DD.make_gate(9.5)
+    assert gate.resume_below == pytest.approx(8.5)
+    blocks = {m: FakeBlock(m) for m in POOL}
+    shard = plan["shards"][0]
+    clips = {c["id"]: c for c in plan["clips"]}
+    res = DD.render_shard(shard, clips, FakeEngine(), blocks, FakeEmb(), lambda f, s, n: _audio(f)[s:s + n],
+                          loadavg=demand, sleep=sleep, log=logs.append, gate=gate)
+    assert len(slept) == 5 and len(res["labels"]) == 10     # paused until 8.4 (< 8.5), then rendered all
+    assert any("pausing" in m for m in logs) and any("resumed" in m for m in logs)
+
+
+def test_rate_counts_only_this_runs_clips(tmp_path, monkeypatch):
+    """A resumed run must not divide earlier batches' clips by this run's elapsed time."""
+    import json
+    import time
+    import drive_dataset_render as D
+    sdir = tmp_path / "shards"
+    sdir.mkdir()
+    plan = {"shards": [{"id": f"s{i:05d}"} for i in range(3)], "n_clips": 300}
+    for i in range(2):   # two shards from an earlier batch
+        (sdir / f"s{i:05d}.json").write_text(json.dumps({"n_ok": 100, "n_failed": 0}))
+    monkeypatch.setattr(D, "demand_now", lambda: (1.0,))
+    monkeypatch.setattr(D, "free_gb", lambda out: 50.0)
+    t0 = time.time() - 100.0
+    st = D.write_progress(tmp_path, plan, t0, clips_at_start=200)
+    assert st["clips_ok_this_run"] == 0 and st["clips_per_s_this_run"] == 0.0
+    (sdir / "s00002.json").write_text(json.dumps({"n_ok": 100, "n_failed": 0}))
+    st = D.write_progress(tmp_path, plan, t0, clips_at_start=200)
+    assert st["clips_ok"] == 300 and st["clips_ok_this_run"] == 100
+    assert 0.9 < st["clips_per_s_this_run"] < 1.1

@@ -20,7 +20,7 @@ stand in for real pedals. Each target's dfp-v1 probe is rendered on Native with 
 Fingerprints only (no audio kept): cache/pedal-probe-sim/fp/<target>/<condition>.npz.
 
     nice -n 10 .venv/bin/python scripts/pedal_probe_sim.py plan
-    nice -n 10 .venv/bin/python scripts/pedal_probe_sim.py run --hosts 2 --workers 4 --max-load 9
+    nice -n 10 .venv/bin/python scripts/pedal_probe_sim.py run --hosts 2 --workers 4
     nice -n 10 .venv/bin/python scripts/pedal_probe_sim.py analyse --workers 4
     TONEMATCH_AGENT=stomp-engine .venv/bin/python scripts/pedal_probe_sim.py ledger
 """
@@ -243,14 +243,11 @@ def mem_free_pct() -> int:
         return 100
 
 
-def _wait_load(max_load: float, log, min_free_gb: float = MIN_FREE_GB) -> float:
-    """Pause while the 1-minute load is above ``max_load`` (until it is a point under it) or the disk
-    has less than ``min_free_gb`` free (swap from Native hosts grows on the data volume)."""
-    ld = os.getloadavg()[0]
-    if ld > max_load:
-        log(json.dumps({"pause_load1": round(ld, 2)}))
-        while os.getloadavg()[0] > max_load - 1.0:
-            time.sleep(5)
+def _wait_load(guard, log, min_free_gb: float = MIN_FREE_GB) -> float:
+    """Pause while the busy cores are above the guard's line (T193; resumes below its lower line) or the
+    disk has less than ``min_free_gb`` free (swap from Native hosts grows on the data volume)."""
+    guard.wait(lambda d: log(json.dumps({"pause_busy_cores": d})))
+    ld = guard.last
     if min_free_gb > 0 and (free_gb() < min_free_gb or mem_free_pct() < MIN_MEM_FREE_PCT):
         log(json.dumps({"pause_disk_free_gb": round(free_gb(), 2), "mem_free_pct": mem_free_pct()}))
         while free_gb() < min_free_gb + 0.2 or mem_free_pct() < MIN_MEM_FREE_PCT + 5:
@@ -289,9 +286,11 @@ def cmd_run(a) -> dict:
         sim_loopcal(s)
     sig, _ = PP.probe()
     ins = input_variants()
-    stats = {"renders": 0, "failed": 0, "analyses": 0, "load1_max": 0.0, "hosts_seen": set()}
+    from tonematch.engines.host_budget import LoadGuard
+    guard = LoadGuard(a.max_load)
+    stats = {"renders": 0, "failed": 0, "analyses": 0, "busy_max": 0.0, "hosts_seen": set()}
     t_all = time.perf_counter()
-    _wait_load(a.max_load, log, a.min_free_gb)          # before any host opens
+    _wait_load(guard, log, a.min_free_gb)          # before any host opens
     pool = None
     ex = cf.ProcessPoolExecutor(max_workers=min(a.workers, 4), mp_context=mp.get_context("spawn"), initializer=_init)
     pending: dict = {}
@@ -306,7 +305,7 @@ def cmd_run(a) -> dict:
                 pool.close()
                 pool = None
                 log(json.dumps({"hosts_closed_for_disk_gb": round(free_gb(), 2)}))
-            _wait_load(a.max_load, log, a.min_free_gb)
+            _wait_load(guard, log, a.min_free_gb)
             if pool is None:
                 pool = nat.NativeRenderPool(workers=min(a.hosts, 2), templates_dir=lib.library_templates())
             preset = R._preset(lib, nat, catalog, t["model"], t["cc"])[0]
@@ -327,11 +326,11 @@ def cmd_run(a) -> dict:
                     stats["failed"] += 1
                     continue
                 pending[ex.submit(fp_job, t["id"], v, np.asarray(y, np.float32), need[v])] = (t["id"], v)
-            stats["load1_max"] = max(stats["load1_max"], _wait_load(a.max_load, log, 0.0))   # disk: at the loop top
+            stats["busy_max"] = max(stats["busy_max"], _wait_load(guard, log, 0.0))   # disk: at the loop top
             stats["disk_free_gb_min"] = min(stats.get("disk_free_gb_min", 1e9), round(free_gb(), 2))
             log(json.dumps({"target": i + 1, "of": len(targets), "renders": stats["renders"],
                             "analyses": stats["analyses"], "hosts": len(pool.engines),
-                            "s": round(time.perf_counter() - t_all, 1), "load1": round(os.getloadavg()[0], 2)}))
+                            "s": round(time.perf_counter() - t_all, 1), "busy": round(guard.last, 2)}))
         for f in cf.as_completed(list(pending)):
             stats["analyses"] += len(f.result()["done"])
     finally:
@@ -632,7 +631,8 @@ def main(argv=None):
     ap.add_argument("cmd", choices=("plan", "run", "analyse", "ledger"))
     ap.add_argument("--hosts", type=int, default=2)
     ap.add_argument("--workers", type=int, default=4)
-    ap.add_argument("--max-load", type=float, default=9.0)
+    ap.add_argument("--max-load", type=float, default=None,
+                    help="pause above this many busy cores (default 0.95 x cores; resume at 0.85/0.95 of it; T193)")
     ap.add_argument("--only", default="")
     ap.add_argument("--min-free-gb", type=float, default=MIN_FREE_GB)
     a = ap.parse_args(argv)

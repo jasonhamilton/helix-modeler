@@ -6,8 +6,8 @@ Measurement only; nothing is adopted. Builds on T174 (scripts/distortion_step3.p
 
     plan       the 8 tone-end settings per two-knob model (tone 0/0.1/0.9/1 at Drive 0.5 and 0.85)
     run        render them on Native with the dfp-v1 probe (at most 4 hosts leased from the host
-               scaler, at most 3 analysis workers, resumable; pauses while the 1-minute load is
-               above --max-load, default 9); fingerprints only, no audio
+               scaler, at most 3 analysis workers, resumable; pauses while the busy cores are
+               above --max-load busy cores, default 0.95 x cores); fingerprints only, no audio
     tone       the tone-ends analysis -> reports/local/distortion-id/tone-ends/ (+ the search map)
     families   the family clustering -> reports/local/distortion-id/families/ + cache/drive-maps/drive-families-v1.json
     ledger     the benchmark rows (distortion-fp-v1-tone-ends, drive-families-v1)
@@ -80,15 +80,9 @@ def cmd_plan(a) -> dict:
             "tone_cc": T.END_CC, "drive_cc": T.DRIVE_CC}
 
 
-def _wait_load(max_load: float, log) -> float:
-    t0 = time.perf_counter()
-    first = True
-    while os.getloadavg()[0] > max_load:
-        if first:
-            log({"pause_load1": round(os.getloadavg()[0], 2)})
-            first = False
-        time.sleep(5)
-    return time.perf_counter() - t0
+def _wait_load(guard, log) -> float:
+    """Pause while the busy cores are above the guard's line (T193); returns the seconds paused."""
+    return guard.wait(lambda d: log({"pause_busy_cores": d}))
 
 
 def cmd_run(a) -> dict:
@@ -98,6 +92,7 @@ def cmd_run(a) -> dict:
     from tonematch.catalog import load_catalog
     from tonematch.engines import native as nat
     from tonematch.engines import native_library as lib
+    from tonematch.engines.host_budget import LoadGuard
 
     def log(d):
         print(json.dumps(d), flush=True)
@@ -120,7 +115,8 @@ def cmd_run(a) -> dict:
     log({"jobs": len(jobs), "todo": len(todo), "probe_s": round(sig.size / P.SR, 1)})
     render_s = analysis_s = paused_s = 0.0
     loads = []
-    paused_s += _wait_load(a.max_load, log)
+    guard = LoadGuard(a.max_load)
+    paused_s += _wait_load(guard, log)
     pool = nat.NativeRenderPool(workers=a.hosts, templates_dir=lib.library_templates())
     hosts_seen = [len(pool.engines)]
     pending: dict = {}
@@ -140,7 +136,7 @@ def cmd_run(a) -> dict:
     ex = cf.ProcessPoolExecutor(max_workers=a.workers, mp_context=mp.get_context("spawn"))
     try:
         for b0 in range(0, len(todo), a.batch):
-            paused_s += _wait_load(a.max_load, log)       # never start a batch above the limit
+            paused_s += _wait_load(guard, log)       # never start a batch above the limit
             grp = todo[b0:b0 + a.batch]
             rjobs = []
             for j in grp:
@@ -170,11 +166,11 @@ def cmd_run(a) -> dict:
             analysis_s += collect(pending)
             pending = futs
             analysis_s += time.perf_counter() - t1
-            ld = os.getloadavg()[0]
+            ld = guard.demand()
             loads.append(ld)
             idx_path.write_text(json.dumps(P._clean(index), indent=1))
             log({"done": b0 + len(grp), "of": len(todo), "hosts": len(pool.engines),
-                 "elapsed_s": round(time.perf_counter() - t_all, 1), "load1": round(ld, 2)})
+                 "elapsed_s": round(time.perf_counter() - t_all, 1), "busy": round(ld, 2)})
         analysis_s += collect(pending)
         pending = {}
     finally:
@@ -183,8 +179,8 @@ def cmd_run(a) -> dict:
     runs = index.setdefault("runs", [])
     runs.append({"wall_s": round(time.perf_counter() - t_all, 1), "render_s": round(render_s, 1),
                  "analysis_s": round(analysis_s, 1), "paused_s": round(paused_s, 1), "renders": len(todo),
-                 "hosts_seen": sorted(set(hosts_seen)), "load1_max_sampled": round(max(loads), 2) if loads else None,
-                 "load1_mean_sampled": round(float(np.mean(loads)), 2) if loads else None, "workers": a.workers})
+                 "hosts_seen": sorted(set(hosts_seen)), "busy_max_sampled": round(max(loads), 2) if loads else None,
+                 "busy_mean_sampled": round(float(np.mean(loads)), 2) if loads else None, "workers": a.workers})
     index["renders"] = sum(1 for s in index["settings"] if "file" in s)
     index["failed"] = sum(1 for s in index["settings"] if "error" in s)
     idx_path.write_text(json.dumps(P._clean(index), indent=1))
@@ -514,7 +510,8 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--max-load", type=float, default=9.0)
+    ap.add_argument("--max-load", type=float, default=None,
+                    help="pause above this many busy cores (default 0.95 x cores; resume at 0.85/0.95 of it; T193)")
     ap.add_argument("--k", type=int, default=0, help="families: force k (default: the stability rule)")
     ap.add_argument("--w-card", type=float, default=0.5)
     ap.add_argument("--boot", type=int, default=200)

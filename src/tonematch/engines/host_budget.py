@@ -37,7 +37,14 @@ Cores and demand (``usable_cores``, ``measure_demand``; docs/notes/host-budget.m
   ``os.process_cpu_count()`` (3.13+), else the Windows process affinity (psutil), else ``os.cpu_count()``;
   on Linux also capped by a cgroup v2 ``cpu.max`` quota. Logical CPUs, not physical: load counts runnable
   threads against logical CPUs, so 100 % of them is where the run queue starts to grow.
-  Demand, in core units, from the first source that exists: ``os.getloadavg()`` (macOS, Linux);
+  Demand, in core units (T192, DECISIONS 2026-10-19). On macOS and Linux with psutil it is BUSY CORES:
+  CPU utilisation x cores, the mean of the last 3 samples (each a non-blocking ``cpu_percent`` window of
+  1 s or more). The macOS 1-minute load average reads 1.5 to 2 above the cores actually busy and lags,
+  which made the old guard pause long after the CPU had gone idle. The load average stays as a BACKSTOP:
+  above 1.2 x cores it replaces the busy-core number (a deep run queue). Pause above 0.95 x cores, resume
+  below 0.85 x cores (``drain_load`` / ``resume_load`` below, two checks each; ``BusyGate`` for scripts).
+  Without psutil: the load average, with a warning. Otherwise, first source that exists:
+  ``os.getloadavg()`` (macOS, Linux);
   ``psutil.getloadavg()`` (Windows: queue length emulation, plus the running threads from CPU
   utilisation x cores); CPU utilisation x cores (utilisation of 95 % or more reads as "at the limit");
   else nothing. A failed measurement is never 0: with no measurement at all the scaler grants at most 1
@@ -180,33 +187,148 @@ def usable_cores(_os=os, psutil_mod=_UNSET, cgroup_root: Path = Path("/sys/fs/cg
 
 @dataclass(frozen=True)
 class Demand:
-    """CPU demand in core units (the run-queue length: running plus waiting threads)."""
+    """CPU demand in core units. ``load[0]`` is what the scaler compares with its thresholds: busy cores
+    where psutil can measure them (``fast``), else the run-queue length (1-minute load average)."""
     load: tuple[float, float, float]
     source: str
     measured: bool = True   # False: nothing could be measured; ``load`` is not evidence of an idle machine
     note: str = ""
+    busy: float | None = None       # smoothed CPU utilisation x cores (None: not measured this way)
+    loadavg1: float | None = None   # the 1-minute load average, when the system has one
+    fast: bool = False              # True: load[0] has no 1-minute lag (busy cores), so no trend projection
 
 
-def measure_demand(cores: int, _os=os, psutil_mod=_UNSET, platform: str = sys.platform) -> Demand:
+BACKSTOP_FRAC = 1.2      # pause when the 1-minute load average exceeds this x cores (a deep run queue)
+BUSY_SAMPLES = 3         # busy cores are the mean of the last this many samples
+BUSY_MIN_GAP_S = 1.0     # a sample covers at least this long a window
+BUSY_STALE_S = 20.0      # samples older than this are dropped (the caller was not looking)
+BUSY_PRIME_S = 0.5       # the first sample in a process waits this long for its window
+
+
+class BusySampler:
+    """CPU utilisation (percent, all logical CPUs) smoothed over the last ``n`` samples.
+
+    Each sample is ``psutil.cpu_percent(interval=None)``: the utilisation since the previous call, so no
+    call blocks. The first call in a process (or after a long silence) primes psutil and waits
+    ``prime_s`` for a real window. Calls closer than ``min_gap`` reuse the last sample, so a loop that
+    checks every clip does not shrink the window."""
+
+    def __init__(self, mod, n: int = BUSY_SAMPLES, min_gap: float = BUSY_MIN_GAP_S,
+                 stale: float = BUSY_STALE_S, prime_s: float = BUSY_PRIME_S,
+                 clock=time.monotonic, sleep=time.sleep):
+        self.mod, self.n, self.min_gap, self.stale, self.prime_s = mod, n, min_gap, stale, prime_s
+        self.clock, self.sleep = clock, sleep
+        self.samples: list[float] = []
+        self.last_t: float | None = None
+        self._lock = threading.Lock()
+
+    def percent(self) -> float | None:
+        """Smoothed utilisation in percent, or None when psutil cannot measure it."""
+        with self._lock:
+            try:
+                now = self.clock()
+                if self.last_t is not None and now - self.last_t > self.stale:
+                    self.samples, self.last_t = [], None
+                if self.last_t is None:
+                    self.mod.cpu_percent(interval=None)   # prime: the first reading is meaningless
+                    self.sleep(self.prime_s)
+                    self.samples.append(float(self.mod.cpu_percent(interval=None)))
+                    self.last_t = self.clock()
+                elif now - self.last_t >= self.min_gap:
+                    self.samples.append(float(self.mod.cpu_percent(interval=None)))
+                    self.last_t = now
+            except Exception:  # noqa: BLE001  (any psutil failure means: no utilisation)
+                return None
+            self.samples = self.samples[-self.n:]
+            return sum(self.samples) / len(self.samples) if self.samples else None
+
+
+_SAMPLERS: dict[int, BusySampler] = {}
+_WARNED: set[str] = set()
+
+
+def _sampler_for(mod) -> BusySampler:
+    smp = _SAMPLERS.get(id(mod))
+    if smp is None or smp.mod is not mod:
+        smp = _SAMPLERS[id(mod)] = BusySampler(mod)
+    return smp
+
+
+def _warn_once(key: str, msg: str) -> None:
+    if key not in _WARNED:
+        _WARNED.add(key)
+        import warnings
+        warnings.warn(msg, RuntimeWarning, stacklevel=3)
+
+
+class BusyGate:
+    """Pause/resume with hysteresis on a demand number (busy cores): pause when it rises above
+    ``pause_above``, resume only when it falls below ``resume_below``. In between it keeps its state, so
+    a number that wobbles around the line cannot flap."""
+
+    def __init__(self, pause_above: float, resume_below: float):
+        if resume_below > pause_above:
+            raise ValueError("resume_below must not exceed pause_above")
+        self.pause_above, self.resume_below, self.paused = float(pause_above), float(resume_below), False
+
+    @classmethod
+    def for_cores(cls, cores: int, pause_frac: float = 0.95, resume_frac: float = 0.85) -> BusyGate:
+        return cls(pause_frac * cores, resume_frac * cores)
+
+    def update(self, demand: float) -> bool:
+        if self.paused:
+            if demand < self.resume_below:
+                self.paused = False
+        elif demand > self.pause_above:
+            self.paused = True
+        return self.paused
+
+
+def measure_demand(cores: int, _os=os, psutil_mod=_UNSET, platform: str = sys.platform,
+                   sampler: BusySampler | None = None) -> Demand:
     """The one place demand is measured. First source that works:
-      1. ``os.getloadavg()`` (macOS, Linux).
+      0. macOS, Linux with psutil: BUSY CORES = CPU utilisation x cores, smoothed over the last 3
+         samples (``BusySampler``). The 1-minute load average stays as a backstop: above
+         ``BACKSTOP_FRAC`` x cores (12 on 10 cores) the demand reads as that load instead.
+      1. ``os.getloadavg()`` (macOS, Linux; also the fallback, with a warning, when psutil is missing).
       2. ``psutil.getloadavg()``. On Windows it is emulated from the processor queue length, which
          counts waiting threads only, so the running threads (CPU utilisation x cores) are added.
+         (The Windows path is unchanged.)
       3. CPU utilisation x cores, a floor: a queue beyond 100 % is invisible, so utilisation of 95 % or
          more is read as exactly at the limit (``cores``).
       4. Nothing: ``measured=False``. Never 0 as "idle"."""
-    fn = getattr(_os, "getloadavg", None)
-    if fn is not None:
-        try:
-            return Demand(tuple(float(x) for x in fn()), "os.getloadavg")
-        except OSError:
-            pass
     mod = psutil_mod
     if mod is _UNSET:
         try:
             import psutil as mod
         except ImportError:
             mod = None
+    fn = getattr(_os, "getloadavg", None)
+    if fn is not None:
+        try:
+            la = tuple(float(x) for x in fn())
+        except OSError:
+            la = None
+        if la is not None:
+            if platform != "win32" and mod is not None:
+                u = (sampler or _sampler_for(mod)).percent()
+                if u is not None:
+                    busy = u / 100.0 * cores
+                    backstop = BACKSTOP_FRAC * cores
+                    hit = la[0] > backstop
+                    d0 = max(busy, la[0]) if hit else busy
+                    note = (f"busy cores {busy:.2f} (utilisation {u:.0f} %, last {BUSY_SAMPLES} samples); "
+                            f"load average {la[0]:.2f}" + (f" is over the backstop {backstop:.1f}" if hit
+                                                           else f" (backstop {backstop:.1f})"))
+                    return Demand((d0, la[1], la[2]), "psutil.cpu_percent busy cores"
+                                  + (" + loadavg backstop" if hit else ""), True, note,
+                                  busy=busy, loadavg1=la[0], fast=True)
+            if platform != "win32" and mod is None:
+                _warn_once("nopsutil", "psutil is not installed: CPU demand falls back to the 1-minute "
+                           "load average, which lags and over-reads; pip install psutil")
+            return Demand(la, "os.getloadavg", True,
+                          "psutil not installed: load average only (lags and over-reads busy cores)"
+                          if platform != "win32" and mod is None else "", loadavg1=la[0])
     if mod is None:
         return Demand((0.0, 0.0, 0.0), "none", False,
                       "no load source (no os.getloadavg, psutil not installed): granting at most 1 host; "
@@ -222,10 +344,18 @@ def measure_demand(cores: int, _os=os, psutil_mod=_UNSET, platform: str = sys.pl
     if hasattr(mod, "getloadavg"):
         with contextlib.suppress(Exception):
             queue = tuple(float(x) for x in mod.getloadavg())
+    if queue is not None and platform != "win32":
+        u = (sampler or _sampler_for(mod)).percent()
+        if u is not None:
+            busy = u / 100.0 * cores
+            hit = queue[0] > BACKSTOP_FRAC * cores
+            return Demand((max(busy, queue[0]) if hit else busy, queue[1], queue[2]),
+                          "psutil.cpu_percent busy cores" + (" + loadavg backstop" if hit else ""), True,
+                          f"busy cores {busy:.2f}; load average {queue[0]:.2f}", busy=busy,
+                          loadavg1=queue[0], fast=True)
+        return Demand(queue, "psutil.getloadavg")
     u = util() if (queue is None or platform == "win32") else None
     if queue is not None:
-        if platform != "win32":
-            return Demand(queue, "psutil.getloadavg")
         if u is None:
             # queue length only, running threads unseen: not a demand; never read as idle
             return Demand(queue, "psutil.getloadavg (queue only)", False,
@@ -243,6 +373,45 @@ def measure_demand(cores: int, _os=os, psutil_mod=_UNSET, platform: str = sys.pl
         d = float(cores)
     return Demand((d, d, d), "psutil.cpu_percent (floor)", True,
                   "no load average on this system; demand is CPU utilisation x cores and cannot see a queue")
+
+
+class LoadGuard:
+    """The one load guard for scripts (T193): ``measure_demand`` (busy cores) behind a ``BusyGate``.
+
+    ``max_busy`` is the pause line in busy cores (None: 0.95 x cores); the resume line keeps the 0.85/0.95
+    ratio (0.85 x cores by default). ``cores`` defaults to ``usable_cores()``. ``measure`` and ``sleep``
+    are injectable for tests. ``last`` is the most recent demand reading (``load[0]``)."""
+
+    def __init__(self, max_busy: float | None = None, cores: int | None = None, *, measure=None,
+                 sleep=time.sleep):
+        self.cores = int(cores) if cores else usable_cores()[0]
+        pause = float(max_busy) if max_busy else 0.95 * self.cores
+        self.gate = BusyGate(pause, pause * 0.85 / 0.95)
+        self._measure = measure or (lambda: measure_demand(self.cores))
+        self._sleep = sleep
+        self.last = 0.0
+
+    def demand(self) -> float:
+        """Busy cores now (the load average only if it is over its backstop, or psutil is missing)."""
+        self.last = float(self._measure().load[0])
+        return self.last
+
+    def paused(self) -> bool:
+        """Non-blocking: take one reading and update the gate. True: do not start new work."""
+        return self.gate.update(self.demand())
+
+    def wait(self, log=None, poll_s: float = 5.0) -> float:
+        """Block while the gate is paused (pause above the line, resume below the lower one). ``log`` gets
+        the demand once when a pause starts. Returns the seconds spent paused (0.0 if it did not pause)."""
+        if not self.paused():
+            return 0.0
+        t0 = time.monotonic()
+        if log is not None:
+            log(round(self.last, 2))
+        while True:
+            self._sleep(poll_s)
+            if not self.paused():
+                return time.monotonic() - t0
 
 
 # --------------------------------------------------------------------------- system access
@@ -581,7 +750,7 @@ class Budget:
         # ``trend_s`` ahead (only a rise counts, measured against a sample 8 s or more old).
         proj = l1
         older = [s for s in recent if now - s["t"] >= 8.0]
-        if older and cfg.trend_s > 0:
+        if older and cfg.trend_s > 0 and not dem.fast:  # busy cores have no 1-minute lag to project over
             ref = older[-1]
             proj = l1 + max(0.0, (l1 - ref["load1"]) / (now - ref["t"])) * cfg.trend_s
         nonnative = max([max(0.0, proj - running * per)] +

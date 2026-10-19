@@ -2502,3 +2502,18 @@ The learning agent stalled after writing docs/notes/predictor-pilot-v1.md. Its l
 - **Shakedown.** 40 clips real, 0 failed, about 0.49 s per clip per host; train ran end to end; SIGTERM stop was clean; proc_check showed no orphans; output deleted. Disk use for 60,000 clips is about 0.3 GB.
 
 — learning
+
+## 2026-10-19 (human): measure CPU demand as busy cores, with hysteresis, instead of the 1-minute load average
+
+**Finding (lead, measured during the human's render batch).** On this M1 Pro (10 cores), the macOS 1-minute load average read about 1.5–2 above the cores actually busy: load 8.0–8.8 against 6.6–6.8 busy cores. The scaler and the render guard pause at load > 9. Once paused, the CPU fell to about 1 busy core within seconds, but the lagging average kept the job paused. The result was a busy/idle sawtooth, which matches the human's report: "The system monitor cpu chart shows a large amount idle despite the numbers approaching 9".
+
+**Approval.** The lead proposed three changes. The human answered **"yes"**.
+1. Demand is busy cores (CPU utilisation × cores), sampled every few seconds. This fits the human's stated intent: "The idea is to not let the demand go over 100% of cpu usage". psutil (BSD) becomes a dependency on macOS and Linux too, after licence_check.
+2. Pause above about 9.5 busy cores; resume below about 8.5.
+3. The load average stays as a backstop: pause if the 1-minute load exceeds 12.
+
+Implemented in tonematch.engines.host_budget and in the drive dataset render guard (T192, platform). The core-count rule itself is unchanged. — lead
+
+## 2026-10-19 (human): switch every remaining load guard to the busy-core monitor
+
+**Approval.** About 15 scripts still had their own `os.getloadavg()` guards (listed in docs/notes/host-budget.md). The lead asked whether to switch them in one pass. The human answered **"yes switch to the new load monitor code. Commit an push"**. Each script now uses `measure_demand` and `BusyGate` from tonematch.engines.host_budget (T193, platform). — lead

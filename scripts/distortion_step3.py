@@ -228,6 +228,7 @@ def cmd_run(a) -> dict:
     from tonematch.catalog import load_catalog
     from tonematch.engines import native as nat
     from tonematch.engines import native_library as lib
+    from tonematch.engines.host_budget import LoadGuard
 
     for v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "MKL_NUM_THREADS"):
         os.environ[v] = "1"       # each analysis worker on one core (inherited by the spawned workers)
@@ -246,6 +247,7 @@ def cmd_run(a) -> dict:
     t_all = time.perf_counter()
     print(json.dumps({"jobs": len(jobs), "todo": len(todo), "probe_s": round(sig.size / P.SR, 1)}), flush=True)
     render_s = analysis_s = 0.0
+    guard = LoadGuard(a.max_load)
     load_max = 0.0
     pool = nat.NativeRenderPool(workers=a.hosts, templates_dir=lib.library_templates())
     hosts_seen = [len(pool.engines)]
@@ -308,14 +310,12 @@ def cmd_run(a) -> dict:
             analysis_s += collect(pending, index)
             pending = futs
             analysis_s += time.perf_counter() - t1
-            ld = os.getloadavg()[0]
+            ld = guard.demand()
             load_max = max(load_max, ld)
             idx_path.write_text(json.dumps(P._clean(index), indent=1))
             print(json.dumps({"done": b0 + len(grp), "of": len(todo), "hosts": len(pool.engines),
-                              "elapsed_s": round(time.perf_counter() - t_all, 1), "load1": round(ld, 2)}), flush=True)
-            if ld > a.max_load:          # back off: let the other agents' renders through
-                while os.getloadavg()[0] > a.max_load - 1.0:
-                    time.sleep(5)
+                              "elapsed_s": round(time.perf_counter() - t_all, 1), "busy": round(ld, 2)}), flush=True)
+            guard.wait()          # back off: let the other agents' renders through
         t1 = time.perf_counter()
         analysis_s += collect(pending, index) + (time.perf_counter() - t1)
         pending = {}
@@ -325,7 +325,7 @@ def cmd_run(a) -> dict:
     runs = index.setdefault("runs", [])
     runs.append({"wall_s": round(time.perf_counter() - t_all, 1), "render_s": round(render_s, 1),
                  "analysis_s": round(analysis_s, 1), "renders": len(todo), "hosts_seen": sorted(set(hosts_seen)),
-                 "load1_max": round(load_max, 2), "workers": a.workers})
+                 "busy_max": round(load_max, 2), "workers": a.workers})
     index["renders"] = sum(1 for s in index["settings"] if "file" in s)
     index["failed"] = sum(1 for s in index["settings"] if "error" in s)
     idx_path.write_text(json.dumps(P._clean(index), indent=1))
@@ -403,7 +403,8 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--batch", type=int, default=24)
     ap.add_argument("--limit", type=int, default=0, help="render at most this many settings (shakedown)")
-    ap.add_argument("--max-load", type=float, default=9.0)
+    ap.add_argument("--max-load", type=float, default=None,
+                    help="pause above this many busy cores (default 0.95 x cores; resume at 0.85/0.95 of it; T193)")
     ap.add_argument("--out", default=str(OUT))
     a = ap.parse_args(argv)
     a.hosts = min(a.hosts, 5)

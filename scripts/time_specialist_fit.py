@@ -34,13 +34,13 @@ U_LO, U_HI = 0.10, 0.90      # the range of the benchmark items' knobs (syntheti
 AVOID_SETS = ("synthetic-v1", "synthetic-v2", "synthetic-devfam")
 
 
-def wait_for_load(limit: float = 7.0, poll_s: float = 60.0) -> None:
-    """Heavy steps wait while the 1-minute load average is at or above `limit` (DECISIONS 2026-10-17, machine load limit)."""
-    import os
+def wait_for_load(limit: float | None = None, poll_s: float = 60.0) -> None:
+    """Heavy steps wait while the busy cores are above `limit` (default 0.95 x cores; resume below 0.85 x
+    cores; T193, DECISIONS 2026-10-17 machine load limit, 2026-10-19 busy cores)."""
+    from tonematch.engines.host_budget import LoadGuard
 
-    while os.getloadavg()[0] >= limit:
-        print(f"load {os.getloadavg()[0]:.1f} >= {limit:g}: waiting", flush=True)
-        time.sleep(poll_s)
+    guard = LoadGuard(limit)
+    guard.wait(lambda d: print(f"busy cores {d:.1f} > {guard.gate.pause_above:.1f}: waiting", flush=True), poll_s=poll_s)
 
 
 def calibration_dis(clip_s: float, ref_db: float) -> list[tuple[np.ndarray, dict]]:

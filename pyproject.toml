@@ -13,8 +13,9 @@ dependencies = [
   "numpy>=1.26",
   "soundfile>=0.12",
   "scipy>=1.11",
-  # Windows has no os.getloadavg: psutil emulates it and measures CPU utilisation (T149); BSD-3
-  "psutil>=5.9; sys_platform == 'win32'",
+  # CPU demand = busy cores = utilisation x cores on every OS (T192); on Windows psutil also emulates the
+  # missing os.getloadavg (T149). BSD-3
+  "psutil>=5.9",
 ]
 
 [project.optional-dependencies]

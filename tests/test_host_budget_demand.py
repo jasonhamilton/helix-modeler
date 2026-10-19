@@ -250,3 +250,169 @@ def test_real_system_reports_a_source():
     s = hb.System()
     d = s.demand()
     assert d.source and s.cores() >= 1 and s.cores_source()
+
+
+# ------------------------------------------------------------------ busy cores (T192)
+
+
+class Clock:
+    def __init__(self):
+        self.t = 100.0
+
+    def __call__(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+
+
+def seq_psutil(utils, queue=None):
+    """cpu_percent returns the next value of ``utils`` each call (the first call is the priming one)."""
+    it = iter(utils)
+    m = types.SimpleNamespace(cpu_percent=lambda interval=None: next(it))
+    if queue is not None:
+        m.getloadavg = lambda: queue
+    return m
+
+
+def sampler(mod, clk=None):
+    clk = clk or Clock()
+    return hb.BusySampler(mod, clock=clk, sleep=clk.sleep), clk
+
+
+def test_busy_cores_is_utilisation_times_cores_and_beats_the_load_average():
+    smp, _ = sampler(seq_psutil([0.0, 66.0]))
+    d = hb.measure_demand(10, _os=FakeOs(getloadavg=lambda: (8.4, 7.0, 6.0)), psutil_mod=smp.mod,
+                          platform="darwin", sampler=smp)
+    assert d.fast and d.measured and d.busy == pytest.approx(6.6) and d.loadavg1 == 8.4
+    assert d.load == pytest.approx((6.6, 7.0, 6.0)) and "busy cores" in d.source
+
+
+def test_busy_cores_are_smoothed_over_three_samples_without_blocking():
+    smp, clk = sampler(seq_psutil([0.0, 90.0, 60.0, 30.0, 0.0]))
+    seen = []
+    for _ in range(4):
+        seen.append(smp.percent())
+        clk.t += 2.0
+    assert seen == pytest.approx([90.0, 75.0, 60.0, 30.0])   # mean of the last 3
+    # calls closer than the minimum gap reuse the last sample (a per-clip check does not shrink the window)
+    n = len(smp.samples)
+    smp.percent()
+    assert len(smp.samples) == n
+
+
+def test_stale_samples_are_dropped_and_the_sampler_re_primes():
+    smp, clk = sampler(seq_psutil([0.0, 50.0, 0.0, 10.0]))
+    assert smp.percent() == 50.0
+    clk.t += 60.0
+    assert smp.percent() == 10.0 and len(smp.samples) == 1
+
+
+def test_loadavg_backstop_over_1_2_times_cores():
+    smp, _ = sampler(seq_psutil([0.0, 50.0]))
+    d = hb.measure_demand(10, _os=FakeOs(getloadavg=lambda: (12.5, 11.0, 9.0)), psutil_mod=smp.mod,
+                          platform="linux", sampler=smp)
+    assert d.load[0] == 12.5 and "backstop" in d.source and d.busy == pytest.approx(5.0)
+    smp, _ = sampler(seq_psutil([0.0, 50.0]))
+    d = hb.measure_demand(10, _os=FakeOs(getloadavg=lambda: (12.0, 11.0, 9.0)), psutil_mod=smp.mod,
+                          platform="linux", sampler=smp)
+    assert d.load[0] == pytest.approx(5.0)    # exactly 1.2 x cores is not over it
+
+
+def test_without_psutil_falls_back_to_the_load_average_with_a_warning():
+    hb._WARNED.discard("nopsutil")
+    with pytest.warns(RuntimeWarning, match="psutil is not installed"):
+        d = hb.measure_demand(10, _os=FakeOs(getloadavg=lambda: (8.0, 7.0, 6.0)), psutil_mod=None,
+                              platform="darwin")
+    assert d.load == (8.0, 7.0, 6.0) and d.source == "os.getloadavg" and not d.fast and "psutil" in d.note
+
+
+def test_a_failing_psutil_falls_back_to_the_load_average():
+    def boom(interval=None):
+        raise RuntimeError("no")
+    mod = types.SimpleNamespace(cpu_percent=boom)
+    d = hb.measure_demand(10, _os=FakeOs(getloadavg=lambda: (3.0, 2.0, 1.0)), psutil_mod=mod,
+                          platform="linux", sampler=hb.BusySampler(mod))
+    assert d.load == (3.0, 2.0, 1.0) and not d.fast
+
+
+def test_windows_path_is_unchanged_even_with_a_sampler():
+    mod = fake_psutil(queue=(0.5, 0.4, 0.3), util=60.0)
+    d = hb.measure_demand(10, _os=FakeOs(), psutil_mod=mod, platform="win32",
+                          sampler=hb.BusySampler(types.SimpleNamespace(cpu_percent=lambda interval=None: 1 / 0)))
+    assert not d.fast and d.source == "psutil.getloadavg + cpu_percent"
+    assert d.load == pytest.approx((6.5, 6.4, 6.3))
+    # no os.getloadavg and a psutil load average off Windows: busy cores too
+    smp, _ = sampler(seq_psutil([0.0, 40.0], queue=(9.0, 8.0, 7.0)))
+    d = hb.measure_demand(10, _os=FakeOs(), psutil_mod=smp.mod, platform="linux", sampler=smp)
+    assert d.fast and d.load[0] == pytest.approx(4.0)
+
+
+def test_gate_hysteresis_does_not_flap():
+    g = hb.BusyGate.for_cores(10)
+    assert (g.pause_above, g.resume_below) == (9.5, 8.5)
+    states = [g.update(x) for x in [9.4, 9.5, 9.6, 9.4, 9.0, 8.6, 8.5, 9.9, 8.4, 8.9, 9.4, 9.6, 8.0]]
+    assert states == [False, False, True, True, True, True, True, True, False, False, False, True, False]
+    # wobbling around 9.5 after a pause never resumes; wobbling around 8.5 after a resume never pauses
+    g = hb.BusyGate.for_cores(10)
+    g.update(9.8)
+    assert all(g.update(x) for x in [9.3, 9.6, 9.0, 9.7, 8.6, 9.5])
+    g.update(8.0)
+    assert not any(g.update(x) for x in [8.6, 8.4, 9.0, 8.5, 9.4, 9.5])
+    with pytest.raises(ValueError):
+        hb.BusyGate(8.0, 9.0)
+
+
+def test_scaler_drains_on_busy_cores_and_does_not_project_a_trend(env):
+    class Busy(BlindFake):
+        busy = 4.0
+
+        def demand(self):
+            return hb.Demand((self.busy, self.busy, self.busy), "busy", busy=self.busy, fast=True)
+    s = Busy(cores=10)
+    b = hb.Budget(system=s, directory=env)
+    with b.acquire("a", 6, floor=1) as la:
+        assert la.granted >= 4
+        s.busy = 9.7
+        for _ in range(3):
+            s.t += 6
+            la.refresh()
+        assert b.status()["drain"] is True
+        s.busy = 9.0     # between resume and drain: stays drained (hysteresis)
+        for _ in range(3):
+            s.t += 6
+            la.refresh()
+        assert b.status()["drain"] is True
+        s.busy = 8.0
+        for _ in range(3):
+            s.t += 6
+            la.refresh()
+        assert b.status()["drain"] is False
+
+
+# --------------------------------------------------------------------------- LoadGuard (T193)
+def _guard(readings, **kw):
+    it = iter(readings)
+    slept = []
+    g = hb.LoadGuard(cores=10, measure=lambda: hb.Demand((next(it), 0, 0), "fake"), sleep=slept.append, **kw)
+    return g, slept
+
+
+def test_load_guard_defaults_and_flag():
+    g, _ = _guard([0.0])
+    assert (g.gate.pause_above, g.gate.resume_below) == (9.5, 8.5)
+    g, _ = _guard([0.0], max_busy=8.0)
+    assert g.gate.pause_above == 8.0 and abs(g.gate.resume_below - 8.0 * 0.85 / 0.95) < 1e-9
+
+
+def test_load_guard_wait_hysteresis_and_log():
+    g, slept = _guard([5.0, 9.8, 9.0, 8.7, 8.4])
+    assert g.wait() == 0.0 and not slept          # 5.0: no pause
+    logged = []
+    assert g.wait(logged.append, poll_s=3) >= 0.0  # 9.8 pause; 9.0 and 8.7 stay paused; 8.4 resumes
+    assert logged == [9.8] and slept == [3, 3, 3] and g.last == 8.4 and not g.gate.paused
+
+
+def test_load_guard_paused_nonblocking():
+    g, _ = _guard([9.6, 9.0, 8.0])
+    assert g.paused() and g.paused() and not g.paused()

@@ -7,7 +7,7 @@ number was computed: DECISIONS "T181: step 4 measurement plan". Measurement, not
 
     plan      choose the 8 DI excerpts (4 Guitar-TECHS P1/P2, 4 of the human's own dry takes, none used in a
               rating session) and the 120 targets (random off-grid Drive / Tone); writes plan.json (no audio)
-    render    on Native, at most --hosts (<= 3) leased from the host scaler, pausing above --max-load:
+    render    on Native, at most --hosts (<= 3) leased from the host scaler, pausing above --max-load busy cores:
               targets   120 renders, audio kept in the small target cache (deleted by `clean`)
               truth     the dfp-v1 probe at each target's own setting -> fingerprint only (diagnostic)
               gallery   54 models x 12 step-3 settings x 8 excerpts; features on the fly (AFx-Rep embedding,
@@ -240,13 +240,10 @@ def _preset(lib, nat, catalog, model: str, cc: dict):
     return p, vals
 
 
-def _wait_load(max_load: float, log) -> float:
-    ld = os.getloadavg()[0]
-    if ld > max_load:
-        log(json.dumps({"pause_load1": round(ld, 2)}))
-        while os.getloadavg()[0] > max_load - 1.0:
-            time.sleep(5)
-    return ld
+def _wait_load(guard, log) -> float:
+    """Pause while the busy cores are above the guard's line (T193); returns the busy cores now."""
+    guard.wait(lambda d: log(json.dumps({"pause_busy_cores": d})))
+    return guard.last
 
 
 def gallery_jobs(plan: dict, sem: dict) -> list[dict]:
@@ -335,7 +332,9 @@ def cmd_render(a) -> dict:
     TARGET_DIR.mkdir(parents=True, exist_ok=True)
     TRUTH_DIR.mkdir(parents=True, exist_ok=True)
     GALLERY_DIR.mkdir(parents=True, exist_ok=True)
-    stats = {"renders": 0, "failed": 0, "load1_max": 0.0, "hosts_seen": set()}
+    from tonematch.engines.host_budget import LoadGuard
+    guard = LoadGuard(a.max_load)
+    stats = {"renders": 0, "failed": 0, "busy_max": 0.0, "hosts_seen": set()}
     t_all = time.perf_counter()
     pool = nat.NativeRenderPool(workers=min(a.hosts, 3), templates_dir=lib.library_templates())
     ex = cf.ProcessPoolExecutor(max_workers=a.workers, mp_context=mp.get_context("spawn"), initializer=_worker_init)
@@ -357,9 +356,9 @@ def cmd_render(a) -> dict:
                         continue
                     np.save(TARGET_DIR / f"{t['id']}.npy", np.asarray(y, np.float32)[lead:])
                 stats["hosts_seen"].add(len(pool.engines))
-                stats["load1_max"] = max(stats["load1_max"], _wait_load(a.max_load, log))
+                stats["busy_max"] = max(stats["busy_max"], _wait_load(guard, log))
                 log(json.dumps({"targets": b0 + len(grp), "of": len(todo), "hosts": len(pool.engines),
-                                "s": round(time.perf_counter() - t_all, 1), "load1": round(os.getloadavg()[0], 2)}))
+                                "s": round(time.perf_counter() - t_all, 1), "busy": round(guard.last, 2)}))
         if "truth" in what:
             sig, _ = P.build_probe("v1")
             sig32 = sig.astype(np.float32)
@@ -378,9 +377,9 @@ def cmd_render(a) -> dict:
                         stats["failed"] += 1
                         continue
                     pending[ex.submit(truth_job, np.asarray(y, np.float32), str(TRUTH_DIR / f"{t['id']}.npz"))] = t
-                stats["load1_max"] = max(stats["load1_max"], _wait_load(a.max_load, log))
+                stats["busy_max"] = max(stats["busy_max"], _wait_load(guard, log))
                 log(json.dumps({"truth": b0 + len(grp), "of": len(todo), "hosts": len(pool.engines),
-                                "s": round(time.perf_counter() - t_all, 1), "load1": round(os.getloadavg()[0], 2)}))
+                                "s": round(time.perf_counter() - t_all, 1), "busy": round(guard.last, 2)}))
             for f in pending:
                 f.result()
         if "gallery" in what:
@@ -425,9 +424,9 @@ def cmd_render(a) -> dict:
                     pending[ex.submit(gallery_features, np.asarray(y, np.float32)[lead:], tg_a.get(e, []),
                                       tg_b.get(e, []))] = j
                 stats["hosts_seen"].add(len(pool.engines))
-                stats["load1_max"] = max(stats["load1_max"], _wait_load(a.max_load, log))
+                stats["busy_max"] = max(stats["busy_max"], _wait_load(guard, log))
                 log(json.dumps({"gallery": b0 + len(grp), "of": len(todo), "hosts": len(pool.engines),
-                                "s": round(time.perf_counter() - t_all, 1), "load1": round(os.getloadavg()[0], 2)}))
+                                "s": round(time.perf_counter() - t_all, 1), "busy": round(guard.last, 2)}))
             part = flush(pending, part)
     finally:
         pool.close()
@@ -456,7 +455,8 @@ def main(argv=None):
     ap.add_argument("--hosts", type=int, default=3)
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--batch", type=int, default=24)
-    ap.add_argument("--max-load", type=float, default=9.0)
+    ap.add_argument("--max-load", type=float, default=None,
+                    help="pause above this many busy cores (default 0.95 x cores; resume at 0.85/0.95 of it; T193)")
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--only", default="", choices=["", "B"], help="analyse: recompute condition B only, reusing "
                     "the condition-A rows of the last run")

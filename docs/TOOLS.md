@@ -81,7 +81,7 @@ nice -n 10 .venv/bin/python scripts/benchmark_suite.py --no-hardware --no-ledger
 | `TONEMATCH_HOST_BUDGET`, `TONEMATCH_HOST_TARGET_LOAD`, `TONEMATCH_HOST_CORES`, `TONEMATCH_NATIVE_MAX_HOSTS`, `TONEMATCH_NATIVE_MANY_HOSTS` | Native pools | Host scaler tuning (see Load limit). Leave at defaults. |
 | `TONEMATCH_CONTACT` | song_meta_probe | Contact address for the MusicBrainz User-Agent. |
 
-**Load limit.** The machine-wide rule: the 1-minute load average never exceeds 10 on this 10-core Mac (the limit is the core count on another machine). A host scaler (`tonematch.engines.host_budget`) grants Native hosts a lease: at most 6 at once, one per core, with room under a target load of 9. Non-Native heavy work (pools, shards, suites) checks the load first and waits at 7 or more. Check with `uptime` before you start; run heavy jobs under `nice -n 10`.
+**Load limit.** The machine-wide rule: the 1-minute load average never exceeds 10 on this 10-core Mac (the limit is the core count on another machine). A host scaler (`tonematch.engines.host_budget`) grants Native hosts a lease: at most 6 at once, one per core, with room under a target load of 9. Every script with its own guard now uses one: busy cores (`measure_demand`) behind a `BusyGate` (`LoadGuard` in `host_budget.py`; T193): it pauses above 0.95 x cores and resumes below 0.85 x cores, and the 1-minute load average is only a backstop above 1.2 x cores. Their `--max-load X` flag is the pause line in busy cores (default 0.95 x cores; the resume line keeps the 0.85/0.95 ratio). `host_budget_live.py` takes `--start-below` (default 0.85 x cores) and `--abort-load` (default 0.99 x cores) in busy cores; `time_specialist_fit.py` and `stomp_robust.py` wait the same way (no flag, default 0.95 x cores). Progress lines and stats that said `load1` / `load1_max` now say `busy` / `busy_max`. Check with `uptime` before you start; run heavy jobs under `nice -n 10`.
 
 **Hardware.** "Pedal" tools need the HX Stomp on USB with HX Edit closed, the scratch preset 04C "Smoke Known" selected, and the helper env vars set. They write to the edit buffer only (never flash) and restore the original preset at the end. They take a shared lock (`tonematch.pedal_lock`) so two jobs never drive the pedal at once. Stomp reamping on macOS also needs Microphone permission for the terminal app (`docs/DEV-ENV.md`).
 
@@ -1008,7 +1008,7 @@ nice -n 10 .venv/bin/python scripts/distortion_pilot_step2.py run --hosts 3
 
 **What it does.** [T174](../board/TASKS.md#t174 "Distortion measurement step 3"), step 3 of `docs/notes/distortion-identification.md`: fingerprints every drive model of `match_block.category_pool('drive')` (60) at 12 settings each with the dfp-v1 probe (6 s sweeps, tone staircases from -91 dBFS), on Native single-block templates, at most `--hosts` hosts (capped at 5) through the host scaler and at most `--workers` analysis processes (capped at 4). Stores fingerprints only, no audio. `tonecheck` checks that Scream 808's Tone reaches Native (CC route against a controller-free drop, and the Tone 0 vs 1 spectra); `plan` lists the settings and which knob is "drive" and "tone" per model without starting Native; `analyse` runs leave-one-setting-out identification, clusters against the circuit labels and builds the fingerprint cards and figures; `ledger` appends the `benchmark / native / distortion-fp-v1` rows. Nothing is adopted. `run` resumes: settings already in `index.json` are skipped.
 
-**Inputs.** `{tonecheck,plan,run,analyse,ledger}`, `--hosts N` (default 5), `--workers N` (default 4), `--batch N` (default 24), `--limit N` (shakedown), `--max-load X` (default 9: pause rendering above this 1-minute load), `--out DIR`. **Outputs.** `cache/distortion-fp/dfp-v1/<model>/<setting>.npz` (about 6.7 KB each) and `index.json`; `reports/local/distortion-id/step3/summary.json`, `cards.md`, `tonecheck.json`, summary SVGs and two SVGs per model under `models/`.
+**Inputs.** `{tonecheck,plan,run,analyse,ledger}`, `--hosts N` (default 5), `--workers N` (default 4), `--batch N` (default 24), `--limit N` (shakedown), `--max-load X` (busy cores; default 0.95 x cores: pause rendering above it, resume below 0.85 x cores; T193), `--out DIR`. **Outputs.** `cache/distortion-fp/dfp-v1/<model>/<setting>.npz` (about 6.7 KB each) and `index.json`; `reports/local/distortion-id/step3/summary.json`, `cards.md`, `tonecheck.json`, summary SVGs and two SVGs per model under `models/`.
 
 ```bash
 .venv/bin/python scripts/distortion_step3.py plan
@@ -1022,7 +1022,7 @@ TONEMATCH_AGENT=tone-metrics .venv/bin/python scripts/distortion_step3.py ledger
 
 **What it does.** [T179](../board/TASKS.md#t179 "Tone-knob ends") and [T180](../board/TASKS.md#t180 "Circuit families from the measured fingerprints"), measurement only. `run` renders tone 0 / 0.1 / 0.9 / 1 at Drive 0.5 and 0.85 for every two-knob drive (52 models, 416 settings, plus 2 step-3 settings again as controls) with the dfp-v1 probe, at most 4 hosts through the host scaler (capped at 4) and at most 3 analysis processes; it never starts a batch while the 1-minute load is above `--max-load` (default 9). `tone` joins them with the step-3 tone 0.2 / 0.5 / 0.8 points and measures how much of each tone knob's effect sits in [0, 0.1], [0.1, 0.9] and [0.9, 1], with a shape label; it writes the map search reads. `families` clusters the 60 models from the step-3 fingerprints (level-free card and curves, consensus of Ward partitions over resamples) and writes the model-to-family map. `ledger` appends the `benchmark / native / distortion-fp-v1-tone-ends` and `benchmark / - / drive-families-v1` rows. Nothing is adopted. `run` resumes.
 
-**Inputs.** `{plan,run,tone,families,ledger}`, `--hosts N` (default 4), `--workers N` (default 2), `--batch N` (default 8), `--limit N`, `--max-load X`, `--k N` (force the family count), `--w-card X` (card weight, default 0.5), `--boot N` (resamples, default 200). **Outputs.** `cache/distortion-fp/dfp-v1-tone-ends/`; `reports/local/distortion-id/tone-ends/` (`summary.json`, `knob_sensitivity.json`, SVGs); `cache/drive-maps/knob_sensitivity.json` (copy, model ids and numbers only); `reports/local/distortion-id/families/` (`summary.json`, SVGs); `cache/drive-maps/drive-families-v1.json`.
+**Inputs.** `{plan,run,tone,families,ledger}`, `--hosts N` (default 4), `--workers N` (default 2), `--batch N` (default 8), `--limit N`, `--max-load X` (busy cores, default 0.95 x cores), `--k N` (force the family count), `--w-card X` (card weight, default 0.5), `--boot N` (resamples, default 200). **Outputs.** `cache/distortion-fp/dfp-v1-tone-ends/`; `reports/local/distortion-id/tone-ends/` (`summary.json`, `knob_sensitivity.json`, SVGs); `cache/drive-maps/knob_sensitivity.json` (copy, model ids and numbers only); `reports/local/distortion-id/families/` (`summary.json`, SVGs); `cache/drive-maps/drive-families-v1.json`.
 
 ```bash
 .venv/bin/python scripts/drive_tone_families.py plan
@@ -1038,7 +1038,7 @@ TONEMATCH_AGENT=tone-metrics .venv/bin/python scripts/drive_tone_families.py led
 
 **What it does.** [T181](../board/TASKS.md#t181 "Step 4: identify model and settings from real guitar takes"), step 4 of `docs/notes/distortion-identification.md`, measurement only. It tries to name a drive model and its Drive and Tone from real guitar DI at random settings that were never measured, using the dfp-v1 fingerprints.
 - `plan` picks 8 DI excerpts of 6 s: 4 Guitar-TECHS (P1 and P2) and 4 of the human's own dry takes, none used in a rating session. It also picks 120 targets: 54 models, with Drive and Tone at random CC steps off every measured grid.
-- `render` renders on Native, through at most 3 hosts leased from the host scaler, and pauses between batches above `--max-load`:
+- `render` renders on Native, through at most 3 hosts leased from the host scaler, and pauses between batches above `--max-load` busy cores (default 0.95 x cores; resume below 0.85 x cores):
   - `targets`: 120 renders, kept in a small cache that `clean` deletes;
   - `truth`: the dfp-v1 probe at each target's own setting, fingerprint only, a diagnostic;
   - `gallery`: 54 models × 12 step-3 settings × 8 excerpts. Features are taken on the fly (AFx-Rep embedding on the CPU, output-only features, `mrstft_v2` against the targets that use the render), and no audio is kept.
@@ -1052,7 +1052,7 @@ TONEMATCH_AGENT=tone-metrics .venv/bin/python scripts/drive_tone_families.py led
 **Inputs.**
 - `{plan,render,analyse,ledger,clean}`;
 - `--what targets,truth,gallery`;
-- `--hosts N` (default 3, capped at 3), `--workers N` (default 3, capped at 4), `--batch N` (default 24), `--max-load X` (default 9), `--out DIR`.
+- `--hosts N` (default 3, capped at 3), `--workers N` (default 3, capped at 4), `--batch N` (default 24), `--max-load X` (busy cores, default 0.95 x cores), `--out DIR`.
 - Set `TONEMATCH_AFXREP_DEVICE=cpu`: the GPU failed under three worker processes.
 
 **Outputs.**
@@ -1081,14 +1081,14 @@ TONEMATCH_AGENT=tone-metrics .venv/bin/python scripts/distortion_step4.py ledger
 
 **What it does.** [T187](../board/TASKS.md#t187 "Measured-pedal mode preparation"), measurement only. A Native simulation of measured-pedal mode's real-world nuisances on drive identification, with 54 step-4 targets (one per model, hidden off-grid Drive/Tone) standing in for real pedals; 810 new probe renders.
 - `plan` writes the conditions: input side (rendered: probe level offsets -12 to +12 dB, a pickup-like load of 10 k to 1 M ohm, interface tilt +-2 dB/decade), output side (on the base render: noise -90/-80/-70 dBFS, tilt with and without the simulated loopback correction, 2 to 1207 samples of latency, return gain with clipping) and three combinations.
-- `run` renders 15 probe variants per target through at most 2 Native hosts and fingerprints every condition in up to 4 processes. It pauses above `--max-load` and while the disk has less than `--min-free-gb` free (it then closes its hosts). Resumes.
+- `run` renders 15 probe variants per target through at most 2 Native hosts and fingerprints every condition in up to 4 processes. It pauses above `--max-load` (busy cores, default 0.95 x cores) and while the disk has less than `--min-free-gb` free (it then closes its hosts). Resumes.
 - `analyse` matches every fingerprint against the library with the fixes (none, input-level search, noise mask, noise floor) and runs the leave-one-model-out test (a pedal not in the library). `ledger` appends `benchmark / native / pedal-probe-sim-v1`.
 
 **Outputs.** `cache/pedal-probe-sim/` (plan, `fp/<target>/<condition>.npz`, noise takes, runs) and `reports/local/pedal-probe-sim/` (`summary.json`, `rows.json`, `loo_rows.json`, `table.md`). No audio kept.
 
 ```bash
 .venv/bin/python scripts/pedal_probe_sim.py plan
-TONEMATCH_NATIVE_PYTHON=cache/native/hostvenv/bin/python nice -n 10 .venv/bin/python scripts/pedal_probe_sim.py run --hosts 2 --workers 4 --max-load 9 --min-free-gb 8
+TONEMATCH_NATIVE_PYTHON=cache/native/hostvenv/bin/python nice -n 10 .venv/bin/python scripts/pedal_probe_sim.py run --hosts 2 --workers 4 --min-free-gb 8
 nice -n 10 .venv/bin/python scripts/pedal_probe_sim.py analyse --workers 4
 TONEMATCH_AGENT=stomp-engine .venv/bin/python scripts/pedal_probe_sim.py ledger
 ```
@@ -1101,12 +1101,12 @@ TONEMATCH_AGENT=stomp-engine .venv/bin/python scripts/pedal_probe_sim.py ledger
 
 **What it does.** [T183](../board/TASKS.md#t183 "End-to-end check of no-DI drive matching"), measurement only. It runs the no-DI drive matcher (`match_block.py --shortlist afxrep`) end to end on 24 held-out random single-drive targets rendered from real guitar DI excerpts, with the matcher rendering through a different DI (another player or another take).
 - `plan` picks 8 DI excerpts of 5 s (Guitar-TECHS P1 and P2, the human's dry takes), 24 models out of the 54 non-flagged, random off-grid Drive and Tone, and a 6-target subset for the old full search. Its seed (183) is separate from T181's, and it avoids T181's excerpts and settings. It also writes the explicit tolerance map (`suggested_tol` from `cache/drive-maps/knob_sensitivity.json`).
-- `render` renders the targets on one Native host and the DI excerpts as wavs (pauses above `--max-load`).
+- `render` renders the targets on one Native host and the DI excerpts as wavs (pauses above `--max-load` busy cores).
 - `match --path coarse_grid|inversion|inversion_samedi|full` runs `match_block.py` once per target, `--procs` at a time. `inversion_samedi` hands the matcher the target's own DI (the upper bound for the fingerprint inversion). `full` is the old search at a wall cap (`--wall-min`) on the 6-target subset.
 - `analyse` writes `reports/local/t183/rows.json` and `summary.json`; `ledger` appends the `search / native / nodi-drive-e2e-v1` rows; `clean` deletes the target audio.
 - The families, the second-choice family and the tolerances are TEST SETTINGS here, not adopted defaults.
 
-**Inputs.** `{plan,render,match,analyse,ledger,clean}`; `--path`, `--procs` (default 2), `--subset`, `--only u00,u01`, `--wall-min` (default 6), `--max-load` (default 9).
+**Inputs.** `{plan,render,match,analyse,ledger,clean}`; `--path`, `--procs` (default 2), `--subset`, `--only u00,u01`, `--wall-min` (default 6), `--max-load` (busy cores, default 0.95 x cores).
 
 **Outputs.** `cache/matches/t183/` (plan, per-target `result.json`, logs; the audio folder is deleted by `clean`) and `reports/local/t183/`.
 
@@ -1124,7 +1124,7 @@ nice -n 10 .venv/bin/python scripts/nodi_drive_e2e.py match --path coarse_grid -
 
 **`nodi_drive_e2e_v2.py`.** 96 held-out random drive targets (seed 185; T181 and T183 settings and excerpts excluded) from 15 real DI excerpts (5 each: Guitar-TECHS P1, P2, the human's takes). Three conditions: `blind` (the matcher's DI is another player), `same_player` (same player, other excerpt), `same_di` (the target's own DI, upper bound; the fingerprint inversion can run). Four arms: final order (provisional | AFx-Rep) x shortlist (top 8 + families + second choice | plain top 8). One job per (target, condition) renders the shared coarse grid once and scores the whole expanded shortlist once; the arms are read off afterwards.
 
-- `plan`, `render` (target audio on one host), `run --shard i/n` (one process, one Native host; pauses above `--max-load` 9; `--stop-file`), `analyse` (tables, Wilson CIs, McNemar; writes `reports/local/t185/{rows,summary,predictions}.json`), `ledger` (`search / native / nodi-drive-e2e-v2`), `clean` (deletes the target audio).
+- `plan`, `render` (target audio on one host), `run --shard i/n` (one process, one Native host; pauses above `--max-load` busy cores (default 0.95 x cores); `--stop-file`), `analyse` (tables, Wilson CIs, McNemar; writes `reports/local/t185/{rows,summary,predictions}.json`), `ledger` (`search / native / nodi-drive-e2e-v2`), `clean` (deletes the target audio).
 - Set `TONEMATCH_AFXREP_DEVICE=cpu` (the script sets it by default).
 
 ```bash
@@ -1140,7 +1140,7 @@ for s in 0 1 2; do .venv/bin/python scripts/nodi_drive_e2e_v2.py run --shard $s/
 Unattended single-drive dataset render on Helix Native plus a retrain of the T189 predictor heads. Every searchable drive model (minus the six flagged fuzzes) x random knob settings (CC grid, level knobs at default) x random 10 s excerpts with real playing from the Guitar-TECHS P1/P2 DI files; P3 is never read. Split by whole DI file: `test` (about 20 % of the files, never used by T186/T189), `v1test` (the T186/T189 test files, evaluation only), `cal`, `train`. Features only (frozen AFx-Rep `mid`: 6 s centre crop + three 3.33 s crops, float16); the audio is dropped.
 
 - `plan` (seeded; `--target` cap, default 60,000; `--hours`, `--hosts`, `--sec-per-clip` size the plan; `--limit` for a shakedown) writes `cache/drive-dataset-v1/plan.json`.
-- `render` is an elastic job: a supervisor asks the host scaler for at most 4 hosts (`--hosts`); each worker claims a 100-clip shard, pauses while the 1-minute load is above `--max-load` (9), stops cleanly when free disk is below `--min-free-gb` (8.5) or `--hours` elapse. Shards in `shards/` (`<id>.single.npy`, `<id>.crops.npy`, `<id>.labels.jsonl`, then `<id>.json` last); a rerun resumes. A failed or silent render is retried once, then skipped and logged in the shard JSON. SIGTERM: the current shard finishes and the hosts close.
+- `render` is an elastic job: a supervisor asks the host scaler for at most 4 hosts (`--hosts`); each worker claims a 100-clip shard, pauses while the busy cores (CPU utilisation x cores, smoothed) are above `--max-load` (default 0.95 x cores, 9.5 on 10; resumes below 0.85 x cores; the 1-minute load above 1.2 x cores is a backstop; T192), stops cleanly when free disk is below `--min-free-gb` (8.5) or `--hours` elapse. Shards in `shards/` (`<id>.single.npy`, `<id>.crops.npy`, `<id>.labels.jsonl`, then `<id>.json` last); a rerun resumes. A failed or silent render is retried once, then skipped and logged in the shard JSON. SIGTERM: the current shard finishes and the hosts close.
 - `train` retrains logistic + MLP heads (multi-crop) on T186 train (`v1data`) and on T186 train + new train (`v2data`); evaluates on the T186/T189 test split, the new held-out files and new renders on the v1 test files, within player and across players. Writes `summary.json`, `summary.md`, checkpoints in `cache/models/predictor-dataset-v1/`, and `benchmark / - / predictor-dataset-v1` ledger rows (`--no-ledger` to skip; a `--limit` run never writes them).
 - `all`: plan if needed, render, train, then `proc_check.py --kill`. `scripts/overnight_drive.sh` starts `all` with nohup, nice 10 and `caffeinate -i`, logging to `cache/drive-dataset-v1/run.log`, and prints the PID.
 
@@ -1151,7 +1151,7 @@ cat cache/drive-dataset-v1/progress.json
 .venv/bin/python scripts/drive_dataset_render.py train --no-ledger
 ```
 
-**Safety.** Native only, no pedal, no song audio, P3 never read. At most 4 hosts, load guard 9, disk floor 8.5 GB. Stop with `kill <PID>` (never a pattern kill); run `scripts/proc_check.py` afterwards. Docs: `docs/notes/drive-dataset-v1.md`.
+**Safety.** Native only, no pedal, no song audio, P3 never read. At most 4 hosts, load guard 0.95 x cores busy, disk floor 8.5 GB. Stop with `kill <PID>` (never a pattern kill); run `scripts/proc_check.py` afterwards. Docs: `docs/notes/drive-dataset-v1.md`.
 
 ## Internal helpers
 

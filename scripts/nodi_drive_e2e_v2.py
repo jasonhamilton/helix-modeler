@@ -191,6 +191,8 @@ def load_plan() -> dict:
 
 
 def cmd_render(a) -> None:
+    from tonematch.engines.host_budget import LoadGuard
+    guard = LoadGuard(a.max_load)
     import match_block as MB
     from tonematch.catalog import load_catalog
     from tonematch.engines import native as nat
@@ -209,9 +211,7 @@ def cmd_render(a) -> None:
         for t in plan["targets"]:
             if (AUDIO / f"{t['id']}_target.wav").exists() and "params" in t:
                 continue
-            while os.getloadavg()[0] > a.max_load:
-                print(f"load {os.getloadavg()[0]:.1f} > {a.max_load}: pausing", flush=True)
-                time.sleep(10)
+            guard.wait(lambda d: print(f"busy cores {d:.1f} > {guard.gate.pause_above:.1f}: pausing", flush=True), poll_s=10)
             e = exc[t["excerpt"]]
             x = read_mono(ROOT / e["path"])[e["start"] - lead:e["start"] + e["n"]]
             p, vals = D4._preset(lib, nat, catalog, t["model"], t["cc"])
@@ -290,6 +290,8 @@ def run_job(engine0, blocks, t, cond, plan, fams, second, members, inv, kit_args
 
 
 def cmd_run(a) -> None:
+    from tonematch.engines.host_budget import LoadGuard
+    guard = LoadGuard(a.max_load)
     import match_block as MB
     from tonematch.catalog import load_catalog
     from tonematch.search import shortlist as SL
@@ -310,9 +312,7 @@ def cmd_run(a) -> None:
     engine = MB.make_engine(144_000)
     try:
         for k, (t, c) in enumerate(jobs):
-            while os.getloadavg()[0] > a.max_load:
-                print(f"load {os.getloadavg()[0]:.1f} > {a.max_load}: pausing", flush=True)
-                time.sleep(15)
+            guard.wait(lambda d: print(f"busy cores {d:.1f} > {guard.gate.pause_above:.1f}: pausing", flush=True), poll_s=15)
             if a.stop_file and Path(a.stop_file).exists():
                 print("stop file present", flush=True)
                 break
@@ -322,7 +322,7 @@ def cmd_run(a) -> None:
             p = job_path(t, c)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(res, default=float))
-            print(f"[{k + 1}/{len(jobs)}] {t['id']} {c} {res['wall_s']:.0f}s renders {res['renders_total']} load {os.getloadavg()[0]:.1f}", flush=True)
+            print(f"[{k + 1}/{len(jobs)}] {t['id']} {c} {res['wall_s']:.0f}s renders {res['renders_total']} busy {guard.last:.1f}", flush=True)
     finally:
         engine.close()
 
@@ -480,10 +480,12 @@ def main() -> None:
     sp = ap.add_subparsers(dest="cmd", required=True)
     sp.add_parser("plan")
     r = sp.add_parser("render")
-    r.add_argument("--max-load", type=float, default=9.0)
+    r.add_argument("--max-load", type=float, default=None,
+                   help="pause above this many busy cores (default 0.95 x cores; resume at 0.85/0.95 of it; T193)")
     m = sp.add_parser("run")
     m.add_argument("--shard", required=True)
-    m.add_argument("--max-load", type=float, default=9.0)
+    m.add_argument("--max-load", type=float, default=None,
+                   help="pause above this many busy cores (default 0.95 x cores; resume at 0.85/0.95 of it; T193)")
     m.add_argument("--stop-file")
     m.add_argument("--reverse", action="store_true")
     for n in ("analyse", "clean", "ledger"):

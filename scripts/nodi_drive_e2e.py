@@ -155,6 +155,8 @@ def load_plan() -> dict:
 # ------------------------------------------------------------------------------------------- render
 
 def cmd_render(a) -> None:
+    from tonematch.engines.host_budget import LoadGuard
+    guard = LoadGuard(a.max_load)
     import match_block as MB
     from tonematch.catalog import load_catalog
     from tonematch.engines import native as nat
@@ -173,9 +175,7 @@ def cmd_render(a) -> None:
         for t in plan["targets"]:
             if (AUDIO / f"{t['id']}_target.wav").exists():
                 continue
-            while os.getloadavg()[0] > a.max_load:
-                print(f"load {os.getloadavg()[0]:.1f} > {a.max_load}: pausing", flush=True)
-                time.sleep(10)
+            guard.wait(lambda d: print(f"busy cores {d:.1f} > {guard.gate.pause_above:.1f}: pausing", flush=True), poll_s=10)
             e = exc[t["excerpt"]]
             x = read_mono(ROOT / e["path"])[e["start"] - lead:e["start"] + e["n"]]
             p, vals = D4._preset(lib, nat, catalog, t["model"], t["cc"])
@@ -207,6 +207,8 @@ def match_cmd(t: dict, plan: dict, path: str, wall_min: float) -> tuple[list[str
 
 
 def cmd_match(a) -> None:
+    from tonematch.engines.host_budget import LoadGuard
+    guard = LoadGuard(a.max_load)
     plan = load_plan()
     ts = plan["targets"]
     if a.subset:
@@ -219,7 +221,7 @@ def cmd_match(a) -> None:
     while todo or procs:
         procs = [(p, t, o, t0) for p, t, o, t0 in procs if p.poll() is None or print(f"done {t['id']} rc={p.returncode} {time.time()-t0:.0f}s", flush=True)]
         while todo and len(procs) < a.procs:
-            if os.getloadavg()[0] > a.max_load:
+            if guard.paused():
                 break
             t = todo.pop(0)
             cmd, out = match_cmd(t, plan, a.path, a.wall_min)
@@ -370,14 +372,16 @@ def main() -> None:
     sp = ap.add_subparsers(dest="cmd", required=True)
     sp.add_parser("plan")
     r = sp.add_parser("render")
-    r.add_argument("--max-load", type=float, default=9.0)
+    r.add_argument("--max-load", type=float, default=None,
+                   help="pause above this many busy cores (default 0.95 x cores; resume at 0.85/0.95 of it; T193)")
     m = sp.add_parser("match")
     m.add_argument("--path", choices=["coarse_grid", "inversion", "inversion_samedi", "full"], required=True)
     m.add_argument("--procs", type=int, default=2)
     m.add_argument("--subset", action="store_true", help="the 6-target subset (the old full search)")
     m.add_argument("--only")
     m.add_argument("--wall-min", type=float, default=6.0)
-    m.add_argument("--max-load", type=float, default=9.0)
+    m.add_argument("--max-load", type=float, default=None,
+                   help="pause above this many busy cores (default 0.95 x cores; resume at 0.85/0.95 of it; T193)")
     sp.add_parser("analyse")
     sp.add_parser("ledger")
     sp.add_parser("clean")

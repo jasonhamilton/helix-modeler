@@ -1676,3 +1676,5 @@ timestamp,commit,agent,kind,engine,dataset,metric,value,renders,wall_clock_s,not
 2026-10-19T16:59:46+00:00,f65b7dc-dirty,benchmark,ab,-,ab-human-ratings-v5,agree_presence_nodi,0.857143,,,"agreement with the human's A/B choice (measurement only, admits nothing); 18/21 decided; 95% CI 0.64-0.97; p=0.001; spearman=+0.40 n=52"
 2026-10-19T16:59:46+00:00,f65b7dc-dirty,benchmark,ab,-,ab-human-ratings-v5,sanity_correct,1.0,,,1/1 target-copy trials
 2026-10-19T16:59:46+00:00,f65b7dc-dirty,benchmark,ab,-,ab-human-ratings-v5,retest_consistent,1.0,,,2/2 repeated trials
+2026-10-19T21:38:40+00:00,37221c8-dirty,platform,smoke,-,t192-busy-cores,tests_passed,92.0,,,host_budget/elastic/drive_dataset_render tests; licence_check PASS; live idle sample busy 0.6-1.4 vs loadavg 2.4-3.0
+2026-10-19T21:49:46+00:00,37221c8-dirty,platform,smoke,-,t193-busy-cores-all,tests_passed,129.0,,,"host_budget/demand (+3 LoadGuard tests), drive_dataset_render, distortion_step3/4, drive_tone_families, time_specialist, pedal_probe, stomp_robust tests; 9 scripts on LoadGuard (measure_demand + BusyGate); ruff no new findings; --help smoke on all"

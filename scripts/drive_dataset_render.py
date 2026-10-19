@@ -22,7 +22,9 @@ Features, then the audio is dropped: frozen AFx-Rep `mid` embeddings, the 6 s ce
 Robustness. The render is an elastic job (tonematch.engines.elastic): a supervisor asks the host scaler
 (host_budget) for up to 4 hosts and keeps that many workers; each worker claims one shard at a time
 (atomic claim), writes its files atomically and its shard JSON last (the JSON means "done"), so any rerun resumes.
-Before each clip: pause while the 1-minute load is above --max-load (9). Before each shard: stop cleanly when free
+Before each clip: pause while the busy cores (CPU utilisation x cores, smoothed over 3 samples; T192) are above
+--max-load (default 0.95 x cores) and resume below 0.85 x cores; the 1-minute load average is only a backstop
+(above 1.2 x cores). Before each shard: stop cleanly when free
 disk is below --min-free-gb (8.5). A Native error or silent output is retried once, then the clip is skipped and
 logged. SIGTERM: the workers finish their current shard and close their hosts; the supervisor exits.
 """
@@ -324,19 +326,42 @@ def render_one(engine, block, clip, dry: np.ndarray) -> np.ndarray:
     return y
 
 
-def render_shard(shard: dict, clips: dict, engine, blocks: dict, emb, read_excerpt, *, max_load: float = 9.0,
-                 loadavg=os.getloadavg, sleep=time.sleep, log=print) -> dict:
+def demand_now():
+    """The demand tuple (busy cores first, T192). Needs no argument: the cores are counted once."""
+    from tonematch.engines import host_budget as hb
+    cores = demand_now.cores = getattr(demand_now, "cores", None) or hb.usable_cores()[0]
+    return hb.measure_demand(cores).load
+
+
+def make_gate(max_load: float | None):
+    """Hysteresis gate on busy cores. ``max_load`` None: pause above 0.95 x cores. Resume at 0.85/0.95 of it."""
+    from tonematch.engines import host_budget as hb
+    cores = hb.usable_cores()[0]
+    pause = float(max_load) if max_load else 0.95 * cores
+    return hb.BusyGate(pause, pause * 0.85 / 0.95)
+
+
+def render_shard(shard: dict, clips: dict, engine, blocks: dict, emb, read_excerpt, *, max_load: float | None = None,
+                 loadavg=None, sleep=time.sleep, log=print, gate=None) -> dict:
     """Render + embed every clip of one shard. Each clip: one retry, then skipped. Returns arrays and stats."""
+    loadavg = loadavg or demand_now
+    gate = gate or make_gate(max_load)
     singles, crops, labels, failures = [], [], [], []
     t_r = t_e = 0.0
     paused = 0.0
     consecutive = 0
     for cid in shard["clips"]:
         c = clips[cid]
-        while loadavg()[0] > max_load:
-            log(f"load {loadavg()[0]:.1f} > {max_load}: pausing new renders")
-            sleep(15.0)
-            paused += 15.0
+        if gate.update(loadavg()[0]):
+            log(f"busy cores {loadavg()[0]:.1f} > {gate.pause_above:.1f}: pausing new renders "
+                f"(resume below {gate.resume_below:.1f})")
+            waited = 0.0
+            while gate.paused:
+                sleep(5.0)
+                paused += 5.0
+                waited += 5.0
+                gate.update(loadavg()[0])
+            log(f"busy cores {loadavg()[0]:.1f} < {gate.resume_below:.1f}: resumed after {waited:.0f}s")
         dry = read_excerpt(c["di_file"], c["start"], int(CLIP_S * SR))
         y, err = None, None
         for attempt in range(2):
@@ -384,12 +409,14 @@ def stop_flag(out: Path) -> Path:
 
 
 def work_loop(plan: dict, out: Path, *, open_engine, blocks: dict, emb, read_excerpt, deadline: float,
-              min_free_gb: float, max_load: float, watch=None, busy=None, free=free_gb, log=None,
-              loadavg=os.getloadavg, sleep=time.sleep) -> int:
+              min_free_gb: float, max_load: float | None = None, watch=None, busy=None, free=free_gb, log=None,
+              loadavg=None, sleep=time.sleep) -> int:
     """Claim and render shards until none is left, the deadline passes, the disk is low, or a stop is asked.
     `open_engine()` is called lazily (no host is opened when nothing is left to do). Returns shards written."""
     from tonematch.engines.elastic import ClaimQueue, atomic_write_text, item_done
     log = log or (lambda m: log_line(out, m))
+    loadavg = loadavg or demand_now
+    gate = make_gate(max_load)
     sdir = Path(out) / "shards"
     sdir.mkdir(parents=True, exist_ok=True)
     queue = ClaimQueue(sdir)
@@ -427,14 +454,14 @@ def work_loop(plan: dict, out: Path, *, open_engine, blocks: dict, emb, read_exc
                 busy["in_item"] = True
                 t0 = time.time()
                 res = render_shard(shards[claim.id], clips, engine, blocks, emb, read_excerpt, max_load=max_load,
-                                   loadavg=loadavg, sleep=sleep, log=log)
+                                   loadavg=loadavg, sleep=sleep, log=log, gate=gate)
                 write_shard(sdir, claim.id, res, {"wall_s": time.time() - t0, "pid": os.getpid(),
                                                   "finished": time.time()})
                 busy["in_item"] = False
                 n += 1
                 log(f"worker {os.getpid()}: {claim.id} ok {len(res['labels'])} failed {len(res['failures'])} "
                     f"in {time.time() - t0:.0f}s (render {res['render_s']:.0f}s, embed {res['embed_s']:.0f}s), "
-                    f"load {loadavg()[0]:.1f}, free {free(out):.1f} GB")
+                    f"busy {loadavg()[0]:.1f}, free {free(out):.1f} GB")
             finally:
                 busy["in_item"] = False
                 claim.release()
@@ -498,13 +525,19 @@ def shard_stats(out: Path, plan: dict) -> dict:
             "clips_planned": plan["n_clips"], "render_s_sum": rs, "embed_s_sum": es}
 
 
-def write_progress(out: Path, plan: dict, t_start: float, extra: dict | None = None) -> dict:
+def write_progress(out: Path, plan: dict, t_start: float, extra: dict | None = None,
+                   clips_at_start: int = 0) -> dict:
+    """`clips_at_start` is clips_ok when this run began, so the rate counts this run's clips only
+    (a resumed run would otherwise divide every earlier batch's clips by this run's elapsed time)."""
     from tonematch.engines.elastic import atomic_write_json
     st = shard_stats(out, plan)
     el = time.time() - t_start
-    rate = st["clips_ok"] / el if el > 0 else 0.0
-    st.update({"updated": time.strftime("%Y-%m-%d %H:%M:%S"), "elapsed_s": round(el), "clips_per_s_this_run": rate,
+    run_ok = max(0, st["clips_ok"] - clips_at_start)
+    rate = run_ok / el if el > 0 else 0.0
+    st.update({"updated": time.strftime("%Y-%m-%d %H:%M:%S"), "elapsed_s": round(el), "clips_ok_this_run": run_ok,
+               "clips_per_s_this_run": rate,
                "free_gb": round(free_gb(out), 2), "load1": round(os.getloadavg()[0], 2),
+               "busy_cores": round(demand_now()[0], 2),
                "stop_reason": stop_flag(out).read_text().strip() if stop_flag(out).exists() else None,
                **(extra or {})})
     atomic_write_json(Path(out) / "progress.json", st, indent=1)
@@ -523,6 +556,7 @@ def cmd_render(a) -> int:
     with __import__("contextlib").suppress(OSError):
         stop_flag(out).unlink()          # a previous stop reason does not block a new run
     t_start = time.time()
+    clips_at_start = shard_stats(out, plan)["clips_ok"]
     deadline = t_start + a.hours * 3600
     max_workers = max(1, min(a.hosts, MAX_HOSTS))
     os.environ["TONEMATCH_RUN_TAG"] = "drive-dataset-v1"
@@ -530,21 +564,23 @@ def cmd_render(a) -> int:
     job = hb.default_job()
     st0 = shard_stats(out, plan)
     log_line(out, f"render: {st0['shards_done']}/{st0['shards_total']} shards already done; up to {max_workers} "
-                  f"hosts; max load {a.max_load}; min free {a.min_free_gb} GB; until "
+                  f"hosts; pause above {a.max_load or '0.95 x cores'} busy cores; min free {a.min_free_gb} GB; until "
                   f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(deadline))}")
     last = {"t": 0.0}
 
     def left() -> int:
         if time.time() - last["t"] > 30:
-            write_progress(out, plan, t_start, {"deadline": time.strftime('%Y-%m-%d %H:%M', time.localtime(deadline))})
+            write_progress(out, plan, t_start, {"deadline": time.strftime('%Y-%m-%d %H:%M', time.localtime(deadline))},
+                           clips_at_start=clips_at_start)
             last["t"] = time.time()
         if stop_flag(out).exists() or time.time() > deadline or free_gb(out) < a.min_free_gb:
             return 0
         return sum(1 for s in plan["shards"] if not item_done(sdir, s["id"]))
 
     argv = [sys.executable, str(Path(__file__).resolve()), "worker", "--out", str(out), "--supervisor-pid",
-            str(os.getpid()), "--deadline", repr(deadline), "--min-free-gb", str(a.min_free_gb),
-            "--max-load", str(a.max_load)]
+            str(os.getpid()), "--deadline", repr(deadline), "--min-free-gb", str(a.min_free_gb)]
+    if a.max_load:
+        argv += ["--max-load", str(a.max_load)]
     n = 0
 
     def spawn():
@@ -582,7 +618,7 @@ def cmd_render(a) -> int:
     finally:
         signal.signal(signal.SIGTERM, signal.SIG_DFL)   # training after the render stops on a plain SIGTERM
         signal.signal(signal.SIGINT, signal.default_int_handler)
-    st = write_progress(out, plan, t_start, {"terminated": state["term"]})
+    st = write_progress(out, plan, t_start, {"terminated": state["term"]}, clips_at_start=clips_at_start)
     log_line(out, f"render: stopped; {json.dumps(st)}")
     return 143 if state["term"] or not finished else 0
 
@@ -876,7 +912,9 @@ def parse(argv=None):
         p.add_argument("--force", action="store_true")
 
     def render_args(p):
-        p.add_argument("--max-load", type=float, default=9.0)
+        p.add_argument("--max-load", type=float, default=None,
+                       help="pause new renders above this many BUSY cores (CPU utilisation x cores); "
+                            "default 0.95 x cores; resume below 0.85/0.95 of it")
         p.add_argument("--min-free-gb", type=float, default=8.5)
 
     def train_args(p):
