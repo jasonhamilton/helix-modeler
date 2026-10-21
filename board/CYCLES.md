@@ -56,3 +56,30 @@ Living doc not synced.
   - the [T191](./TASKS.md#t191 "Unattended overnight drive dataset render") batch renders, which the human runs.
 - **Next:** read the [T191](./TASKS.md#t191 "Unattended overnight drive dataset render") summaries (50k vs 100k) and propose the predictor direction.
 - **Living doc:** not synced.
+
+
+## 2026-10-19 to 2026-10-20: predictor and real-song listening (mode 2)
+
+- **Shipped:**
+  - the overnight dataset job ([T191](./TASKS.md#t191 "Unattended overnight drive dataset render")), run in batches by the human: 150k drive renders;
+  - the Drive-anomaly root cause, which is DI input level ([T194](./TASKS.md#t194 "Explain the Drive anomaly"));
+  - the predictor-first matcher, about 12 renders per match ([T196](./TASKS.md#t196 "Predictor-first drive matcher option"));
+  - the busy-core CPU monitor across all tools ([T192](./TASKS.md#t192 "CPU demand = busy cores"), [T193](./TASKS.md#t193 "Switch the remaining scripts' own os.getloadavg() guards to…"));
+  - a reference chain for DS-Sample from a tutorial ([T197](./TASKS.md#t197 "DS-Sample reference chain on the Stomp")), tuned three ways ([T198](./TASKS.md#t198 "Tune the DS-Sample reference chain"), [T199](./TASKS.md#t199 "Refine DS-Sample version c with the cab High Cut freed"));
+  - rating sessions v6 and v7.
+- **The human's ear:**
+  - Mother predictor-first match: "pretty good";
+  - DS-Sample drive-only matches: "quite far off";
+  - the tutorial chain: "pretty good";
+  - tuned version c beat the tutorial blind and live;
+  - c2 tied c.
+- **Assessment:** docs/notes/state-of-project-2026-10-20.md.
+- **Blocked on the human:**
+  - measured-pedal session (Gate 4);
+  - Gate 3 bars;
+  - predictor-first as default;
+  - input-level fix;
+  - chains scope;
+  - P3 reserve.
+- **Running:** [T195](./TASKS.md#t195 "Permissive encoders PANNs and DAC vs AFx-Rep on a drive-dataset-v1…") encoder swap (train step).
+- **Living doc:** not synced.

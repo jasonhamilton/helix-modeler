@@ -507,7 +507,16 @@ def write_outputs(out: Path, ctx: dict) -> None:
     if ctx.get("aligned"):
         lines += ["## Aligned take", "", "- `--aligned-take`: the take was declared sample-aligned, so the shortlist was searched and "
                   "ranked with `mrstft_v2` + `level_db` (Gate 2 weights) instead of the provisional no-DI loss.", ""]
-    if sl:
+    if sl and sl.get("kind") == "predictor":
+        own = sl["predictor_own"]
+        lines += ["## Predictor-first shortlist (T196, NOT the default)", "",
+                  "- the drive head (T191, MLP on multi-crop AFx-Rep) ran once on the target; confirming renders only for the models "
+                  f"that cover the probability: {', '.join(f'{m} (p {p:.2f})' for m, p in sl['p_selected'].items())}",
+                  f"- {sl['renders']} confirming renders (mean and +-1 sigma on Drive and Tone around the predicted knobs); final order "
+                  "by AFx-Rep distance of each model's best candidate",
+                  f"- the predictor's own pick, no renders: {own['model']} (p {own['p']:.2f}), Drive {own['drive']}, Tone {own['tone']} "
+                  "(knob positions 0..1; Drive estimates are provisional, see docs/notes/drive-anomaly-t194.md)", ""]
+    elif sl:
         low = ctx["knob_path"] == "coarse_grid"
         lines += ["## AFx-Rep shortlist (T178)", "",
                   f"- models ranked by embed_afxrep distance of coarse Drive x Tone renders to the target; top {len(sl['top'])}: "
@@ -558,11 +567,16 @@ def parse(argv=None):
                     help="Tone/Treble/Filter/Contour tolerance (default 0.1, 0.05 within 0.1 of either end; T178)")
     ap.add_argument("--knob-tol-map", help="JSON per-model knob names and tolerances (the T179 knob_sensitivity.json shape); "
                     "default: reports/local/distortion-id/tone-ends/knob_sensitivity.json or cache/drive-maps/knob_sensitivity.json if present")
-    ap.add_argument("--shortlist", choices=["none", "afxrep"], default="none",
+    ap.add_argument("--shortlist", choices=["none", "afxrep", "predictor"], default="none",
                     help="afxrep (T178): rank all models by embed_afxrep distance of coarse renders to the target, keep the top "
                          "--shortlist-n (plus their T180 family), then set knobs by fingerprint inversion (T181, if present), "
                          "the aligned take (--aligned-take) or the coarse grid only (low confidence). none = the old behaviour")
     ap.add_argument("--shortlist-n", type=int, default=8)
+    ap.add_argument("--predictor-heads", default=None,
+                    help="with --shortlist predictor (T196, a NON-default option): the trained head pickle "
+                         "(default cache/models/predictor-dataset-v1/heads_main_v2data_mlp_multi.pkl)")
+    ap.add_argument("--predictor-cum", type=float, default=0.95, help="--shortlist predictor: keep models up to this cumulative probability")
+    ap.add_argument("--predictor-max-models", type=int, default=6, help="--shortlist predictor: at most this many models get confirming renders")
     ap.add_argument("--families", help="drive families JSON (default cache/drive-maps/drive-families-v1.json if present)")
     ap.add_argument("--aligned-take", action="store_true",
                     help="the --di take is sample-aligned with the target: search and rank the shortlist with mrstft_v2 + level_db")
@@ -641,7 +655,17 @@ def run(args, engine=None, rows_by_shard=None) -> int:
     global _ALIGNED
     _ALIGNED = bool(args.aligned_take)
     sl, path, own = None, "search", engine is None
-    if args.shortlist == "afxrep":
+    if args.shortlist == "predictor":
+        # T196: predictor-first. One embedding + head pass, ~5 confirming renders for each of <= 6 models, AFx-Rep order.
+        if own:
+            engine = make_engine(args.preroll, log)
+        sl = run_predictor_shortlist(args, pool, section, catalog, engine, log)
+        path = sl["path"]
+        pool = {m: pool[m] for m in sl["models"]}
+        args.final_top = max(args.final_top, len(pool))
+        args.final_rank = "afxrep"                     # the predictor path ranks by AFx-Rep distance, by design
+        rows_by_shard = [sl["rows"]]
+    elif args.shortlist == "afxrep":
         if own:
             engine = make_engine(args.preroll, log)
         sl = run_shortlist(args, pool, section, catalog, engine, log)
@@ -767,6 +791,26 @@ def run_shortlist(args, pool: dict, section, catalog, engine, log) -> dict:
     return {"models": r["models"], "top": r["top"], "path": path, "rows": rows, "renders": r["renders"],
             "families_used": r["families_used"], "second_choice_added": r.get("second_choice_added", []),
             "inversion_models": sorted(est), "inversion_declined": declined, "ranked": [{k: x[k] for k in ("model", "distance")} for x in r["ranked"]]}
+
+
+def run_predictor_shortlist(args, pool: dict, section, catalog, engine, log) -> dict:
+    """T196: the predictor-first stage (tonematch.search.predictor_first). Same dict shape as `run_shortlist`."""
+    from tonematch.search import knob_tol as KT
+    from tonematch.search import predictor_first as PF
+
+    blocks = make_blocks(pool, args.category, catalog)
+    head = PF.Head.load(args.predictor_heads)
+    try:
+        from tonematch.metrics.distortion_step4 import EXCLUDED     # the six fuzzes the dataset never contained
+    except ImportError:
+        EXCLUDED = ()
+    knob_map, _ = KT.load_sensitivity(args.knob_tol_map)
+    r = PF.run_predictor_first(engine, blocks, section, head, knob_map, cum=args.predictor_cum,
+                               max_models=args.predictor_max_models, allowed=[m for m in blocks if m not in EXCLUDED], log=log)
+    r.update({"path": "predictor", "families_used": False, "second_choice_added": [], "inversion_models": [],
+              "inversion_declined": False, "kind": "predictor"})
+    r["candidates"] = [{k: v for k, v in c.items()} for c in r["candidates"]]
+    return r
 
 
 def main(argv=None) -> int:

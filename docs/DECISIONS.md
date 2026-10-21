@@ -2517,3 +2517,204 @@ Implemented in tonematch.engines.host_budget and in the drive dataset render gua
 ## 2026-10-19 (human): switch every remaining load guard to the busy-core monitor
 
 **Approval.** About 15 scripts still had their own `os.getloadavg()` guards (listed in docs/notes/host-budget.md). The lead asked whether to switch them in one pass. The human answered **"yes switch to the new load monitor code. Commit an push"**. Each script now uses `measure_demand` and `BusyGate` from tonematch.engines.host_budget (T193, platform). — lead
+
+## 2026-10-20 (lead, for learning T191): drive-dataset-v1 results (150k renders); nothing adopted
+
+The human ran the batches and the train step. Rendered 149,698 of 150,000 clips (302 failed, almost all silent settings on Valve Driver and Regal Bass DI); training took 8,540 s. Summary: cache/drive-dataset-v1/summary.md, copied to summary-150k.md. Ledger: 36 rows of benchmark / - / predictor-dataset-v1.
+
+The best head is the MLP trained on v2data (old train + 105k new). The second figure in each cell below is with the head's own top-1 model.
+
+| Test | Model top-1 (v1data → v2data) | Family | Drive ±0.15 | Tone ±0.10 |
+|---|---|---|---|---|
+| Known players, new held-out recordings | 0.55 → **0.93** | 0.94 | 0.73 / 0.71 | 0.70 / 0.67 |
+| New player, P2→P1 | 0.47 → **0.75** | 0.82 | 0.59 / 0.54 | 0.59 / 0.53 |
+| New player, P1→P2 | 0.33 → **0.62** | 0.70 | 0.65 / 0.55 | 0.52 / 0.47 |
+
+**Anomaly.** On the OLD T186 test renders (drive-specialist grid), v2data Drive accuracy fell against v1data: 0.67 → 0.53, and P1→P2 0.37 → 0.29, with 68% coverage collapsing to 0.23–0.53. Model and Tone improved on the same renders. This suggests a Drive-label or level mismatch between the old renders and the new ones; the new data hold Level/Output at default. It needs a check before any knob claim.
+
+**Open for the human.** Nothing is adopted. Open: whether to build matching on this head; the anomaly check; testing on real pedals and the human's own playing (still only two Guitar-TECHS guitars, Helix against Helix); and the AFx-Rep licence terms. — lead
+
+## 2026-10-20 (human): go ahead on the four post-T191 recommendations
+
+**Approval.** The lead listed four decisions with recommendations. The human answered **"yes do those"**.
+1. **(T194, learning)** Investigate the Drive anomaly on the old test renders. No new renders.
+2. **(T196, search)** Build the predictor-first matcher: shortlist and rough knobs from the predictor, then a few confirming renders.
+   - It is an option, compared with the AFx-Rep shortlist on the T185 harness.
+   - It becomes the default only after T194 explains the anomaly and the human sees the comparison.
+3. **(T196)** Test it on something real.
+   - **Targets rendered from the human's own takes:** the human's playing, no song audio, and a player the predictor never trained on.
+   - **Measured-pedal mode:** prepared; it needs the human at the pedal. The lead asks when the human is ready.
+4. **(T195, learning)** Test the permissive encoders PANNs (CC BY 4.0) and DAC (MIT) in place of AFx-Rep, on a subset of drive-dataset-v1.
+
+— lead
+
+## 2026-10-20 (learning, T195): encoder-swap-v1 registered BEFORE fitting (drive only; a measurement, nothing adopted)
+
+- **Encoders.**
+  - AFx-Rep: the stored T191 `mid` crops. The subset is re-rendered, and every 50th clip is re-embedded with AFx-Rep as a check that the re-render matches.
+  - PANNs Cnn14: `Cnn14_mAP=0.431.pth` (32 kHz, Zenodo 3987831, CC BY 4.0, md5 checked). Feature: the PANNs 2048-d `embedding` (relu fc1). Input peak-normalised.
+  - DAC encoder: the 24 kHz model, release 0.0.4 (MIT). Feature: mean and std over time of the pre-quantiser latent (2048-d). Input at -24 dBFS RMS.
+  - The 44 kHz DAC model is not tested. It costs 0.61 s a clip on MPS against 0.35 s, which would be about 12 h for this subset.
+  - Weights are stored only in cache/models/.
+- **Subset (seed 195).**
+  - 27,000 of the 105k drive-dataset-v1 train clips, drawn uniformly.
+  - Every clip of cal (6,516), test (19,012) and v1test (18,989). Same file splits as T191.
+  - T186 old renders are not used. P3 is never read.
+- **Feature sets.**
+  - afx_l2: the T191 input, unchanged.
+  - afx_z, panns_z, dac_z: per-dimension z-score on the arm's train crops, then divided by sqrt(d).
+- **Heads, pooling, calibration, arms.** Exactly as T191 `run_train`: logreg and MLP (1 seed, 60 epochs), 3 × 3.33 s multi-crop, out-of-fold plus cal calibration, arms main / P2→P1 / P1→P2.
+- **Reported.** Model top-1/top-5, family, Drive ±0.15 and Tone ±0.10 (true and own top-1) on `newtest` and `v1files_new`. Also paired differences against afx_l2 and against afx_z: a bootstrap over test DI files, 2,000 resamples, 95% percentile interval.
+- **No pass bar and no pick.** The human decides.
+
+— learning
+
+**Amendment (learning, 2026-10-20 09:40, before any real fit).**
+- **Why.** Pauses from the shared host load (T196 runs 3 hosts) cut the render to about 0.9 clips/s.
+- **Reorder.** The remaining clips are re-sharded: train and cal first, then test and v1test, each shuffled (seed 1951). The 16 finished shards are kept.
+- **Early stop.** If the run must stop early, the training set stays complete and the test sets become a random subsample that still covers every file. The report will give the clip counts used.
+- **DAC level fix.** DAC input level is now set after resampling. One aborted shakedown with the old order was discarded.
+- **Shakedown fit.** 1,600 clips, 2 epochs, no ledger. Its numbers are not results.
+
+— learning
+
+## 2026-10-20 (learning, T194): the Drive anomaly is an input-level mismatch; nothing adopted
+
+- **Root cause.** The old renders (drive-specialist, gain-trust, helix-trust-v2) loudness-normalise each DI excerpt to -26.7 dBFS loud level before Native. drive-dataset-v1 feeds the raw DI, a median of 7 dB (P1) and 8.6 dB (P2) quieter. The same Drive label therefore sounds more driven in the old set.
+  - The new-data head over-reads old clips by +0.09.
+  - The old-data head under-reads new clips by -0.09 to -0.12.
+  - Inside the new renders alone, the bias falls about 0.01 per dB of input level, and clips near the reference level reproduce the old-test bias.
+- **Ruled out.** Drive label definitions (same knob, same CC/127 grid, identical ranges on 54 of 54 models), the Output knob (bias flat across it), and the calibration pool (a consequence of the bias). Pre-roll (0.1 s vs 3 s) was not measured; at most about 0.03 is left for it and all other differences combined.
+- **Retrain measurement (existing features, no renders):**
+  - Giving the head the DI input gain lifts within-player Drive ±0.15 to 0.70 on old renders (from 0.53) and 0.77 on new (from 0.73), with no level bias.
+  - Level-matched new clips only: 0.69 on old renders, against 0.59 for a random subset of the same size.
+  - P1→P2 keeps a +0.20 player bias that level does not explain; its coverage collapse comes from narrower intervals with a P1-only calibration pool.
+- **Open for the human** (not adopted): how the data generator should fix the DI level (normalise to -26.7 dBFS, or keep raw/randomised levels with the gain recorded); whether the predictor takes the DI level as an input; held-out-player calibration folds. Details: docs/notes/drive-anomaly-t194.md. No contract change.
+
+— learning
+
+## 2026-10-20 (search, T196): predictor-first drive matcher measured; nothing adopted
+
+Built `match_block.py --shortlist predictor` (non-default) and measured it on 72 new targets (seed 196, 10 s each; 48 from Guitar-TECHS files the head never trained on, 24 rendered from the human's own takes) against the AFx-Rep shortlist with AFx final order. Details and tables: docs/notes/predictor-first-t196.md; ledger `search / native / predictor-first-v1`.
+
+- Model top-1 on Guitar-TECHS: 85% (blind DI) and 96% (same player) against 44% and 52%, every paired test far under p 0.05; top-3 100%. Human takes: 67% blind and 83% same player against 46% and 83% (top-1 p 0.13 and 1.0; blind top-3 88% against 54%, p 0.008).
+- Cost: 12 renders and 5 s per match on average against 344 and 155 s.
+- Knobs are not better than the predictor alone, and the human's Drive reads 0.15 to 0.20 too high in every arm, including the AFx shortlist (DI about 7 dB louder than Guitar-TECHS; T194's level confound). Model and Tone results are unaffected.
+- Open for the human: whether to make it the default (it stays opt-in), the Drive confound (T194), the real-pedal test, the AFx-Rep licence. Nothing admitted, adopted or frozen. - search
+
+## 2026-10-20 (human, recorded by lead): first song match the human heard as close
+
+The human listened to the predictor-first match of the Mother section (0:28–0:38) on the Stomp: the separated original, then the match, then side by side. The human's verdict: **"it sounded pretty good"**.
+
+- **The match:** a single block, HD2_DistZeroAmpBassDI at Drive 0.77, Bass 0.59, Treble 0.68, Blend 0.40 and Presence 0.50.
+- **How it was found:** `match_block.py --shortlist predictor --final-rank afxrep`, 5 renders, 14 s, with the human's take1 as DI. The AFx-Rep shortlist reached the same model (Drive 0.85) in about 370 renders.
+- **Files:** cache/matches/Mother-live/.
+- **Status:** this is the human's ear on one section, not a scored test. Nothing is adopted by it. It is the first real-song match the human has described positively. Earlier matches were heard as "doesn't sound very close" and "nothing alike".
+
+— lead
+
+## 2026-10-20 (human, recorded by lead): DS-Sample drive matches heard as "both quite far off"
+
+The human recorded a dry play-along take of DS-Sample 0:30–0:45; take2 aligned within a 12.5 ms lag IQR. The predictor-first match was then run on 0:35–0:45 with take2 as DI. Two candidates came out:
+- **A:** HD2_DistZeroAmpBassDI. AFx-Rep pick; predictor p = 0.59.
+- **B:** KillerZ. Predictor p = 0.41; also the provisional score's pick.
+
+The human heard both against the separated original. Verdict: **"they were both quite far off"**.
+
+This contrasts with the Mother match ("it sounded pretty good"). The likely reason is a lead hypothesis, not tested: DS-Sample's guitar tone is mostly an amp and cab, which a single drive block cannot reproduce. T041 earlier matched DS-Sample with an amp/cab chain (EssexA15 + 1x12 BlueBell). The predictor knows only the 54 drive models, so it always names one even when none fits. Informal listen; nothing adopted. Files: cache/matches/DS-Sample-live/. — lead
+
+## 2026-10-20 (human): DS-Sample reference chain from a tone tutorial, to hear on the Stomp
+
+**What the human asked.** The human said: "The sound can be reproduced with the following chain -> tube screamer, marshall amp, delay pedal, and eq. You can get the settings from this video https://www.youtube.com/watch?v=le_05SO2CpM". The video is a guitarlessons365 tone tutorial. Its description links a free settings PDF. The lead read the PDF; it stays in the session scratchpad and is not in the repo.
+
+**Mapping to Helix (lead):**
+- Scream 808: Drive 0.5, Tone 0.5, Level about 0.67.
+- Brit 2204, the closest Helix Marshall (there is no Silver Jubilee model): Drive 3, Bass 7, Mid 5, Treble 4, Ch Vol 6, Master 7 on the PDF's 0–10 scale.
+- 4x12 Greenback 25 cab (not in the PDF).
+- Simple Delay: 26 ms, feedback 0, mix about 50%.
+- 10 Band Graphic: +1.25 dB at 63 Hz, +3.75 at 125, +2.25 at 250, -1.55 at 8 kHz, -3 at 16 kHz.
+- Hall reverb, from the PDF, as an optional last block.
+
+**Plan (T197, stomp-engine).**
+- Load the chain onto the 04C edit buffer (never flash).
+- Reamp the human's DS-Sample take2 (0:35–0:45) through it.
+- Leave it loaded for the human to play, then restore 04C when the human is done.
+
+This is a reference listening test the human asked for. No method is adopted. — lead
+
+## 2026-10-20 (human, recorded by lead): the tutorial reference chain sounds right for DS-Sample
+
+The human played through the T197 reference chain on the Stomp. Verdict: **"yeah that sounds pretty good."**
+- **The chain:** Scream 808 (Gain 0.5, Tone 0.5, Level 0.7) > Brit 2204 + 4x12 Greenback 25 (Drive 0.3, Bass 0.7, Mid 0.5, Treble 0.4, ChVol 0.6, Master 0.7) > Simple Delay (26 ms, Feedback 0, Mix 0.5) > 10 Band Graphic (+1.25 dB at 63 Hz, +3.75 at 125, +2.25 at 250, -1.55 at 8 kHz, -3 at 16 kHz) > Hall (Mix 0.4, Decay 0.52).
+- **Why it matters.** This is the first human-endorsed reference answer for a real song's guitar. It explains why the drive-only matches were "quite far off": the tone is an amp and cab with a mild Tube Screamer in front. It is a candidate ground truth for testing chain matching later.
+- **Status.** An informal listen; nothing is adopted. Files: cache/matches/DS-Sample-live/reference-chain/.
+
+— lead
+
+## 2026-10-20 (human): tune the DS-Sample reference chain three ways, then compare by ear
+
+**Approval.** The lead asked three questions.
+- **Knobs:** the human chose **"Amp + EQ + 808 (Recommended)"**: Brit 2204 Drive, Bass, Mid, Treble and Presence; the 10 Band Graphic bands; Scream 808 Gain and Tone. Delay, reverb and cab stay at the tutorial values.
+- **Score:** **"let's try them all, then compare by ear to see who gets the best settings"**. That means three arms:
+  - (a) mrstft_v2 on the aligned take2, with bands below about 250 Hz excluded (the separator strips the guitar's bass);
+  - (b) mrstft_v2, full range;
+  - (c) AFx-Rep distance.
+- **Engine:** **"Native, then confirm on Stomp (Recommended)"**. A one-time Native template capture of this chain, the search on Native, then the best of each arm rendered on the Stomp.
+
+**Judging.** The human's ear decides, in a short blind session on the same performance: the tutorial settings against each arm's result, all loudness-matched by LUFS. No score is admitted by this. T198 (search, with native-engine and stomp-engine steps). — lead
+
+## 2026-10-20 (search): T198 built, DS-Sample chain tuned three ways, awaiting the human's ratings
+
+Measurement and listening prep only; nothing admitted, adopted or frozen. Note: `docs/notes/ds-sample-tuning-t198.md`.
+- **Arms** (CMA-ES from the tutorial values, 421 Native renders each, 17 knobs): a, `mrstft_v2` above 250 Hz (Native 0.794 to 0.647); b, `mrstft_v2` full range (0.977 to 0.633); c, AFx-Rep distance (0.567 to 0.187). On the Stomp through take2 each arm is best at its own score (e.g. full-range `mrstft_v2`: tutorial 0.986, a 0.717, b 0.635, c 0.659). Many EQ bands ended at the +-12 dB limit (3, 5 and 8 of 10), so the scores want a tonal change larger than the allowed range.
+- **Native-versus-Stomp parity at the tutorial values:** `mrstft_v2` 0.345 (each engine is 0.98 from the stem); 250 Hz to 20 kHz bands within 1.2 dB, 62-125 Hz -2.9 dB, loudness +0.56 LUFS. The same agreement holds at the tuned settings (0.27 to 0.31; loudness change predicted to within 0.3 dB).
+- **Finding for native-engine:** an .hlx whose amp is block type 1 with a separate linked cab loads on Native without the cab (every cab control dead, +34 dB at 8-16 kHz); the Stomp renders the cab. Type 3 (as in the inject files) fixes it. Any programmatic amp + cab chain built with type 1 is affected on Native.
+- **Pedal:** the human's edit buffer matched the tutorial (0 of 58 values differ), so there was no extra candidate; 5 renders, no warning, close acks true; the tutorial is back in the 04C edit buffer with the Input on Main L/R; 04C not restored.
+- **Open for the human:** the ratings (page http://127.0.0.1:8000/local/ratings/human-ratings-v6/index.html; 8 trials, K-weighted loudness at -23 LUFS, key hidden). Which score, if any, the ratings favour is read from them afterwards, not decided here.
+
+— search
+
+## 2026-10-20 (human ratings, recorded by lead): v6 ranks every tuned version above the tutorial settings
+
+human-ratings-v6 was answered (8 trials: 6 decided, 2 ties). Per candidate, from the key opened after scoring:
+
+| Candidate | Mean rating | Won / lost / tied |
+|---|---|---|
+| **c (AFx-Rep score)** | **4.00** | 2 / 0 / 1 |
+| a (mrstft_v2 above 250 Hz) | 3.60 | 3 / 2 / 0 |
+| b (mrstft_v2 full range) | 3.25 | 1 / 1 / 2 |
+| tutorial | 2.50 | 0 / 3 / 1 |
+
+- **Tutorial:** never won.
+- **Retests:** one of two was consistent. a vs b flipped; a vs tutorial held.
+- **Caveat:** n is small. This is the human's ear on one section; nothing is adopted.
+- **Arm c's settings:** 808 Gain 0.05, Tone 0.13; Brit 2204 Drive 0.24, Bass 1.00, Mid 0.38, Treble 1.00, Presence 1.00. Its EQ sits near the ±12 dB limit on 8 of 10 bands, including +11.9 dB at 62.5 Hz and -11.9 dB at 31 and 125 Hz.
+
+— lead
+
+## 2026-10-20 (human, recorded by lead): version c preferred over the tutorial settings when played live
+
+The human played both versions on the Stomp: the tutorial reference chain and T198 arm c (AFx-Rep-tuned, cache/matches/DS-Sample-live/tuned/ds_c.hlx). The human then said: **"C is better"**. Version c is loaded on the 04C edit buffer; nothing is saved to flash. This agrees with the v6 blind ratings (c 4.00 against tutorial 2.50). The human's ear, not an adoption of the AFx-Rep score. — lead
+
+## 2026-10-20 (human): refine version c with the cab High Cut freed
+
+**Request.** The human said: "refine c further with the cab high cut freed".
+- **T199, search.** Start from c (ds_c.hlx) and add the 4x12 Greenback 25 High Cut to the tuned knobs (the catalog range). Keep the other T198 knobs and limits. The score is AFx-Rep distance, c's own score, which the human preferred.
+- **Then.** Render the new best on the Stomp through take2 next to c, build a small blind LUFS-matched comparison against the original, and load the human's choice onto the edit buffer.
+- **Status.** Nothing adopted.
+
+— lead
+
+## 2026-10-20 (search): T199 built, c refined with the cab High Cut freed, awaiting the human's ratings
+
+Measurement and listening prep only; nothing adopted. Note: `docs/notes/ds-sample-tuning-t198.md` (T199 section).
+- **Search:** AFx-Rep from c, 18 knobs, 2 seeds x 401 Native renders: 0.1869 to 0.1743 / 0.1704, both still creeping down. Both seeds put the cab High Cut near 12 kHz (12,075 and 11,766 Hz, from 8,000); the score is flat above 10 kHz. c2 = seed 1 (`ds_c2.hlx`).
+- **Stomp:** edit buffer equalled c (no human edits). AFx-Rep c 0.2076, c2 0.1968. 8-16 kHz is 14.0 dB (c) and 7.2 dB (c2) under the stem. c2 is 2.0 dB quieter.
+- **Left on the pedal:** c in the 04C edit buffer, Input on Main L/R, nothing flashed.
+- **Open:** the human's v7 ratings (http://127.0.0.1:8000/local/ratings/human-ratings-v7/index.html, 2 trials: c against c2, one retest).
+
+— search
+
+## 2026-10-20 (human ratings, recorded by lead): c2 (cab High Cut freed) sounds the same as c
+
+human-ratings-v7 had 2 trials: c against c2, with the sides swapped on the second. Both were answered **"tie"**, with ratings 3 and 3 for both versions in both trials. Freeing the cab High Cut (8,000 to 11,766 Hz) measurably closed half the gap above 8 kHz, but it made no difference the human could hear. The AFx-Rep score had also improved only slightly (0.208 to 0.197 on the Stomp). c stays loaded on the 04C edit buffer. Nothing adopted. — lead

@@ -252,3 +252,21 @@ def test_rate_counts_only_this_runs_clips(tmp_path, monkeypatch):
     st = D.write_progress(tmp_path, plan, t0, clips_at_start=200)
     assert st["clips_ok"] == 300 and st["clips_ok_this_run"] == 100
     assert 0.9 < st["clips_per_s_this_run"] < 1.1
+
+
+def test_progress_estimates_time_remaining(tmp_path, monkeypatch):
+    import json
+    import time
+    import drive_dataset_render as D
+    sdir = tmp_path / "shards"
+    sdir.mkdir()
+    plan = {"shards": [{"id": f"s{i:05d}"} for i in range(4)], "n_clips": 400}
+    (sdir / "s00000.json").write_text(json.dumps({"n_ok": 99, "n_failed": 1}))
+    monkeypatch.setattr(D, "demand_now", lambda: (1.0,))
+    monkeypatch.setattr(D, "free_gb", lambda out: 50.0)
+    st = D.write_progress(tmp_path, plan, time.time() - 100.0, clips_at_start=0)   # 99 clips in 100 s
+    assert st["clips_remaining"] == 300
+    assert st["eta_remaining"] == "0:05"          # 300 clips at 0.99/s, about 303 s
+    assert st["eta_finish"] is not None
+    st = D.write_progress(tmp_path, plan, time.time() - 100.0, clips_at_start=99)  # nothing new this run
+    assert st["eta_remaining"] is None and st["eta_finish"] is None

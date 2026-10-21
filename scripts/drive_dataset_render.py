@@ -522,7 +522,7 @@ def shard_stats(out: Path, plan: dict) -> dict:
             rs += d.get("render_s", 0.0)
             es += d.get("embed_s", 0.0)
     return {"shards_done": done, "shards_total": len(plan["shards"]), "clips_ok": ok, "clips_failed": failed,
-            "clips_planned": plan["n_clips"], "render_s_sum": rs, "embed_s_sum": es}
+            "clips_planned": plan["n_clips"], "render_s_sum": round(rs, 1), "embed_s_sum": round(es, 1)}
 
 
 def write_progress(out: Path, plan: dict, t_start: float, extra: dict | None = None,
@@ -534,8 +534,14 @@ def write_progress(out: Path, plan: dict, t_start: float, extra: dict | None = N
     el = time.time() - t_start
     run_ok = max(0, st["clips_ok"] - clips_at_start)
     rate = run_ok / el if el > 0 else 0.0
+    remaining = max(0, st["clips_planned"] - st["clips_ok"] - st["clips_failed"])
+    eta_s = remaining / rate if rate > 0 else None      # at this run's current rate
+    eta = {"clips_remaining": remaining,
+           "eta_remaining": (f"{int(eta_s // 3600)}:{int(eta_s % 3600 // 60):02d}" if eta_s is not None else None),
+           "eta_finish": (time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() + eta_s))
+                          if eta_s is not None else None)}
     st.update({"updated": time.strftime("%Y-%m-%d %H:%M:%S"), "elapsed_s": round(el), "clips_ok_this_run": run_ok,
-               "clips_per_s_this_run": rate,
+               "clips_per_s_this_run": round(rate, 1), **eta,
                "free_gb": round(free_gb(out), 2), "load1": round(os.getloadavg()[0], 2),
                "busy_cores": round(demand_now()[0], 2),
                "stop_reason": stop_flag(out).read_text().strip() if stop_flag(out).exists() else None,
