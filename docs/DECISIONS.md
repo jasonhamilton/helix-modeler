@@ -2718,3 +2718,28 @@ Measurement and listening prep only; nothing adopted. Note: `docs/notes/ds-sampl
 ## 2026-10-20 (human ratings, recorded by lead): c2 (cab High Cut freed) sounds the same as c
 
 human-ratings-v7 had 2 trials: c against c2, with the sides swapped on the second. Both were answered **"tie"**, with ratings 3 and 3 for both versions in both trials. Freeing the cab High Cut (8,000 to 11,766 Hz) measurably closed half the gap above 8 kHz, but it made no difference the human could hear. The AFx-Rep score had also improved only slightly (0.208 to 0.197 on the Stomp). c stays loaded on the 04C edit buffer. Nothing adopted. — lead
+
+## 2026-10-20 (learning, T195): encoder-swap-v1 results; nothing adopted
+
+- **Run.** As registered (DECISIONS 2026-10-20, learning, T195).
+  - 71,517 clips re-rendered on one Native host, with 0 failures. Render and embed took 8.7 h; training took 2.7 h.
+  - The AFx-Rep re-render check on 1,431 clips gave a minimum cosine of 0.99999.
+  - Ledger: 48 rows of `benchmark / - / encoder-swap-v1`. Note: docs/notes/encoder-swap-t195.md. Card: models/CARDS.md.
+- **Model top-1, MLP head, newtest:**
+
+  | Encoder | Within player | P2→P1 | P1→P2 |
+  |---|---|---|---|
+  | AFx-Rep | 0.89 | 0.72 | 0.58 |
+  | DAC-24k (MIT) | 0.79 | 0.49 | 0.52 |
+  | PANNs Cnn14 (CC BY 4.0) | 0.38 | 0.24 | 0.19 |
+
+- **Paired, DAC minus AFx-Rep** (95% interval over test files): within -0.10 [-0.11, -0.08], P2→P1 -0.23 [-0.26, -0.20], P1→P2 -0.07 [-0.09, -0.05]. Every PANNs gap is -0.37 to -0.51.
+- **The one place DAC matches.** It equals or slightly beats AFx-Rep on Drive ±0.15 when given the true model: +0.03 [+0.01, +0.04] within player.
+- **Licences.**
+  - PANNs: weights CC BY 4.0, trained on AudioSet only.
+  - DAC: weights MIT, but trained partly on MUSDB and MTG-Jamendo (non-commercial terms). Its data question is the same as AFx-Rep's.
+- **Open for the human. Nothing is adopted.**
+  1. Keep AFx-Rep for local use (recommended on these numbers).
+  2. Whether to fund a licence-clean route: a contrastive or supervised projection, or a fine-tune, on frozen DAC or PANNs features trained on Native renders. This was not measured.
+
+— learning

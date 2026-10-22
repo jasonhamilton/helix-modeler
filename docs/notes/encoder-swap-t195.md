@@ -2,7 +2,101 @@
 
 Owner: learning. Written 2026-10-20. **A measurement only. Nothing is adopted, and there is no pass bar.** The human decides whether any encoder replaces AFx-Rep. Pre-registration: docs/DECISIONS.md, 2026-10-20 (learning, [T195](../../board/TASKS.md#t195 "Permissive encoders PANNs and DAC vs AFx-Rep on a drive-dataset-v1…")).
 
-RESULTS_PLACEHOLDER
+## Result in one paragraph
+
+- **Neither permissive encoder matches AFx-Rep.** Under the same heads, calibration and splits, AFx-Rep is better on every arm and on nearly every metric, with intervals well clear of zero.
+- **DAC is the closer of the two.** The DAC encoder (24 kHz, MIT) with the MLP head is behind AFx-Rep by:
+  - **0.10** in model top-1 within player (0.79 against 0.89);
+  - **0.21–0.23** for P2→P1;
+  - **0.07–0.09** for P1→P2.
+- **PANNs is far behind.** PANNs Cnn14 (CC BY 4.0) loses **0.37–0.51** in top-1 on every arm. Its AudioSet embedding hardly separates drive models (top-1 0.37–0.38 within player).
+- **One exception.** DAC is level with AFx-Rep, or slightly ahead, on Drive within ±0.15 when the true model is given (within player +0.03 [+0.01, +0.04] and +0.01 [-0.01, +0.02]). Its weakness is choosing the model, not reading the gain.
+- **Nothing is adopted.** On these numbers AFx-Rep stays the best encoder measured. The licence question is not removed by either swap (see Licences).
+
+## Results
+
+The subset holds 71,517 clips: train 27,000 (40 files), cal 6,516 (5), newtest 19,012 (18), v1files_new 18,989 (29). There were no render failures.
+- **Re-render check:** 1,431 clips, minimum cosine with the stored AFx-Rep crops 0.99999, median 1.0. The AFx-Rep arm and the new encoders saw the same audio.
+- **Time.** Render and embed took 8.7 h of wall time, on one host. Pauses came from the shared load: [T196](../../board/TASKS.md#t196 "Predictor-first drive matcher option")'s 3 hosts, and the human's other work raising the load average to 18–31. Training took 2.7 h.
+
+Model top-1 / top-5 / family; Drive ±0.15 and Tone ±0.10 given as **true model / head's own top-1 model**.
+
+### Within player (both players' train files)
+
+| Encoder | Head | newtest (18 files) | Drive | Tone | v1files_new (29 files) | Drive | Tone |
+|---|---|---|---|---|---|---|---|
+| AFx-Rep (l2, [T191](../../board/TASKS.md#t191 "Unattended overnight drive dataset render") input) | logreg | 0.84 / 0.98 / 0.88 | 0.68 / 0.62 | 0.61 / 0.55 | 0.82 / 0.98 / 0.86 | 0.66 / 0.60 | 0.61 / 0.55 |
+| AFx-Rep (l2) | mlp | **0.89** / 0.99 / 0.91 | 0.71 / 0.67 | 0.67 / 0.62 | **0.87** / 0.99 / 0.90 | 0.67 / 0.64 | 0.66 / 0.61 |
+| AFx-Rep (z) | logreg | 0.85 / 0.98 / 0.89 | 0.69 / 0.64 | 0.63 / 0.57 | 0.83 / 0.98 / 0.87 | 0.66 / 0.61 | 0.63 / 0.56 |
+| AFx-Rep (z) | mlp | **0.90** / 0.99 / 0.92 | 0.71 / 0.68 | 0.68 / 0.63 | **0.88** / 0.99 / 0.91 | 0.68 / 0.64 | 0.67 / 0.62 |
+| PANNs Cnn14 (z) | logreg | 0.38 / 0.71 / 0.54 | 0.60 / 0.42 | 0.31 / 0.24 | 0.37 / 0.69 / 0.53 | 0.56 / 0.40 | 0.30 / 0.24 |
+| PANNs Cnn14 (z) | mlp | 0.38 / 0.73 / 0.54 | 0.67 / 0.44 | 0.36 / 0.26 | 0.37 / 0.71 / 0.53 | 0.64 / 0.41 | 0.35 / 0.25 |
+| DAC-24k (z) | logreg | 0.67 / 0.92 / 0.75 | 0.65 / 0.54 | 0.50 / 0.41 | 0.65 / 0.90 / 0.74 | 0.59 / 0.50 | 0.50 / 0.41 |
+| DAC-24k (z) | mlp | **0.79** / 0.97 / 0.83 | 0.73 / 0.64 | 0.63 / 0.55 | **0.77** / 0.96 / 0.82 | 0.68 / 0.60 | 0.62 / 0.53 |
+
+### Cross player P2 → P1 (train and calibrate on P2, test on P1 files)
+
+| Encoder | Head | newtest (10 files) | Drive | Tone | v1files_new (14 files) | Drive | Tone |
+|---|---|---|---|---|---|---|---|
+| AFx-Rep (l2) | logreg | 0.71 / 0.93 / 0.78 | 0.59 / 0.52 | 0.55 / 0.46 | 0.66 / 0.91 / 0.74 | 0.57 / 0.49 | 0.53 / 0.43 |
+| AFx-Rep (l2) | mlp | **0.72** / 0.94 / 0.79 | 0.59 / 0.53 | 0.57 / 0.50 | **0.68** / 0.93 / 0.75 | 0.57 / 0.50 | 0.53 / 0.45 |
+| AFx-Rep (z) | mlp | 0.72 / 0.93 / 0.79 | 0.58 / 0.52 | 0.56 / 0.49 | 0.67 / 0.92 / 0.76 | 0.57 / 0.49 | 0.53 / 0.45 |
+| PANNs Cnn14 (z) | mlp | 0.24 / 0.55 / 0.41 | 0.55 / 0.39 | 0.30 / 0.22 | 0.19 / 0.48 / 0.38 | 0.53 / 0.36 | 0.29 / 0.22 |
+| DAC-24k (z) | logreg | 0.46 / 0.75 / 0.59 | 0.59 / 0.45 | 0.42 / 0.32 | 0.43 / 0.73 / 0.56 | 0.51 / 0.40 | 0.40 / 0.30 |
+| DAC-24k (z) | mlp | **0.49** / 0.75 / 0.61 | 0.55 / 0.46 | 0.51 / 0.38 | **0.47** / 0.75 / 0.59 | 0.52 / 0.42 | 0.48 / 0.36 |
+
+### Cross player P1 → P2
+
+| Encoder | Head | newtest (8 files) | Drive | Tone | v1files_new (15 files) | Drive | Tone |
+|---|---|---|---|---|---|---|---|
+| AFx-Rep (l2) | logreg | 0.56 / 0.86 / 0.64 | 0.58 / 0.50 | 0.48 / 0.39 | 0.59 / 0.88 / 0.67 | 0.51 / 0.46 | 0.48 / 0.40 |
+| AFx-Rep (l2) | mlp | **0.58** / 0.87 / 0.67 | 0.63 / 0.54 | 0.51 / 0.43 | **0.62** / 0.90 / 0.70 | 0.53 / 0.48 | 0.54 / 0.46 |
+| AFx-Rep (z) | mlp | 0.59 / 0.86 / 0.67 | 0.64 / 0.54 | 0.52 / 0.44 | 0.63 / 0.89 / 0.71 | 0.53 / 0.48 | 0.54 / 0.47 |
+| PANNs Cnn14 (z) | mlp | 0.19 / 0.48 / 0.37 | 0.55 / 0.37 | 0.32 / 0.23 | 0.19 / 0.46 / 0.37 | 0.52 / 0.35 | 0.33 / 0.25 |
+| DAC-24k (z) | logreg | 0.46 / 0.77 / 0.59 | 0.52 / 0.43 | 0.43 / 0.33 | 0.48 / 0.79 / 0.60 | 0.49 / 0.42 | 0.45 / 0.34 |
+| DAC-24k (z) | mlp | **0.52** / 0.82 / 0.63 | 0.57 / 0.47 | 0.49 / 0.39 | **0.53** / 0.83 / 0.63 | 0.52 / 0.44 | 0.52 / 0.41 |
+
+The PANNs logreg cross-player rows are in `summary.md`: 0.18–0.24 top-1.
+
+### Paired differences against AFx-Rep (l2), same head, 95% interval over test files
+
+Model top-1:
+
+| Arm | Eval | PANNs logreg | PANNs mlp | DAC logreg | DAC mlp |
+|---|---|---|---|---|---|
+| within | newtest | -0.46 [-0.48, -0.44] | -0.51 [-0.53, -0.49] | -0.17 [-0.19, -0.16] | **-0.10 [-0.11, -0.08]** |
+| within | v1files_new | -0.46 [-0.47, -0.44] | -0.51 [-0.52, -0.49] | -0.17 [-0.19, -0.15] | **-0.10 [-0.12, -0.09]** |
+| P2→P1 | newtest | -0.48 [-0.50, -0.46] | -0.48 [-0.50, -0.47] | -0.25 [-0.27, -0.22] | -0.23 [-0.26, -0.20] |
+| P2→P1 | v1files_new | -0.46 [-0.49, -0.44] | -0.49 [-0.52, -0.46] | -0.22 [-0.25, -0.20] | -0.21 [-0.24, -0.18] |
+| P1→P2 | newtest | -0.38 [-0.42, -0.33] | -0.39 [-0.44, -0.35] | -0.10 [-0.12, -0.08] | **-0.07 [-0.09, -0.05]** |
+| P1→P2 | v1files_new | -0.40 [-0.44, -0.36] | -0.43 [-0.46, -0.39] | -0.11 [-0.14, -0.09] | -0.09 [-0.12, -0.07] |
+
+DAC mlp minus AFx-Rep (l2), other metrics. Each cell is newtest; v1files_new.
+
+| Arm | Family | Drive ±0.15 (true) | Drive ±0.15 (own) | Tone ±0.10 (true) | Tone ±0.10 (own) |
+|---|---|---|---|---|---|
+| within | -0.08 [-0.09, -0.07]; -0.09 [-0.10, -0.07] | **+0.03 [+0.01, +0.04]**; +0.01 [-0.01, +0.02] | -0.03 [-0.04, -0.01]; -0.04 [-0.05, -0.03] | -0.04 [-0.06, -0.03]; -0.05 [-0.06, -0.03] | -0.07 [-0.09, -0.06]; -0.07 [-0.09, -0.06] |
+| P2→P1 | -0.17 [-0.20, -0.14]; -0.16 [-0.19, -0.13] | -0.04 [-0.06, -0.03]; -0.05 [-0.07, -0.04] | -0.07 [-0.09, -0.05]; -0.08 [-0.10, -0.07] | -0.06 [-0.08, -0.05]; -0.05 [-0.07, -0.03] | -0.11 [-0.13, -0.10]; -0.09 [-0.11, -0.07] |
+| P1→P2 | -0.04 [-0.06, -0.03]; -0.07 [-0.09, -0.04] | -0.06 [-0.10, -0.02]; -0.02 [-0.04, +0.01] | -0.07 [-0.09, -0.05]; -0.04 [-0.06, -0.02] | -0.02 [-0.04, -0.00]; -0.02 [-0.03, +0.00] | -0.04 [-0.06, -0.03]; -0.05 [-0.06, -0.03] |
+
+- **Against AFx-Rep (z).** The same prep for all, and slightly stronger than l2, by +0.01 top-1 within player. The gaps then grow by about 0.01 (DAC mlp within: -0.11 [-0.12, -0.10] and -0.12 [-0.13, -0.10]). All pairs are in `result.json` and `summary.md`.
+- **Context.** With the full [T191](../../board/TASKS.md#t191 "Unattended overnight drive dataset render") training set (105k new + 8.7k old clips), the AFx-Rep MLP reached 0.93 on newtest. Here, with 27k clips, it reaches 0.89. Encoder choice moves top-1 far more than a 4× change in data.
+
+## What this suggests (INTERPRETATION, for the human)
+
+1. **AFx-Rep's effect-specific pretraining is worth a lot for this task:** about 0.10 top-1 over a general audio codec and about 0.5 over an AudioSet tagger.
+   - A permissive drop-in costs real accuracy.
+   - The cost is largest for a new player (P2→P1: -0.21 to -0.23 with DAC).
+2. **DAC preserves gain detail.** Its Drive-given-model accuracy is at least AFx-Rep's, and it improves the most with a non-linear head (logreg → MLP: +0.12).
+   - A licence-clean route would be a supervised or contrastive projection trained on frozen DAC features, or a fine-tuned DAC encoder.
+   - The plan names this route as candidate 2 in [afxrep-licence.md](afxrep-licence.md). This run measured none of it.
+3. **DAC is not licence-clean on data.** It was trained partly on MUSDB and Jamendo, so it does not resolve the data-terms question any better than AFx-Rep. PANNs (AudioSet only, CC BY 4.0 weights) is the cleanest of the three and clearly the weakest.
+4. **Not measured here:**
+   - the 44 kHz DAC model;
+   - the PANNs pre-fc1 pooled features;
+   - concatenations of encoders;
+   - more MLP seeds;
+   - any real-pedal or human-take audio.
 
 ## Method
 
