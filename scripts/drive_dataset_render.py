@@ -67,6 +67,7 @@ MAX_HOSTS = 4
 LEVEL_NAMES = {"Level", "Output", "Volume", "FuzzLevel", "ODLevel", "Level 1", "Level 2"}
 SPLIT_WEIGHT = {"train": 1.0, "cal": 0.5, "test": 0.4, "v1test": 0.25}
 DATASET = "predictor-dataset-v1"
+LABEL_KEYS = ("id", "model", "family", "cc", "di_file", "start", "player", "split", "drive", "tone")
 
 
 # ------------------------------------------------------------------------------------------ small helpers
@@ -312,7 +313,10 @@ def embed_clip(emb, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(single.mid, np.float32), np.stack([np.asarray(c.mid, np.float32) for c in crops])
 
 
-def render_one(engine, block, clip, dry: np.ndarray) -> np.ndarray:
+SILENCE_DB = -90.0   # drive-dataset-v1's absolute floor on mean power (dBFS); T210: too high for quiet amp settings
+
+
+def render_one(engine, block, clip, dry: np.ndarray, silence_db: float = SILENCE_DB) -> np.ndarray:
     vals = block.from_knobs(clip["cc"]) if hasattr(block, "from_knobs") else dict(clip["cc"])
     engine.load(block.with_values(vals))
     y = np.asarray(engine.render(dry), np.float32)
@@ -321,7 +325,7 @@ def render_one(engine, block, clip, dry: np.ndarray) -> np.ndarray:
     y = y[:len(dry)]
     if not np.all(np.isfinite(y)):
         raise RuntimeError("non-finite output")
-    if 10 * math.log10(float(np.mean(y.astype(np.float64) ** 2)) + 1e-20) <= -90.0:
+    if 10 * math.log10(float(np.mean(y.astype(np.float64) ** 2)) + 1e-30) <= silence_db:
         raise RuntimeError("Native returned silence")
     return y
 
@@ -342,8 +346,12 @@ def make_gate(max_load: float | None):
 
 
 def render_shard(shard: dict, clips: dict, engine, blocks: dict, emb, read_excerpt, *, max_load: float | None = None,
-                 loadavg=None, sleep=time.sleep, log=print, gate=None) -> dict:
-    """Render + embed every clip of one shard. Each clip: one retry, then skipped. Returns arrays and stats."""
+                 loadavg=None, sleep=time.sleep, log=print, gate=None, label_keys=LABEL_KEYS,
+                 silence_db: float = SILENCE_DB) -> dict:
+    """Render + embed every clip of one shard. Each clip: one retry, then skipped. Returns arrays and stats.
+    A clip with `lead` (samples, T208 time-based slots) is read and rendered from `start`, and the first `lead`
+    samples of the output are dropped before embedding (random LFO phase, tails from the playing before).
+    Drive clips have no `lead`: unchanged."""
     loadavg = loadavg or demand_now
     gate = gate or make_gate(max_load)
     singles, crops, labels, failures = [], [], [], []
@@ -362,12 +370,13 @@ def render_shard(shard: dict, clips: dict, engine, blocks: dict, emb, read_excer
                 waited += 5.0
                 gate.update(loadavg()[0])
             log(f"busy cores {loadavg()[0]:.1f} < {gate.resume_below:.1f}: resumed after {waited:.0f}s")
-        dry = read_excerpt(c["di_file"], c["start"], int(CLIP_S * SR))
+        lead = int(c.get("lead", 0))
+        dry = read_excerpt(c["di_file"], c["start"], int(CLIP_S * SR) + lead)
         y, err = None, None
         for attempt in range(2):
             t0 = time.time()
             try:
-                y = render_one(engine, blocks[c["model"]], c, dry)
+                y = render_one(engine, blocks[c["model"]], c, dry, silence_db)
                 break
             except Exception as e:  # noqa: BLE001
                 err = f"{type(e).__name__}: {e}"[:300]
@@ -382,12 +391,14 @@ def render_shard(shard: dict, clips: dict, engine, blocks: dict, emb, read_excer
             continue
         consecutive = 0
         t0 = time.time()
-        s, cr = embed_clip(emb, y)
+        s, cr = embed_clip(emb, y[lead:])
         t_e += time.time() - t0
         singles.append(s)
         crops.append(cr)
-        labels.append({k: c[k] for k in ("id", "model", "family", "cc", "di_file", "start", "player", "split",
-                                          "drive", "tone")})
+        lab = {k: c[k] for k in label_keys if k in c}
+        if "out_db" in label_keys:     # T210: the rendered clip's mean power (dBFS), after the lead-in
+            lab["out_db"] = round(10 * math.log10(float(np.mean(y[lead:].astype(np.float64) ** 2)) + 1e-30), 2)
+        labels.append(lab)
     return {"single": np.stack(singles).astype(np.float16) if singles else np.zeros((0, 512), np.float16),
             "crops": np.stack(crops).astype(np.float16) if crops else np.zeros((0, NCROP, 512), np.float16),
             "labels": labels, "failures": failures, "render_s": t_r, "embed_s": t_e, "paused_s": paused}
@@ -410,7 +421,7 @@ def stop_flag(out: Path) -> Path:
 
 def work_loop(plan: dict, out: Path, *, open_engine, blocks: dict, emb, read_excerpt, deadline: float,
               min_free_gb: float, max_load: float | None = None, watch=None, busy=None, free=free_gb, log=None,
-              loadavg=None, sleep=time.sleep) -> int:
+              loadavg=None, sleep=time.sleep, label_keys=LABEL_KEYS, silence_db: float = SILENCE_DB) -> int:
     """Claim and render shards until none is left, the deadline passes, the disk is low, or a stop is asked.
     `open_engine()` is called lazily (no host is opened when nothing is left to do). Returns shards written."""
     from tonematch.engines.elastic import ClaimQueue, atomic_write_text, item_done
@@ -454,7 +465,8 @@ def work_loop(plan: dict, out: Path, *, open_engine, blocks: dict, emb, read_exc
                 busy["in_item"] = True
                 t0 = time.time()
                 res = render_shard(shards[claim.id], clips, engine, blocks, emb, read_excerpt, max_load=max_load,
-                                   loadavg=loadavg, sleep=sleep, log=log, gate=gate)
+                                   loadavg=loadavg, sleep=sleep, log=log, gate=gate, label_keys=label_keys,
+                                   silence_db=silence_db)
                 write_shard(sdir, claim.id, res, {"wall_s": time.time() - t0, "pid": os.getpid(),
                                                   "finished": time.time()})
                 busy["in_item"] = False
@@ -565,7 +577,7 @@ def cmd_render(a) -> int:
     clips_at_start = shard_stats(out, plan)["clips_ok"]
     deadline = t_start + a.hours * 3600
     max_workers = max(1, min(a.hosts, MAX_HOSTS))
-    os.environ["TONEMATCH_RUN_TAG"] = "drive-dataset-v1"
+    os.environ["TONEMATCH_RUN_TAG"] = getattr(a, "run_tag", None) or "drive-dataset-v1"
     os.environ.setdefault("TONEMATCH_JOB_PRIORITY", "normal")
     job = hb.default_job()
     st0 = shard_stats(out, plan)
@@ -583,7 +595,8 @@ def cmd_render(a) -> int:
             return 0
         return sum(1 for s in plan["shards"] if not item_done(sdir, s["id"]))
 
-    argv = [sys.executable, str(Path(__file__).resolve()), "worker", "--out", str(out), "--supervisor-pid",
+    script = getattr(a, "worker_script", None) or str(Path(__file__).resolve())   # T208: the slot script's own
+    argv = [sys.executable, script, "worker", "--out", str(out), "--supervisor-pid",
             str(os.getpid()), "--deadline", repr(deadline), "--min-free-gb", str(a.min_free_gb)]
     if a.max_load:
         argv += ["--max-load", str(a.max_load)]

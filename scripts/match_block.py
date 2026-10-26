@@ -458,7 +458,8 @@ def write_outputs(out: Path, ctx: dict) -> None:
         sigs[f"match_rank{k}"] = d["y"]
     sigs["di_dry"] = section.dry
     pack = {} if ctx.get("lean") else MS.write_pack(out / "listen", section.target, final[0]["y"], final[0]["y"], section.dry,
-                                                    {f"match_rank{k}": d["y"] for k, d in enumerate(final[1:3], 2)})
+                                                    {f"match_rank{k}": d["y"] for k, d in enumerate(final[1:3], 2)},
+                                                    lufs=bool(ctx.get("pack_lufs")))
     for stale in ("start_unmatched.wav",):                       # match_song's unmatched-start slot is unused here
         (out / "listen" / stale).unlink(missing_ok=True)
     top = final[:5]
@@ -531,7 +532,7 @@ def write_outputs(out: Path, ctx: dict) -> None:
               "## Files", "", f"- best preset: `{hlx[0][0].name}` (hlx_validate exit {hlx[0][1]}); "
               + ", ".join(f"`{p.name}` (exit {c})" for p, c in hlx[1:]),
               "- `listen/`: target_stem, match, match_rank2, match_rank3, di_dry, ab_L-target_R-match; all loudness-matched to the "
-              "target RMS (`gains.json`); `di_search.wav` is the true-level DI the search used.", ""]
+              "target (`gains.json` says RMS or K-weighted LUFS); `di_search.wav` is the true-level DI the search used.", ""]
     (out / "report.md").write_text("\n".join(lines))
     (out / "result.json").write_text(json.dumps({
         "label": LABEL, "window": ctx["window"], "reference": ref, "wall_s": ctx["wall_s"], "renders": ctx["renders"],
@@ -545,8 +546,9 @@ def write_outputs(out: Path, ctx: dict) -> None:
 
 def parse(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--target-stems", default=str(ROOT / "cache/stems/2ec11f9795be822e/htdemucs_6s"),
-                    help="separated stems dir (guitar.wav, others.wav, mask) the target is cut from")
+    ap.add_argument("--target-stems", default=None,
+                    help="separated stems dir (guitar.wav, others.wav, mask) the target is cut from, e.g. cache/stems/<hash>/htdemucs_6s "
+                         "(required unless --target-wav; scripts/song_match.py resolves a song id to it)")
     ap.add_argument("--target-window", help="START:END in song seconds")
     ap.add_argument("--di", help="dry wav (true level)")
     ap.add_argument("--di-json", help="take json; alignment.take_sample0_song_s places the take in song time")
@@ -577,7 +579,10 @@ def parse(argv=None):
                          "(default cache/models/predictor-dataset-v1/heads_main_v2data_mlp_multi.pkl)")
     ap.add_argument("--predictor-cum", type=float, default=0.95, help="--shortlist predictor: keep models up to this cumulative probability")
     ap.add_argument("--predictor-max-models", type=int, default=6, help="--shortlist predictor: at most this many models get confirming renders")
-    ap.add_argument("--families", help="drive families JSON (default cache/drive-maps/drive-families-v1.json if present)")
+    ap.add_argument("--families", nargs="?", const="default", default=None, metavar="JSON",
+                    help="OPT-IN (the drive-families prior is not an approved default; data/approved-methods.json): with --shortlist, also "
+                         "add each shortlisted model's measured family. Bare --families reads cache/drive-maps/drive-families-v1.json; "
+                         "or give a JSON path. --second-choice implies it")
     ap.add_argument("--aligned-take", action="store_true",
                     help="the --di take is sample-aligned with the target: search and rank the shortlist with mrstft_v2 + level_db")
     ap.add_argument("--target-wav", help="the target audio itself (a wav the size of --dry-wav); replaces --target-stems/--target-window")
@@ -588,9 +593,13 @@ def parse(argv=None):
     ap.add_argument("--second-choice", type=float, default=None, metavar="CONF",
                     help="with --shortlist: also add the second-choice family of every shortlisted model whose member_confidence "
                          "in the families file is below CONF (T183 test setting)")
-    ap.add_argument("--final-rank", choices=["provisional", "afxrep"], default="provisional",
-                    help="with --shortlist: order the final models by the provisional re-score (default) or by AFx-Rep order "
-                         "(T183 proposal, T185 test; the re-score is still computed and kept in each row)")
+    ap.add_argument("--final-rank", choices=["provisional", "afxrep"], default=None,
+                    help="how the final models are ordered. Default: afxrep when --shortlist afxrep (interim, human 2026-10-25; "
+                         "data/approved-methods.json). Without a shortlist there is no default: the provisional re-score is "
+                         "NOT an approved default, so ask for it explicitly with --final-rank provisional (a test setting). "
+                         "The re-score is still computed and kept in each row")
+    ap.add_argument("--pack-lufs", action="store_true",
+                    help="level-match the listening pack to the target by K-weighted loudness (LUFS) instead of RMS (T200)")
     ap.add_argument("--lean", action="store_true", help="skip the listening pack (batch runs, no audio kept)")
     ap.add_argument("--only-models", help=argparse.SUPPRESS)
     ap.add_argument("--specialists", nargs="*", default=["gain"], help="families; empty for none")
@@ -615,8 +624,8 @@ def parse(argv=None):
     a = ap.parse_args(argv)
     if bool(a.target_wav) != bool(a.dry_wav):
         ap.error("--target-wav and --dry-wav go together")
-    if not a.target_wav and not (a.target_window and a.di):
-        ap.error("--target-window and --di are required (or --target-wav with --dry-wav)")
+    if not a.target_wav and not (a.target_stems and a.target_window and a.di):
+        ap.error("--target-stems, --target-window and --di are required (or --target-wav with --dry-wav)")
     return a
 
 
@@ -635,12 +644,26 @@ def resolve_knob_tol(args):
     return make_knob_tol(d, args.knob_tol_tone, args.knob_tol_map)
 
 
+def resolve_final_rank(args) -> str:
+    """--final-rank: afxrep is the default only with --shortlist afxrep/predictor (human 2026-10-25, interim). The provisional
+    re-score is not an approved default, so without a shortlist the caller must ask for it by name."""
+    fr = getattr(args, "final_rank", None)
+    if fr is not None:
+        return fr
+    if args.shortlist in ("afxrep", "predictor"):
+        return "afxrep"
+    raise SystemExit("error: no --final-rank default without --shortlist afxrep: the provisional re-score is not an approved "
+                     "default (data/approved-methods.json). Use --shortlist afxrep, or pass --final-rank provisional "
+                     "explicitly as a test setting.")
+
+
 def run(args, engine=None, rows_by_shard=None) -> int:
     """Parent: spawn shards, merge, final-check, write. `engine`/`rows_by_shard` let tests skip the processes."""
     from tonematch.catalog import load_catalog
 
     t0 = time.time()
     args.knob_tol = resolve_knob_tol(args)
+    args.final_rank = resolve_final_rank(args)
     args.run_id = args.run_id or str(int(t0))
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -741,7 +764,7 @@ def run(args, engine=None, rows_by_shard=None) -> int:
                "renders": renders + getattr(engine, "renders", 0), "wall_s": time.time() - t0, "wall_min": args.wall_min,
                "n_models": len(pool), "knob_tol": args.knob_tol, "hybrid_f": args.hybrid_f, "hybrid_scale": args.hybrid_scale, "k": args.k,
                "search_clip": args.search_clip, "specialists": args.specialists, "level_tol_db": args.level_tol_db,
-               "level_slope": args.level_slope, "shortlist": sl, "knob_path": path, "final_rank": getattr(args, "final_rank", "provisional"), "aligned": _ALIGNED, "amp_cab_loss": args.amp_cab_loss, "preset_name": args.preset_name, "lean": args.lean}
+               "level_slope": args.level_slope, "shortlist": sl, "knob_path": path, "final_rank": getattr(args, "final_rank", "provisional"), "aligned": _ALIGNED, "amp_cab_loss": args.amp_cab_loss, "preset_name": args.preset_name, "lean": args.lean, "pack_lufs": getattr(args, "pack_lufs", False)}
         write_outputs(out, ctx)
         log(f"done: {ctx['wall_s']:.0f} s; report {out / 'report.md'}")
         return 0
@@ -761,8 +784,10 @@ def run_shortlist(args, pool: dict, section, catalog, engine, log) -> dict:
     from tonematch.search import shortlist as SL
 
     blocks = make_blocks(pool, args.category, catalog)
-    r = SL.shortlist(engine, blocks, section, args.shortlist_n, families_path=args.families, log=log,
-                     second_choice_below=args.second_choice)
+    fam_on = args.families is not None or args.second_choice is not None       # opt-in only
+    fam_path = None if args.families in (None, "default") else args.families
+    r = SL.shortlist(engine, blocks, section, args.shortlist_n, families_path=fam_path, log=log,
+                     expand=fam_on, second_choice_below=args.second_choice)
     inv = SL.fingerprint_inversion() if args.knob_path in ("auto", "inversion") else None
     if args.knob_path == "inversion" and inv is None:
         raise SystemExit("--knob-path inversion: tonematch.metrics.distortion_step4.estimate_knobs is not available")

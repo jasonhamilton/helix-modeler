@@ -988,13 +988,34 @@ def level_match(sigs: dict[str, np.ndarray], ref: str, peak_dbfs: float = -1.0) 
     return out, gains
 
 
-def write_pack(listen: Path, target, match_y, start_y, di, extras: dict | None = None) -> dict:
+def level_match_lufs(sigs: dict[str, np.ndarray], ref: str, peak_dbfs: float = -1.0) -> tuple[dict, dict]:
+    """As `level_match` but every signal is scaled to the reference's K-weighted integrated loudness (LUFS, BS.1770)
+    instead of its RMS (T200). Signals too quiet to measure (<= -69.9 LUFS) fall back to RMS matching."""
+    from tonematch.separation.audio import integrated_loudness
+
+    def lu(x):
+        return float(integrated_loudness(np.asarray(x, np.float32).reshape(1, -1)))
+
+    tl = lu(sigs[ref])
+    g = {}
+    for k, v in sigs.items():
+        l = lu(v)
+        g[k] = 10 ** ((tl - l) / 20) if l > -69.9 else rms(sigs[ref]) / rms(v)
+    scaled = {k: v * g[k] for k, v in sigs.items()}
+    peak = max(float(np.max(np.abs(v))) for v in scaled.values())
+    common = min(1.0, 10 ** (peak_dbfs / 20) / max(peak, 1e-9))
+    out = {k: (v * common).astype(np.float32) for k, v in scaled.items()}
+    gains = {k: 20 * np.log10(g[k] * common) for k in sigs}
+    return out, gains
+
+
+def write_pack(listen: Path, target, match_y, start_y, di, extras: dict | None = None, lufs: bool = False) -> dict:
     listen.mkdir(parents=True, exist_ok=True)
     sigs = {"target_stem": target, "match": match_y, "start_unmatched": start_y, "di_dry": di,
             **(extras or {})}
     n = min(len(v) for v in sigs.values())
     sigs = {k: np.asarray(v[:n], np.float32) for k, v in sigs.items()}
-    lm, gains = level_match(sigs, "target_stem")
+    lm, gains = (level_match_lufs if lufs else level_match)(sigs, "target_stem")
     for k, v in lm.items():
         sf.write(str(listen / f"{k}.wav"), v, SR, subtype="PCM_24")
     sf.write(str(listen / "ab_L-target_R-match.wav"), np.stack([lm["target_stem"], lm["match"]], axis=1),
@@ -1002,6 +1023,7 @@ def write_pack(listen: Path, target, match_y, start_y, di, extras: dict | None =
     # True-level DI exactly as the search fed it: the only file that may go to hardware.
     sf.write(str(listen / "di_search.wav"), np.asarray(di, np.float32), SR, subtype="FLOAT")
     info = {"samples": n, "gains_db": {k: round(float(g), 2) for k, g in gains.items()},
+            "matching": "LUFS (K-weighted)" if lufs else "RMS",
             "note": "listening files are level-matched and must NEVER feed hardware; use di_search.wav"}
     (listen / "gains.json").write_text(json.dumps(info, indent=1))
     return info

@@ -1,0 +1,95 @@
+{
+  "schema": 1,
+  "about": "Method settings the human has ruled on. A flag, weight, score, shortlist or level may be a DEFAULT in code only if it has an entry here with a DECISIONS.md date and the human's words. Only the lead may edit this file, and only with a quote (methodology audit 2026-10-23, recommendation 8; human decision 8 and 10, 2026-10-25). tests/test_approved_methods.py pins the code to the 'pins' block. No Line 6 ids belong here.",
+  "methods": [
+    {
+      "id": "afxrep-shortlist",
+      "setting": "AFx-Rep (embed_afxrep) shortlists models when there is no dry track",
+      "decided": "2026-10-18",
+      "decisions_entry": "2026-10-18 (human): go ahead on the five post-v4 recommendations, item 5",
+      "quote": "go ahead",
+      "context": "The lead's item 5: AFx-Rep is used only to shortlist models and families when there is no dry track; knobs are not set by a sound-comparison score.",
+      "approved_value": "shortlist only (--shortlist afxrep, n=8 in song_match)",
+      "status": "approved"
+    },
+    {
+      "id": "afxrep-final-ranking",
+      "setting": "AFx-Rep distance orders the final models for song matches",
+      "decided": "2026-10-25",
+      "decisions_entry": "2026-10-25 (human): \"yes go\" to the lead's post-assessment plan, item 1",
+      "quote": "yes go",
+      "context": "Bundle approval, so provisional. Interim default pending the blind AFx-Rep validation (item 2, T223).",
+      "approved_value": "afxrep, only together with --shortlist afxrep",
+      "status": "interim"
+    },
+    {
+      "id": "finetune-option",
+      "setting": "Knob fine-tuning by AFx-Rep distance",
+      "decided": "2026-10-25",
+      "decisions_entry": "2026-10-25 (human): \"yes go\" ..., item 3",
+      "quote": "yes go",
+      "context": "Bundle approval, so provisional. An option, not the default; Output/Master locked when used.",
+      "approved_value": "off by default (song_match --finetune); when on, Output/Master locked",
+      "status": "provisional"
+    },
+    {
+      "id": "rebuild-level-default",
+      "setting": "Default level of the rebuilt dry track when no profile level exists",
+      "decided": "2026-10-25",
+      "decisions_entry": "2026-10-25 (human): \"yes go\" ..., item 5",
+      "quote": "yes go",
+      "context": "Bundle approval, so provisional. The profile warns when a take disagrees by more than 3 dB; the level-only ablation runs inside T224.",
+      "approved_value": -28.08,
+      "unit": "dBFS loud-frame (the human's play-along)",
+      "status": "provisional"
+    },
+    {
+      "id": "provisional-loss",
+      "setting": "The provisional no-DI loss (ltas_tilt, crest_flatness_hnr, envelope plus level guard) as a default ranking",
+      "decided": "2026-10-25",
+      "decisions_entry": "2026-10-25 (human): \"yes go\" ..., item 10",
+      "quote": "yes go",
+      "context": "Bundle approval, so provisional. Removed as a default (T226). It can still be requested by name as a test setting.",
+      "approved_value": "not a default",
+      "status": "provisional"
+    },
+    {
+      "id": "drive-families",
+      "setting": "Drive-family prior (family expansion of the shortlist, second-choice family)",
+      "decided": "2026-10-25",
+      "decisions_entry": "2026-10-25 (human): \"yes go\" ..., item 10",
+      "quote": "yes go",
+      "context": "Bundle approval, so provisional. Removed as a default (T226); opt-in via --families.",
+      "approved_value": "not a default",
+      "status": "provisional"
+    },
+    {
+      "id": "fixed-slot-order",
+      "setting": "Fixed slot order for chain prediction: drive, amp, cab, mod, delay, reverb, EQ, every slot optional",
+      "decided": "2026-10-22",
+      "decisions_entry": "2026-10-22 (human): use the fixed slot order for chain prediction",
+      "quote": "let's use the fixed slot order.",
+      "context": "Other plan decisions (shortlist per slot, backing-track source, bars, gate renumbering) stayed open.",
+      "approved_value": ["drive", "amp", "cab", "mod", "delay", "reverb", "EQ"],
+      "status": "approved"
+    }
+  ],
+  "pins": {
+    "song_match": {
+      "search_flags": ["--category", "drive", "--shortlist", "afxrep", "--shortlist-n", "8", "--final-rank", "afxrep",
+                       "--knob-tol", "0.15", "--pack-lufs", "--wall-min", "10"],
+      "default_level_db": -28.08,
+      "finetune_default": false,
+      "finetune_lock_level_knobs": true
+    },
+    "match_block": {
+      "final_rank_argparse_default": null,
+      "final_rank_with_afxrep_shortlist": "afxrep",
+      "families_argparse_default": null
+    },
+    "shortlist": {
+      "families_default_on": false
+    },
+    "pin_notes": "search_flags lists every flag song_match passes to match_block. Adding one needs an entry in 'methods' first. --knob-tol 0.15, --pack-lufs and --wall-min are pre-10-18 plumbing carried from T176/T200 and are NOT yet itemised in 'methods'; the audit lists them as unapproved test settings. They are pinned here as-is so the test passes today and any change shows up."
+  }
+}

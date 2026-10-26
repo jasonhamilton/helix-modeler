@@ -1,3 +1,4 @@
+# historical, Mother-specific
 """Analysis for scripts/distortion_step4.py (T181). Measurement, not admission.
 
 Condition A: per target, fit the three-stage twin to (DI, output), read its fingerprint with the dfp-v1
@@ -32,7 +33,9 @@ from tonematch.metrics import drive_fp_mining as DM
 
 SR = 48000
 TWIN_DIR = Path(os.environ.get("STEP4_TWIN_DIR", str(R.CACHE / "twins")))
-FAMILIES = ROOT / "data" / "drive-families-v1.json"
+from tonematch import drive_maps as _DM  # noqa: E402
+
+FAMILIES = _DM.read_path(ROOT, _DM.FAMILIES_NAME)
 DRIVE_TOL, TONE_TOL = 0.15, 0.10
 MASK_MARGIN_DB = 3.0
 

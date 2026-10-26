@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# historical, Mother-specific
 """T183: end-to-end check of the no-DI drive matcher (T178 flow) on held-out single-drive targets from real DIs.
 
 TEST SETTINGS, NOT ADOPTED (human 2026-10-18 "proceed with any testing"): measured per-model tone tolerances
@@ -40,8 +41,10 @@ OUT = ROOT / "cache" / "matches" / "t183"
 AUDIO = OUT / "audio"
 REPORT = ROOT / "reports" / "local" / "t183"
 T181_PLAN = ROOT / "cache" / "distortion-step4" / "plan.json"
-FAMILIES = ROOT / "data" / "drive-families-v1.json"
-SENS = ROOT / "data" / "knob_sensitivity.json"
+from tonematch import drive_maps as _DM  # noqa: E402
+
+FAMILIES = _DM.read_path(ROOT, _DM.FAMILIES_NAME)
+SENS = _DM.read_path(ROOT, _DM.SENSITIVITY_NAME)
 TAKES = ROOT / "data" / "songs" / "mother-playalong" / "takes"
 GT = ROOT / "data" / "di" / "Guitar-TECHS"
 # slot order matters: the matcher DI of slot i is slot (i + 3) % 8, always another file

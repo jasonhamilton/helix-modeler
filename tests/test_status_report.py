@@ -199,6 +199,16 @@ def test_model_required_fields(tmp_path):
     json.dumps(m, default=str)  # serialisable
 
 
+def test_superseded_gate_is_not_complete_and_not_next(tmp_path):
+    cur = curated()
+    cur["milestones"]["Gate 2"]["state"] = "Superseded"
+    m = build(tmp_path, cur=cur)
+    assert [x["state"] for x in m["milestones"]] == ["Complete", "Superseded"]
+    assert m["next_milestone"] is None
+    assert "superseded" in sr.render_markdown(m).lower()
+    assert "superseded" in sr.render_html(m).lower()
+
+
 def test_vocabularies_in_model(tmp_path):
     m = build(tmp_path)
     assert all(i["priority"] in sr.PRIORITIES and i["classification"] in sr.CLASSIFICATIONS
@@ -425,6 +435,51 @@ def test_baseline_loading_and_snapshot_writing(tmp_path):
     assert len(path.read_text()) < 20000
 
 
+def test_snapshots_are_appended_never_overwritten(tmp_path):
+    m = build(tmp_path)
+    hist = tmp_path / "reports" / "status" / "history"
+    first = sr.write_snapshot(hist, m)
+    before = first.read_text()
+    assert sr.write_snapshot(hist, m) == first            # identical snapshot: nothing new
+    cur = curated()
+    cur["assessments"]["health"]["value"] = "Blocked"
+    m2 = build(tmp_path, cur=cur)
+    second = sr.write_snapshot(hist, m2)
+    assert second.name == "2026-01-03-r2.json" and first.read_text() == before
+    assert sr.write_snapshot(hist, build(tmp_path, cur=dict(cur, summary=SUMMARY + " More."))) \
+        == second                                          # the summary is not snapshotted
+    cur3 = curated()
+    cur3["assessments"]["readiness"]["stage"] = "Foundation"
+    third = sr.write_snapshot(hist, build(tmp_path, cur=cur3))
+    assert third.name == "2026-01-03-r3.json"
+    assert sr.snapshot_date(second) == "2026-01-03"
+    assert sr.load_baseline(hist, "2026-01-03") is None
+    assert sr.load_baseline(hist, "2026-01-04")["readiness"] == "Foundation"  # last revision wins
+
+
+def test_evidence_classes_validated_and_shown_in_both_formats(tmp_path):
+    cur = curated()
+    cur["evidence_classes"] = {
+        "about": "How strong each claim is.",
+        "legend": [{"class": "A", "meaning": "Blind, sealed set, bar registered first."},
+                   {"class": "C", "meaning": "Open listen."}],
+        "claims": [{"claim": "It sounds <good>", "class": "C", "n": "1 song",
+                    "limit": "One listener, not blind", "evidence": ["ev-led"]}]}
+    m = build(tmp_path, cur=cur)
+    md = sr.render_markdown(m, tmp_path)
+    h = sr.render_html(m)
+    assert "Evidence classes of the headline claims" in md and "Evidence classes" in h
+    assert "**Class A**" in md and "One listener, not blind" in md
+    assert "It sounds &lt;good&gt;" in h and "Class A" in h
+    bad = curated()
+    bad["evidence_classes"] = {"legend": [{"class": "A", "meaning": "m"}],
+                               "claims": [{"claim": "c", "class": "Z", "n": "1", "limit": "l",
+                                           "evidence": ["ev-nope"]}]}
+    errs = sr.validate_curated(bad, registry(), facts(tmp_path))
+    assert any("not in the legend" in x for x in errs)
+    assert any("unknown evidence id" in x for x in errs)
+
+
 # ------------------------------------------------------------------ main
 
 
@@ -493,7 +548,12 @@ def test_real_project_builds_and_is_consistent(real):
     assert a["health"]["value"] == "At Risk" and a["readiness"]["stage"] in ("Foundation", "Prototype")
     states = {m["name"]: m["state"] for m in real["milestones"]}
     assert states["Gate 1"] == "Complete" and states["Gate 2"] != "Complete"
-    assert real["next_milestone"]["name"] == "Gate 2"
+    # A gate the human closed as superseded is not a pass and is not the next milestone.
+    assert states["Gate 2"] in ("Superseded", "Blocked", "At Risk", "In Progress")
+    nxt = real["next_milestone"]["name"]
+    assert states[nxt] not in ("Complete", "Superseded")
+    if states["Gate 2"] == "Superseded":
+        assert nxt != "Gate 2"
     md = sr.render_markdown(real, REPO)
     out = sr.render_html(real)
     for txt in (md, out):

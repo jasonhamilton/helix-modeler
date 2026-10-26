@@ -185,7 +185,7 @@ def test_final_check_rescoring_orders_by_full_loss(monkeypatch):
 
 
 def _args(*extra):
-    return MB.parse(["--target-window", "0:10", "--di", "x.wav", "--out", "o", *extra])
+    return MB.parse(["--target-stems", "stems", "--target-window", "0:10", "--di", "x.wav", "--out", "o", *extra])
 
 
 def test_knob_tol_defaults_and_old_behaviour_switch():
@@ -395,9 +395,14 @@ def test_shortlist_renders_are_not_counted_twice():
 
 # ---------------------------------------------------------------- T185: --final-rank afxrep
 
-def test_final_rank_option_defaults_to_the_provisional_score():
-    assert _args().final_rank == "provisional"
-    assert _args("--final-rank", "afxrep").final_rank == "afxrep"
+def test_final_rank_default_is_afxrep_only_with_the_afxrep_shortlist():
+    assert _args().final_rank is None and _args("--final-rank", "afxrep").final_rank == "afxrep"
+    assert MB.resolve_final_rank(_args("--shortlist", "afxrep")) == "afxrep"
+    assert MB.resolve_final_rank(_args("--shortlist", "afxrep", "--final-rank", "provisional")) == "provisional"
+    assert MB.resolve_final_rank(_args("--final-rank", "provisional")) == "provisional"      # explicit test setting
+    import pytest
+    with pytest.raises(SystemExit, match="no --final-rank default"):
+        MB.resolve_final_rank(_args())
 
 
 def test_rank_by_afxrep_orders_by_distance_and_keeps_the_rescore():

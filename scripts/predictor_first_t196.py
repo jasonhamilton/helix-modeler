@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# historical, Mother-specific
 """T196: predictor-first drive matcher vs the AFx-Rep shortlist (AFx final ranking), on the T185 harness. MEASUREMENT ONLY.
 
 Nothing is adopted; `match_block.py --shortlist predictor` is a non-default option. Targets (seed 196; no T181/T183/T185 setting

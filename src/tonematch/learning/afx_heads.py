@@ -12,6 +12,10 @@ variances over the crops (multi-crop pooling). It returns a dict:
   fl (n, F) family log-probs (uncalibrated), lc (n, M) log p(model | its family), mu (n, M, 2) Drive/Tone mean for
   every model, sig (n, M, 2) raw sigma for every model (nan where a model has no such knob).
 
+Knob columns: K is (n, k). Drive uses k = 2 (Drive, Tone); the T208 slot datasets use one column per free knob
+of the model (column j = the model's j-th knob, nan where it has none), so mu and sig are (n, M, k). Two columns
+stay the default: checkpoints pickled before T208 load and predict unchanged.
+
 Calibration (`calibrate`) is fitted on a pool of out-of-fold predictions over many whole DI files, weighted so each
 player counts equally and each file equally within its player (the T186 flaw was one calibration file).
 """
@@ -95,10 +99,11 @@ class LinearHeads(_Base):
             sel = np.isin(y_m, mem)
             if len(mem) > 1 and len(np.unique(y_m[sel])) > 1:
                 self.within[f] = LogisticRegression(C=self.C, max_iter=3000).fit(X[sel], y_m[sel])
-        self.rsig = np.full((M, 2), np.nan)
+        self.n_knobs = nk = K.shape[1]
+        self.rsig = np.full((M, nk), np.nan)
         for m in range(M):
             sel = y_m == m
-            for k in range(2):
+            for k in range(nk):
                 s = sel & np.isfinite(K[:, k])
                 if s.sum() < 5:
                     continue
@@ -125,7 +130,7 @@ class LinearHeads(_Base):
                 lc[:, c.classes_] = np.log(np.clip(c.predict_proba(X), 1e-12, None))
             else:
                 lc[:, mem] = 0.0 if len(mem) == 1 else -math.log(len(mem))
-        mu = np.full((n, self.M, 2), np.nan)
+        mu = np.full((n, self.M, self.rsig.shape[1]), np.nan)
         for (m, k), r in self.ridge.items():
             mu[:, m, k] = np.clip(r.predict(X), 0, 1)
         sig = np.broadcast_to(self.rsig[None], mu.shape).copy()
@@ -145,10 +150,12 @@ class MLPHeads(_Base):
     device: str = "cpu"
     net: object = None
     has_knob: np.ndarray | None = None
+    n_knobs: int = 2
 
     def _build(self, d_in, n_fam, M):
         import torch
         from torch import nn
+        nk = self.n_knobs
 
         class Net(nn.Module):
             def __init__(s, h=self.hidden, p=self.dropout):
@@ -158,7 +165,7 @@ class MLPHeads(_Base):
                 s.fam = nn.Linear(h, n_fam)
                 s.mod = nn.Linear(h, M)
                 s.memb = nn.Embedding(M, 32)
-                s.knob = nn.Sequential(nn.Linear(h + 32, 128), nn.GELU(), nn.Linear(128, 4))
+                s.knob = nn.Sequential(nn.Linear(h + 32, 128), nn.GELU(), nn.Linear(128, 2 * nk))
 
             def forward(s, x):
                 h = s.trunk(x)
@@ -176,9 +183,10 @@ class MLPHeads(_Base):
         rng = np.random.default_rng(self.seed)
         n_fam, M = int(self.mod_fam.max()) + 1, len(self.mod_fam)
         self.n_fam, self.M = n_fam, M
-        self.has_knob = np.zeros((M, 2), bool)
+        self.n_knobs = nk = K.shape[1]
+        self.has_knob = np.zeros((M, nk), bool)
         for m in range(M):
-            for k in range(2):
+            for k in range(nk):
                 self.has_knob[m, k] = np.isfinite(K[y_m == m, k]).any()
         dev = self.device
         net = self._build(X.shape[1], n_fam, M).to(dev)
@@ -222,8 +230,8 @@ class MLPHeads(_Base):
             hh = h.repeat_interleave(M, 0)
             mm = torch.arange(M, device=dev).repeat(n)
             mu, ls = self.net.knobs(hh, mm)
-            mu = mu.reshape(n, M, 2).cpu().numpy().astype(np.float64)
-            sig = ls.exp().reshape(n, M, 2).cpu().numpy().astype(np.float64)
+            mu = mu.reshape(n, M, self.n_knobs).cpu().numpy().astype(np.float64)
+            sig = ls.exp().reshape(n, M, self.n_knobs).cpu().numpy().astype(np.float64)
         mu[:, ~self.has_knob] = np.nan
         sig[:, ~self.has_knob] = np.nan
         fl = _log_softmax(fl.cpu().numpy().astype(np.float64), 1)
@@ -254,7 +262,7 @@ def wquantile(x: np.ndarray, w: np.ndarray, q: float) -> float:
 @dataclass
 class Calibration:
     T: float = 1.0
-    scale: tuple = (1.0, 1.0)                    # global sigma scale, Drive / Tone
+    scale: tuple = (1.0, 1.0)                    # global sigma scale per knob column (Drive / Tone for drive)
     fam_scale: dict = field(default_factory=dict)  # (family, k) -> scale, only where enough files
     n_files: int = 0
     n_players: int = 0
@@ -282,9 +290,12 @@ def calibrate(out: dict, y_m: np.ndarray, K: np.ndarray, mod_fam: np.ndarray, fi
     idx = np.arange(len(y_m))
     sc = []
     fam = mod_fam[y_m]
-    for k in range(2):
+    for k in range(K.shape[1]):
         mu, sg = out["mu"][idx, y_m, k], out["sig"][idx, y_m, k]
         ok = np.isfinite(K[:, k]) & np.isfinite(mu) & np.isfinite(sg)
+        if not ok.any():                        # a knob column no clip of the pool has
+            sc.append(1.0)
+            continue
         z = np.abs(K[ok, k] - mu[ok]) / sg[ok]
         sc.append(wquantile(z, w[ok], 0.6827) / Z68)
         for f in np.unique(fam[ok]):

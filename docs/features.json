@@ -1,5 +1,5 @@
 {
- "cycle": "Cycle 4 (mode 2), refresh after Gate 2 attempt 2 (not passed, 6 of 7): T117, T122, T134, T138-T141",
+ "cycle": "2026-10-26 corrections: first blind real-song verdict (negative), refocus on drive -> EQ -> reverb, colour pilots, reverb pilot, estimator and confirmation (T228-T232), Gate 2 closed as superseded, Gate 3 set sealed (T223), governance mechanics (T226), overnight product-chain render running (T233)",
  "generated_for": "tone-matcher-lead",
  "discrepancies": [
   "T018 (the original 'spike awaiting go') is still an open line on the board but was superseded by T018n (Native, done) and T018s (Stomp, in progress): its scope is built, so the line is stale. Registry feature task lists use T018n and T018s.",
@@ -16,7 +16,18 @@
   "Gate 2 checklist items in board/GATES.md stay unticked after attempt 1 on purpose: the rank-1 and model/settings criteria passed, but the gate needs every criterion in one attempt, and category accuracy and model non-inferiority failed (ledger 2026-10-17T20:18:47+00:00).",
   "Verified suite result given for this report: commit 68f0310, ruff clean, 750 passed, 28 skipped on the committed set; this report was generated without --run-checks because the lead is running the full suite separately.",
   "Several 2026-10-17 stomp-verify-v1 ledger rows are labelled T105 and were corrected to T108 by the row at 2026-10-17T17:38:50+00:00 (the board was renumbered while it ran).",
-  "Gate 2 checklist items in board/GATES.md stay unticked after attempt 2 on purpose: ranking the true preset first failed (0.9375 against 0.95), ledger 2026-10-18T02:33:52."
+  "Gate 2 checklist items in board/GATES.md stay unticked after attempt 2 on purpose: ranking the true preset first failed (0.9375 against 0.95), ledger 2026-10-18T02:33:52.",
+  "Board T206 presents 'unadmitted loss 9.53 vs 16.00 on the take' as a comparison; it is a provisional-loss number across different DIs, not a fidelity comparison (audit section 6; reported to the lead).",
+  "DECISIONS 2026-10-23 T213 overnight slot training (lead read-out) and docs/notes/chain-transfer-t214.md state that a constant mid-range knob guess scores about 0.3; docs/notes/state-of-project-2026-10-23.md says this was not re-measured. Marked 'not re-measured' in this report.",
+  "docs/notes/state-of-project-2026-10-20.md listed measured-pedal mode under 'What is working' (simulation only, never run on a pedal) and AFx-Rep ranking as 'two independent tests' (one experiment heard). Corrected by a dated section appended to each state-of-project note; the original text is kept.",
+  "docs/notes/nodi-drive-e2e.md still carries Drive 'within 0.15: 15 of 17' without the version-2 correction (52 percent at n 96).",
+  "board/CYCLES.md lists AFx-Rep final ranking as 'blocked on the human' while scripts/song_match.py uses it by default; the human approved it for shortlisting only (methodology audit section 3). Also knob fine-tuning with Output/Master free, the T200 window rule, the -28.08 dBFS rebuild level and the Basic Pitch settings are defaults without an approval entry (audit section 3).",
+  "Gate 2 in board/GATES.md shows 3 of 3 evidence items ticked; the human judged the model unusable on 2026-10-18 and T152 (confirmation run) and T155 (harness sanity checks) are open, so 'no check failing' describes the checklist, not the gate.",
+  "T223 stays '[~]' on the board: the human's blind verdict on the stem-validation pack ('so bad I can't even compare them') is recorded in DECISIONS 2026-10-25 as words, not as scored answers, so `scripts/rating_rank.py score` has not been run and no AFx-Rep agreement number exists. The verdict is reported as evidence class C, as the lead instructed; under the audit legend a blind but unscored session could also be read as B.",
+  "T228 and T230 are '[~]' on the board with 'stays until the human has listened / ranked', but DECISIONS 2026-10-25 and ledger rows record the human's open listening (T228, T229) and the scored T230 ranking (ab / reverb-pilot-v1, 2026-10-25T22:40:16). The board lines are behind the record.",
+  "Gate 3's second checklist line ('bars and baselines registered before the run') is unticked on purpose: the bars were registered in writing before the set was drawn, but they are proposed by benchmark and not approved by the human. 'Sealed' is ticked (1 of 4 evidence items); nothing has been scored.",
+  "The human's 2026-10-22 open listen called the seven drive matches 'pretty good'; the 2026-10-25 blind session called the top-5 drive candidates 'so bad I can't even compare them'. The two are not reconciled: the first was open with no alternative, the second blind. This report treats the blind verdict as the stronger evidence and keeps the earlier one as class C.",
+  "T233 (product-chain render) is running at report time: no ledger rows, no note, no result. Its status file is local (cache/, gitignored); the figures here were read from it at 2026-10-26 16:23 local."
  ],
  "features": [
   {
@@ -773,7 +784,7 @@
    "purpose": "Supply a clean DI clip that matches a tone's register and style, because the engines need dry input and the song has none.",
    "done_when": "A licence-clean DI library is indexed locally, the picker returns clips that make the loss rank the true preset first more often than a single fixed clip does, and the user's own DI is a working accuracy mode.",
    "status": "prototype",
-   "progress_note": "The indexer and picker exist and the Guitar-TECHS DI subset (104 clips, about 5 h) is downloaded, indexed and was used by the first real-song match. The play-along capture of the user's own DI is built and tested offline. Still unmeasured: whether the picker beats a fixed clip, and the finding that preset loss depends strongly on the DI (7.7 versus 11.0 and 22.7 on two other DIs).",
+   "progress_note": "2026-10-22: Basic Pitch (Apache-2.0, local venv) transcribes the separated guitar stems; a dry guitar is rebuilt from the notes using real Guitar-TECHS notes or the human's own calibrated notes (T201, T203); an optional chord-list rebuild exists (T205); the human recorded a guided calibration session and the profile prs-7-tone (263 own notes, tone curve, level -36.1 dBFS) was built (T204). The rebuild is approximate (alignment 0.29-0.46 on slow parts, unmeasurable on dense riffs). The level convention is undecided. Picker benefit vs a fixed clip is still unmeasured. Correction 2026-10-23: the rebuilt dry's own contribution is unmeasured; the ablation 'same search, generic library DI' was never run, and the chord result (better dry, worse match by the measure, plain preferred by ear) suggests the rebuild acts as a level-and-rhythm proxy, not a timbre proxy (docs/notes/research-dry-signal-2026-10-23.md). The T211 calibrated re-run has no ear verdict and its distances are across different dry tracks. 2026-10-25 (T224): the dry-signal ablation ran: four dry arms per song plus a level-only arm, 30 searches, 10,320 renders. Against the plain rebuild, the stem-envelope arm kept the same drive model on 6 of 7 songs, the library-DI arm and the level-only arm on 5 of 7; DS-Sample changed model in every arm and Satisfaction's plain pick is a dead tie. Distances are not comparable across arms and no fidelity claim is made. Packs are built; the ear has not rated them. Level convention: play-along level -28.1 dBFS is the default (2026-10-25 bundle, provisional).",
    "functionality": "Indexes a folder of DI clips by register and style and picks one; the local Guitar-TECHS set is indexed and the picker chose the DI for the DS-Sample match. The user-DI play-along capture (reamp-capture) records the user's own guitar dry and through the pedal in one stream; a hardware take of it appears to exist (see discrepancies).",
    "health": "partial",
    "evidence": [
@@ -789,6 +800,33 @@
      "refs": [
       "scripts/match_song.py used dry.pick_di on the DS-Sample target (T041); no ledger row measures the picker itself"
      ]
+    },
+    {
+     "level": "unit-tests",
+     "refs": [
+      "tests/test_dry_rebuild.py",
+      "tests/test_chord_rebuild.py",
+      "tests/test_guitar_profile.py",
+      "tests/test_transcribe_stems.py"
+     ]
+    },
+    {
+     "level": "real-songs",
+     "refs": [
+      "ledger 2026-10-22T19:48:12+00:00 basic-pitch-tune; 2026-10-22T19:08:15+00:00 rebuilt-dry-mother; seven separated songs, local only"
+     ]
+    },
+    {
+     "level": "ear",
+     "refs": [
+      "DECISIONS 2026-10-22: Mother six-chord rebuild \"sounds good\"; seven-song matches from rebuilt dry \"all sound pretty good\" (informal, not blind)"
+     ]
+    },
+    {
+     "level": "real-songs",
+     "refs": [
+      "ledger 2026-10-25T20:08:29+00:00 dry-ablation-<song>-<arm> (30 rows, afxrep_distance, picks only; distances not comparable across arms); docs/notes/dry-ablation-t224.md"
+     ]
     }
    ],
    "owners": [
@@ -796,8 +834,13 @@
    ],
    "tasks": [
     "T021",
-    "T021b",
-    "T042"
+    "T042",
+    "T201",
+    "T203",
+    "T204",
+    "T205",
+    "T224",
+    "T021b"
    ],
    "blockers": [
     "The picker's benefit is unmeasured; the user-DI accuracy mode needs a hardware test with the human's guitar."
@@ -816,6 +859,28 @@
      "paths": [
       "src/tonematch/user_di.py",
       "tests/test_user_di.py"
+     ]
+    },
+    {
+     "item": "Dry-track rebuild, chord-list rebuild and guitar calibration profile",
+     "paths": [
+      "src/tonematch/dry_rebuild.py",
+      "src/tonematch/chord_rebuild.py",
+      "src/tonematch/guitar_profile.py",
+      "scripts/rebuild_dry.py",
+      "scripts/guitar_profile_record.py",
+      "scripts/guitar_profile_build.py",
+      "docs/notes/basic-pitch-t203.md",
+      "docs/notes/guitar-profile-t204.md",
+      "docs/notes/chord-rebuild-t205.md"
+     ]
+    },
+    {
+     "item": "Dry-signal ablation driver and envelope-from-stem rebuild option",
+     "paths": [
+      "scripts/dry_ablation_t224.py",
+      "scripts/rebuild_dry.py",
+      "docs/notes/dry-ablation-t224.md"
      ]
     }
    ],
@@ -839,7 +904,9 @@
     "Blind DI recovery and A+B hybrid are research only"
    ],
    "needs_human": [
-    "Run the play-along capture with a guitar (hardware) and report whether the count-in and alignment are right"
+    "Run the play-along capture with a guitar (hardware) and report whether the count-in and alignment are right",
+    "Rate the seven dry-ablation packs (built, sealed keys, unheard)",
+    "Supply chord lists for other songs (optional)"
    ],
    "decisions": [
     "Dry signal v0: B (reference DI library) default, E (blind estimation) as starting guess (DECISIONS 2026-10-13 planning)"
@@ -861,8 +928,8 @@
    "name": "Loss kit (tone metrics)",
    "purpose": "Score how close a candidate render is to the target tone, with terms that are trustworthy despite separation artifacts and DI mismatch.",
    "done_when": "At least one loss term, or a combination, passes the loss-trust-check threshold on the Helix synthetic set (true preset ranked first against distractors), so it has non-zero default weights, and the ear agrees with the metric on real songs.",
-   "status": "working",
-   "progress_note": "Four no-DI terms and a LossKit exist, but none is admitted (all default weights 0) and the only trust measurement is on non-Helix proxy signals. Envelope v1 (T025) improved the weakest term but held-out rank-1 on fresh seeds is only 0.117 against chance 0.0625 and 15 distractors; learned embeddings were researched, not run. AFx-Rep (ST-ITO) was wired in as an unadmitted embedding term and was worse than the DSP terms on proxy signals. On the first real song the loss ranked chain K first by 0.015 over H, while the human informally preferred H; the three level-invariant terms also accepted an output 52 dB too quiet until a guard was added in match_song.py. 2026-10-16: the first trust check on real Helix Native renders (helix-trust-v1: 40 known chains, 19 look-alikes each, 2,400 renders) admitted no term. On new notes of the same recording the best term managed rank-1 0.175 (7 of 40; chance 0.05), against a proposed bar of 0.90. With the same notes and the separation stand-in, mrstft reached 0.725 (0.875 against audible look-alikes only). The terms move more with the notes played than with the tone; reweighting did not help (0.15). No weights admitted (ledger 2026-10-16T15:50:17+00:00). T096 (2026-10-17): mrstft_v2 2.0 was tuned on the train split, frozen, and scored once on the test split (0.990 against 0.90), admitted for the known-DI mode by the lead. It has not been judged by ear and has not been used on real songs.",
+   "status": "prototype",
+   "progress_note": "Four no-DI terms and a LossKit exist, but none is admitted (all default weights 0) and the only trust measurement is on non-Helix proxy signals. Envelope v1 (T025) improved the weakest term but held-out rank-1 on fresh seeds is only 0.117 against chance 0.0625 and 15 distractors; learned embeddings were researched, not run. AFx-Rep (ST-ITO) was wired in as an unadmitted embedding term and was worse than the DSP terms on proxy signals. On the first real song the loss ranked chain K first by 0.015 over H, while the human informally preferred H; the three level-invariant terms also accepted an output 52 dB too quiet until a guard was added in match_song.py. 2026-10-16: the first trust check on real Helix Native renders (helix-trust-v1: 40 known chains, 19 look-alikes each, 2,400 renders) admitted no term. On new notes of the same recording the best term managed rank-1 0.175 (7 of 40; chance 0.05), against a proposed bar of 0.90. With the same notes and the separation stand-in, mrstft reached 0.725 (0.875 against audible look-alikes only). The terms move more with the notes played than with the tone; reweighting did not help (0.15). No weights admitted (ledger 2026-10-16T15:50:17+00:00). T096 (2026-10-17): mrstft_v2 2.0 was tuned on the train split, frozen, and scored once on the test split (0.990 against 0.90), admitted for the known-DI mode by the lead. It has not been judged by ear and has not been used on real songs. Correction 2026-10-23: the admission was the lead's and is unapproved. On 2026-10-18 the human judged the model built on it unusable ('the model we created is garbage') and declared every lead-made method ruling, including the admitted weights, unapproved until reviewed (DECISIONS 2026-10-18 model and method decisions). In blind rating v3 on hard same-performance pairs mrstft_v2 agreed with the ear 10 of 25 times (chance); the provisional kit 14 of 25. The de facto ranker is now the AFx-Rep embedding distance: by ear it orders models on the same performance (v3 18 of 25; v5 20 of 21, on the same experiment's own picks), is unvalidated for knob moves (T175 invariance ratio 30 for small moves) and across different dry tracks, and has never been rated against a separated stem. Status moved from working to prototype: the kit runs, but no measure is approved and none is trusted for the song case. 2026-10-26: the T223 stem-validation pack (41 trials, pre-registered) is unscored; the separation-consistent re-score (T227) was stopped by the lead after the verdict and can resume.",
    "functionality": "LossKit.score() returns per-term scores (LTAS tilt, crest/flatness/HNR, envelope, multi-resolution STFT) but with default weights 0 its objective is flat; the search must pass provisional weights explicitly and label results unadmitted. Update 2026-10-17: a second multi-resolution spectral term (mrstft_v2, version 2.0) is admitted alone, for the known-DI mode only, at weight 1.0; the default and provisional weights are unchanged.",
    "health": "partial",
    "evidence": [
@@ -890,6 +957,14 @@
      "refs": [
       "ledger 2026-10-17T00:29:36+00:00 helix-trust-v2 TEST split, scored once: mrstft_v2 rule-B rank-1 0.990 (plain 0.875) on aligned/same_notes against a 0.90 bar; sep 0.948; clean 1.000; older mrstft 0.781; train matched (ledger 2026-10-17T00:24:15+00:00 tuning rows). Native 3.82 single blocks, known-DI case"
      ]
+    },
+    {
+     "level": "ear",
+     "refs": [
+      "ledger 2026-10-18T21:00:11+00:00 ab-human-ratings-v3 agree_embed_afxrep 0.679 (19 of 28 decided; 18 of 25 disputed pairs in the note); mrstft_v2 10 of 25 (docs/notes/human-ratings-v3.md)",
+      "ledger 2026-10-19T16:59:45+00:00 ab-human-ratings-v5 agree_embed_afxrep 0.952 (20 of 21); rates T185's own picks",
+      "ledger 2026-10-20T22:44:35+00:00 ab-human-ratings-v6 retest_consistent 0.5; 7 of 12 across v2-v7"
+     ]
     }
    ],
    "owners": [
@@ -901,10 +976,12 @@
     "T032",
     "T066",
     "T067",
-    "T096"
+    "T096",
+    "T221",
+    "T223"
    ],
    "blockers": [
-    "The admitted term is valid only when an aligned DI of the same performance is known; the song case (separation stand-in 0.948) is not yet admitted, and no term works without a recording. Thresholds are unfrozen."
+    "No measure is approved by the human. AFx-Rep orders the final candidates as an interim default (provisional, 2026-10-25 bundle) and its blind stem validation was answered with a verdict ('so bad I can't even compare them'), not a scored ranking, so agreement with the ear on separated guitars is still unmeasured. mrstft_v2 stays unapproved and at chance on hard same-performance pairs."
    ],
    "implemented": [
     {
@@ -958,6 +1035,10 @@
     {
      "finding": "The loss terms are level-invariant, so a 52 dB quieter output scored better; match_song.py adds a level guard that is not an admitted term.",
      "source": "DECISIONS 2026-10-14 search T041"
+    },
+    {
+     "finding": "Every 'closer' claim from 2026-10-22 on compares distances between renders of different dry tracks (other notes, tone, level), which T041 (7.7 / 11.0 / 22.7 for one preset on three DIs) and T175 show the measures cannot order. No ear verdict exists for those comparisons.",
+     "source": "docs/notes/methodology-audit-2026-10-23.md section 2"
     }
    ],
    "todo": [
@@ -1098,7 +1179,7 @@
    "purpose": "Find the preset whose render best matches the target section within a render budget set by the engine's cost.",
    "done_when": "On the Helix synthetic-v1 set the search recovers known presets at the thresholds benchmark set (block-type F1, model accuracy, parameter MAE), then beats the nearest community preset on real songs, with the final candidate verified on the pedal.",
    "status": "prototype",
-   "progress_note": "CMA-ES over a captured template, beam over chains, budget planning, a level guard and a report writer are built, and one real-song run completed end to end on Native (449 renders, 1506 s; provisional loss 13.79 to 7.71, unadmitted). But the loss it optimises is not trusted (the human preferred the runner-up), recovery of known answers is shown only on a fake engine, there is no Helix known-answer run, no predictor or retrieval seeds, no model choice per slot, and no successive halving on hardware. The search now uses the Stomp speed options by default (T062: 3 s search clips, readback every 10 loads, measured tails, one engine per batch; a legacy flag falls back), tested with a fake engine only. The trial time on the pedal was measured as a batch (10.9 s to 3.8 s, ledger 2026-10-16T00:17:11+00:00), but the search itself has not been timed on the pedal, so there is no ledger row for its speed. 2026-10-16: the clip-length study (T065) kept the full-clip default (medians 8.36 full against 9.16-11.95 for shorter policies; ledger 2026-10-16T15:24:06+00:00). T074 (written, not committed, no render run): frees every CC-verified numeric parameter over its template range, with a range-scaled prior, and makes time-variant blocks opt-in. 2026-10-16/17: the known-DI level guard (T096b) is coded; model choice per slot (T050) is built and, on a 16-item development set with the old provisional score, tied the old pool pass at 7 of 16 models (DECISIONS 2026-10-16; no ledger row). The re-run with the admitted score was interrupted. 2026-10-17: measured seeding (T113) and the hybrid method (T114, chosen by a rule fixed before the last run) are built. Gate 2 attempt 1 on all 96 items did not pass: it met four of six criteria and failed category accuracy (0.802 against 0.85) and model non-inferiority to the random walk. Weakest families: modulation, reverb, amp. The next attempt uses a fresh synthetic-v2 and per-family specialists. A chain builder (T105) exists with fake engines only.",
+   "progress_note": "CMA-ES over a captured template, beam over chains, budget planning, a level guard and a report writer are built, and one real-song run completed end to end on Native (449 renders, 1506 s; provisional loss 13.79 to 7.71, unadmitted). But the loss it optimises is not trusted (the human preferred the runner-up), recovery of known answers is shown only on a fake engine, there is no Helix known-answer run, no predictor or retrieval seeds, no model choice per slot, and no successive halving on hardware. The search now uses the Stomp speed options by default (T062: 3 s search clips, readback every 10 loads, measured tails, one engine per batch; a legacy flag falls back), tested with a fake engine only. The trial time on the pedal was measured as a batch (10.9 s to 3.8 s, ledger 2026-10-16T00:17:11+00:00), but the search itself has not been timed on the pedal, so there is no ledger row for its speed. 2026-10-16: the clip-length study (T065) kept the full-clip default (medians 8.36 full against 9.16-11.95 for shorter policies; ledger 2026-10-16T15:24:06+00:00). T074 (written, not committed, no render run): frees every CC-verified numeric parameter over its template range, with a range-scaled prior, and makes time-variant blocks opt-in. 2026-10-16/17: the known-DI level guard (T096b) is coded; model choice per slot (T050) is built and, on a 16-item development set with the old provisional score, tied the old pool pass at 7 of 16 models (DECISIONS 2026-10-16; no ledger row). The re-run with the admitted score was interrupted. 2026-10-17: measured seeding (T113) and the hybrid method (T114, chosen by a rule fixed before the last run) are built. Gate 2 attempt 1 on all 96 items did not pass: it met four of six criteria and failed category accuracy (0.802 against 0.85) and model non-inferiority to the random walk. Weakest families: modulation, reverb, amp. The next attempt uses a fresh synthetic-v2 and per-family specialists. A chain builder (T105) exists with fake engines only. 2026-10-20 to 23: a predictor-first drive matcher (T196), blind matches of five songs (T200), and for seven songs a full DI-based drive search over all 60 drive models on a rebuilt dry guitar (T207), a knob fine-tune (T209; distance lower on 6 of 7) and a calibrated-guitar re-run (T211; lower on 5 of 7). The human heard the seven as 'pretty good' and the fine-tuned as 'the same or better' (open listening). One drive block per song; no chain. Corrections 2026-10-23 (audit section 6): the seven-song verdicts are one open pass by one listener with no alternative heard; the T209 'lower on 6 of 7' and T211 'lower on 5 of 7' figures are AFx-Rep distances across different dry tracks with no ear verdict; the T206 'unadmitted loss 9.53 vs 16.00' is a provisional-loss comparison across different DIs, not a fidelity comparison. Measured-pedal mode (T187, docs/notes/measured-pedal-mode.md) is built and simulated only (model 0.96 in simulation); it has never been run on a pedal. AFx-Rep final ranking and knob fine-tuning with Output/Master free are defaults of scripts/song_match.py by reuse, without an itemised approval (approved for shortlisting only on 2026-10-18); they are to be read as test settings until the human rules (decisions 1 and 3). 2026-10-26: the human's blind session on the top-5 drive candidates against the separated guitar (five songs) found them 'so bad I can't even compare them'; this is the first blind evidence on real songs and it is negative for drive-only matches. Defaults were pinned to data/approved-methods.json (T226); knob fine-tuning is an option with Output/Master locked; the provisional loss and the drive families are no longer defaults.",
    "functionality": "match() plans a render budget, searches a chain and its parameters with CMA-ES against an unadmitted loss, applies a level guard and a weak prior, and writes a report and listening pack. match_song.py ran it on one real song: best provisional loss 7.71 (raw DI 24.93). Renders now cost about 0.28 s, so earlier budgets were over-planned. Recovery of known answers is unproven on real engine renders. Current method: broad draws over 47 pool models, top-K narrowing, successive halving with banded CMA-ES within 300 renders, with measured seeding of delay, reverb and modulation settings.",
    "health": "partial",
    "evidence": [
@@ -1135,6 +1216,18 @@
       "ledger 2026-10-17T16:42:07+00:00 baseline middle of every knob (provisional weights)",
       "ledger 2026-10-17T19:44:32+00:00 hybrid development runs on the 16 development items (not gate evidence)"
      ]
+    },
+    {
+     "level": "real-songs",
+     "refs": [
+      "ledger 2026-10-22T21:07:55+00:00 song-*-dryrebuild; 2026-10-22T23:07:14+00:00 song-*-finetune; 2026-10-23T00:31:57+00:00 song-*-prs7 (AFx-Rep distance, Helix Native, seven songs, local only)"
+     ]
+    },
+    {
+     "level": "ear",
+     "refs": [
+      "DECISIONS 2026-10-22: open listening to the seven T207 matches and the T209 fine-tunes, informal, not blind"
+     ]
     }
    ],
    "owners": [
@@ -1147,13 +1240,22 @@
     "T062",
     "T065",
     "T074",
-    "T096b",
     "T105",
     "T113",
     "T114",
     "T122",
     "T134",
-    "T140"
+    "T140",
+    "T187",
+    "T196",
+    "T200",
+    "T206",
+    "T207",
+    "T209",
+    "T211",
+    "T228",
+    "T229",
+    "T096b"
    ],
    "blockers": [
     "Gate 2 attempt 2 failed ranking the true preset first (0.9375 against 0.95); modulation and drive are weak; attempt 3 needs a fresh sealed set."
@@ -1222,6 +1324,10 @@
     {
      "finding": "Scores before the Native host fix are history-dependent, so earlier run numbers are not exactly reproducible.",
      "source": "DECISIONS 2026-10-15 host memory"
+    },
+    {
+     "finding": "The DS-Sample tuned chain beat the tutorial on 6 decided trials with 1 of 2 repeats consistent, on one song and one window; the tuned EQ sits at the +-12 dB limit on 8 of 10 bands, and a further tune improved the score and was heard as identical.",
+     "source": "docs/notes/methodology-audit-2026-10-23.md section 1; DECISIONS 2026-10-20"
     }
    ],
    "todo": [
@@ -1233,9 +1339,7 @@
     "Build per-family specialists: modulation, reverb and delay, amp (DECISIONS 2026-10-17)",
     "Run attempt 2 on synthetic-v2 under the frozen rule"
    ],
-   "needs_human": [
-    "Listen blind to the DS-Sample candidates when a session is prepared (the informal preference does not count for Gate 5)"
-   ],
+   "needs_human": [],
    "decisions": [
     "Search passes provisional weights explicitly (DECISIONS 2026-10-14 cycle 3 loss kit)",
     "Edit-buffer-only rule and cost() budgets (DECISIONS 2026-10-13 cycle 1 and 2026-10-14 cycle 2)",
@@ -1251,7 +1355,9 @@
     "docs/notes/search-design.md",
     "tests/test_search.py",
     "scripts/match_song.py",
-    "tests/test_match_song.py"
+    "tests/test_match_song.py",
+    "docs/notes/measured-pedal-mode.md",
+    "scripts/song_match.py"
    ],
    "ledger": [
     {
@@ -1266,7 +1372,7 @@
    "purpose": "Measure progress with known answers, record every run in an append-only ledger, and decide when a gate is passed.",
    "done_when": "The synthetic-v1 recovery set is captured and rendered, thresholds are agreed, CI runs the smoke recovery on every change, the separation stress curve and parity null are recorded, and Gates 2 and 3 are evidenced and signed.",
    "status": "prototype",
-   "progress_note": "The ledger, Gate 1, the synthetic-benchmark design and labels generator, and now a parity-null tool with a measured Stomp-versus-Native table exist. No Helix known-answer set has been rendered, no recovery has run, thresholds are approved as working targets but not frozen, no separation stress curve exists, there is no blind-ab script, and CI still skips the benchmark. 2026-10-16: parity spot checks on firmware 3.80 (T060) and time-effect parity by measurement (T066, T066b, T066c) set where Native stands in for the pedal; the 96-item synthetic-v1 set and its runner are built (T073), but only a 3-item provisional run exists (true preset first 0 of 3 on new notes, not gate evidence). T100 (Ruling 2, same-notes rank-1 in the known-DI mode) and the blind A/B tool (T104, benchmark) are done; Native verification (T103) is running. 2026-10-17: the pass rule was frozen before the full run; attempt 1 is recorded and Gate 2 is not ticked. A blind A/B tool (T107) and a local explainer report (T115) exist; the explainer stays off the public repository.",
+   "progress_note": "The ledger, Gate 1, the synthetic-benchmark design and labels generator, and now a parity-null tool with a measured Stomp-versus-Native table exist. No Helix known-answer set has been rendered, no recovery has run, thresholds are approved as working targets but not frozen, no separation stress curve exists, there is no blind-ab script, and CI still skips the benchmark. 2026-10-16: parity spot checks on firmware 3.80 (T060) and time-effect parity by measurement (T066, T066b, T066c) set where Native stands in for the pedal; the 96-item synthetic-v1 set and its runner are built (T073), but only a 3-item provisional run exists (true preset first 0 of 3 on new notes, not gate evidence). T100 (Ruling 2, same-notes rank-1 in the known-DI mode) and the blind A/B tool (T104, benchmark) are done; Native verification (T103) is running. 2026-10-17: the pass rule was frozen before the full run; attempt 1 is recorded and Gate 2 is not ticked. A blind A/B tool (T107) and a local explainer report (T115) exist; the explainer stays off the public repository. 2026-10-25 (T223): gate3-v1 sealed (120 single drive-block items, 60 product drive models x 2, Guitar-TECHS P3, seed 223001, labels sha256 88a8880c...), bars G3-1 to G3-5 written down before the draw, scoring script refuses to run without a launch reference. Limit: the items share about 31 non-overlapping 10 s windows of playing, so they are not independent. Gate 2 closed as superseded.",
    "functionality": "Appends and reads the ledger, runs engine-smoke, generates 180 labelled synthetic items (labels, no audio), and measures Stomp-versus-Native parity on six presets with a restore check. Cannot yet render the known-answer set, run a recovery, or run a blind listen.",
    "health": "partial",
    "evidence": [
@@ -1303,6 +1409,12 @@
       "ledger 2026-10-17T16:42:07+00:00 baseline middle, provisional weights",
       "ledger 2026-10-17T17:35:18+00:00 and 2026-10-17T17:38:13+00:00 native-verify-v1: repeat 216 of 216, setting truth 116 of 120"
      ]
+    },
+    {
+     "level": "none",
+     "refs": [
+      "ledger 2026-10-25T18:58:08+00:00 gate3-v1 sealed_items 120; nothing scored; docs/notes/gate3-v1.md"
+     ]
     }
    ],
    "owners": [
@@ -1321,13 +1433,14 @@
     "T073",
     "T096",
     "T100",
-    "T104",
     "T103",
+    "T104",
     "T107",
-    "T115"
+    "T115",
+    "T223"
    ],
    "blockers": [
-    "Gate 2 runs are paused for the setting-and-consistency verification; the full 96-item run, threshold freeze (2b/2c) and sign-off are pending; baselines are not in the ledger."
+    "Gate 3: set sealed (120 items on P3), bars proposed by benchmark and not approved; no method has been scored. Gate 2 is closed as superseded (human, 2026-10-25). Pedal verification (T112) still open."
    ],
    "implemented": [
     {
@@ -1363,6 +1476,17 @@
      "paths": [
       "scripts/parity_null.py",
       "tests/test_parity_null.py"
+     ]
+    },
+    {
+     "item": "Sealed Gate 3 set generator, verifier and scorer (scorer not run); blind ranking pack builder and scorer",
+     "paths": [
+      "scripts/gate3_set.py",
+      "tests/test_gate3_set.py",
+      "scripts/rating_rank.py",
+      "tests/test_rating_rank.py",
+      "docs/notes/gate3-v1.md",
+      "docs/notes/afx-stem-validation-t223.md"
      ]
     }
    ],
@@ -1402,7 +1526,7 @@
     "Freeze Gate 2 thresholds (2b/2c), then the full 96-item run"
    ],
    "needs_human": [
-    "Sign off Gates 2 and 3 when evidence exists"
+    "Rule on the Gate 3 bars (proposed G3-1 to G3-5) before the sealed gate3-v1 set is scored"
    ],
    "decisions": [
     "Benchmark regression freezes merges (CLAUDE.md standing rule)",
@@ -1445,34 +1569,94 @@
    "name": "Learning (predictor, proxies)",
    "purpose": "Learn from rendered pairs to seed the search with a blind predictor and, later, to speed the inner loop with neural block proxies and a learned similarity metric.",
    "done_when": "A predictor trained on Helix-rendered pairs improves the search's start (measurably fewer renders to the same loss), its weights have a model card and a licence that allows publishing, and the flywheel adds verified matches as training data.",
-   "status": "not-started",
-   "progress_note": "No code, data or model; only the task T030 exists and the plan defers neural proxies until after week 6.",
-   "functionality": "Nothing. There is no data generator, predictor or proxy.",
-   "health": "unknown",
+   "status": "prototype",
+   "progress_note": "Drive: a predictor trained on 150,000 renders narrows the drive search (85 percent model top-1 on 48 blind Helix targets; PANNs and DAC encoders fell short of AFx-Rep). 2026-10-22/23: slot-dataset-v1 for amp, cab, mod, delay, reverb and EQ rendered (about 240,000 clips) and trained at half and full size; model top-1 on seen players amp 0.54, cab 0.76, delay 0.56, mod 0.75, reverb 0.47, EQ 0.82; on a new player amp 0.19-0.31, cab 0.32-0.35, delay 0.25-0.32, mod 0.47-0.60. Amp silence bug fixed with a refill. The seen-player numbers rest on 18 held-out DI files from two players (the test clips are cut from those files; they are not thousands of independent items). No slot head is in a matcher. 2026-10-23 T214 chain transfer test (295 finished chains, held-out DIs): the heads do NOT transfer: MLP model top-1 chain vs single block drive 0.02 vs 0.93, amp 0.01 vs 0.54, cab 0.25 vs 0.76, mod 0.21 vs 0.75, delay 0.10 vs 0.56, reverb 0.28 vs 0.47, EQ 0.12 vs 0.82; knobs within 0.15 fall to 0.31-0.43. The 'constant mid-range guess scores about 0.3' baseline quoted against those knob numbers was not re-measured. Status stays prototype: trained, not verified. T215 chain-rendered training pilot (about 5,000 chains) is running on the human's 'yes start pilot'; no bar is registered. 2026-10-26: the product is now drive -> EQ -> reverb (human 2026-10-25), so the amp, cabinet, modulation and delay slot heads are out of scope for now. T233 (human 'Do both now') is rendering about 40,000 drive -> optional EQ -> optional reverb chains from the two library players plus the human's own session recordings (15 percent of draws), then trains heads for drive model and level-conditioned knobs, reverb presence/type/decay/mix and EQ. Render phase at 2026-10-26 16:23: shard 96 of 105, 37,998 chains ok, 2 dropped, deadline 20:00, then training. No result, no ledger row, nothing adopted.",
+   "functionality": "Heads (logistic regression, small MLP) over AFx-Rep embeddings predict the model and knob positions of a single block; the drive head seeds the predictor-first matcher. Measurement only; nothing admitted.",
+   "health": "partial",
    "evidence": [
     {
+     "level": "unit-tests",
+     "refs": [
+      "tests/test_slot_dataset.py",
+      "tests/test_slot_overnight.py"
+     ]
+    },
+    {
+     "level": "synthetic",
+     "refs": [
+      "ledger 2026-10-23T08:17:15+00:00 slot-dataset-v1-amp; 2026-10-23T12:15:45+00:00 cab; 2026-10-23T13:06:10+00:00 delay; 2026-10-23T13:46:04+00:00 eq; Helix Native single-block renders, held-out DI files and held-out players",
+      "docs/notes/slot-datasets-v1-results.md",
+      "ledger 2026-10-20T18:37:33+00:00 predictor-first drive matcher, 48 blind Helix targets"
+     ]
+    },
+    {
+     "level": "synthetic",
+     "refs": [
+      "ledger 2026-10-23T15:49:38+00:00 chain-transfer-v1 (T214): per-slot MLP heads on finished block-serial chains, n 295; drive/amp top-1 0.02/0.01; measurement only, nothing adopted (docs/notes/chain-transfer-t214.md)"
+     ]
+    },
+    {
      "level": "none",
-     "refs": []
+     "refs": [
+      "T233 overnight render in progress (scripts/product_chain_t233.py); no ledger rows, no result; DECISIONS 2026-10-26 launch entry"
+     ]
     }
    ],
    "owners": [
     "learning"
    ],
    "tasks": [
-    "T030"
+    "T030",
+    "T195",
+    "T202",
+    "T208",
+    "T210",
+    "T212",
+    "T213",
+    "T214",
+    "T215",
+    "T233"
    ],
    "blockers": [
-    "Needs working engines, a trusted loss and the DI library; also Native's EULA may limit publishing weights trained on Native renders."
+    "T233 has no result yet (rendering). Single-block heads do not transfer to chain output (T214); the small chain-trained pilot (T215) reached drive 0.18 top-3 against chance 0.06 and amp at chance. Weak new-player accuracy. Gate 3 bars are proposed, not approved, so a T233 read-out cannot count toward the gate. AFx-Rep training data licence (non-commercial sources)."
    ],
-   "implemented": [],
+   "implemented": [
+    {
+     "item": "Slot dataset planner, renderer, refill and trainer for six slots",
+     "paths": [
+      "scripts/slot_dataset_render.py",
+      "src/tonematch/learning/slot_dataset.py",
+      "scripts/slot_overnight.py",
+      "docs/notes/slot-datasets-v1.md"
+     ]
+    },
+    {
+     "item": "Training-data coverage report",
+     "paths": [
+      "docs/notes/training-data-coverage-t202.md"
+     ]
+    },
+    {
+     "item": "Product-chain overnight job: plan, batched Native renders, then training and a seven-song table (running)",
+     "paths": [
+      "scripts/product_chain_t233.py",
+      "tests/test_product_chain.py"
+     ]
+    }
+   ],
    "challenges": [
     {
      "finding": "The Native EULA is silent on training ML on Native renders; prefer hardware renders for anything published until the installer EULAs are read.",
      "source": "docs/notes/line6-eula-flags.md; PLAN risk table"
+    },
+    {
+     "finding": "240,000 single-block renders were made before the one-hour chain check; T202 had already named 'no chains' as the gap. T214 then showed the heads at or near chance inside chains, because a block in front hurts and a cab after nearly erases.",
+     "source": "docs/notes/methodology-audit-2026-10-23.md section 0; docs/notes/chain-transfer-t214.md"
     }
    ],
    "todo": [
-    "T030 data generator: EGDB DI through random plausible chains on Native; predictor v0",
+    "Read the T233 heads on the held-out library files, the held-out part of the human's session and the seven songs (against the human's picks) when training ends",
+    "Score one frozen method once on the sealed gate3-v1 set after the human approves the bars",
     "Model card and licence note for any published weights"
    ],
    "needs_human": [
@@ -1486,7 +1670,10 @@
     "Predictor training depends on Native renders: medium (PLAN risk table)"
    ],
    "key_files": [
-    "docs/PLAN.md",
+    "docs/notes/chain-transfer-t214.md",
+    "docs/notes/slot-datasets-v1-results.md",
+    "docs/notes/slot-datasets-v1.md",
+    "scripts/slot_overnight.py",
     ".claude/agents/learning.md"
    ],
    "ledger": []
@@ -1497,7 +1684,7 @@
    "purpose": "Prepare level-matched, randomised blind A/B or MUSHRA sessions so the human, who is the final judge, can rate matches against references and baselines.",
    "done_when": "A blind-ab-session script builds a session folder with the answer key kept out, the human has rated the 20-song set, results are ingested as ledger rows, and Gate 5 has the human's sign-off.",
    "status": "prototype",
-   "progress_note": "Two informal human listening sessions exist as ledger rows (not blind, one song, not scored by any agent). The blind A/B tool (T107) is built with 7 tests; no session has been prepared or rated, and the 20-song set does not exist.",
+   "progress_note": "Seven short blind rating sessions (v1 to v7, 2026-10-18 to 2026-10-20; 6 to 28 trials each) were built and rated for drive matching and one chain tuning; none covered the seven song matches, whose listening was open. The human's test-retest consistency on repeated blind pairs is 7 of 12 across sessions, so the sessions are directional. The lead's kind=ab rows that transcribe the human's informal verdicts (2026-10-20T19:17, 2026-10-22T18:40) are not session ratings and are not aggregated as ab evidence. The 20-song set does not exist.",
    "functionality": "No blind session can be prepared yet. Informal listening happened outside the tool: the human compared the target stem, two matches, the start chain and the raw DI for one section of one song, and played one preset live on the Stomp. Update: scripts/ab_session.py (build, score, gate2-demo) now exists with 7 tests; no session has been prepared or rated.",
    "health": "partial",
    "evidence": [
@@ -1506,6 +1693,12 @@
      "refs": [
       "ledger 2026-10-15T19:10:17+00:00 human ab ab_pref_rank 2.0 (DS-Sample, informal, not blind)",
       "ledger 2026-10-15T19:20:34+00:00 human ab live_pref_delay_mix (informal live listening through the pedal)"
+     ]
+    },
+    {
+     "level": "ear",
+     "refs": [
+      "ledger 2026-10-18T21:00:11+00:00 ab-human-ratings-v3; 2026-10-19T16:59:45+00:00 v5; 2026-10-20T22:44:34+00:00 v6 (blind, unsealed; agreement rows are measurements, nothing admitted)"
      ]
     }
    ],
@@ -1567,7 +1760,7 @@
    "purpose": "Give it a song, get back an HX Stomp .hlx with up to three snapshots, verified on the pedal.",
    "done_when": "One command takes a song (and optional stems), runs separation, segmentation, DI choice, search and export, and returns a validated .hlx whose result is verified on the engine of the user's choice.",
    "status": "prototype",
-   "progress_note": "A script runs the chain on a real song locally (separation cache, section choice, DI pick, search on Native, .hlx export); one song has been taken through it and the result was loaded onto the pedal by hand with the whole-preset injection tool. There is still no CLI entry point, no pipeline module, no automatic Stomp verification step, no snapshot assignment from section groups and only one song.",
+   "progress_note": "A script runs the chain on a real song locally (separation cache, section choice, DI pick, search on Native, .hlx export); one song has been taken through it and the result was loaded onto the pedal by hand with the whole-preset injection tool. There is still no CLI entry point, no pipeline module, no automatic Stomp verification step, no snapshot assignment from section groups and only one song. 2026-10-22/23: seven songs run through hand-run scripts (separation, rebuilt dry guitar, full drive search, knob fine-tune, level-matched listening pages and presets, one per song); drive only, no chain, no automatic pedal check. 2026-10-26: scope narrowed by the human to drive -> EQ -> reverb; delay on hold; amp and cabinet only as a possible stand-in for the drive. Still hand-run; the first blind check of the drive-only matches was negative.",
    "functionality": "scripts/match_song.py takes one prepared song section to an exported .hlx and a listening pack on one machine; the human then loaded the preset on the pedal and listened. Not a product command: one song (DS-Sample), unadmitted loss, hand-run steps, and nothing for the other sections.",
    "health": "partial",
    "evidence": [
@@ -1595,7 +1788,11 @@
     "search"
    ],
    "tasks": [
-    "T041"
+    "T041",
+    "T200",
+    "T207",
+    "T209",
+    "T211"
    ],
    "blockers": [
     "Depends on the Gate 2 verification and sign-off, the chain builder (not built), a score that works without a clean recording, and automatic hardware verification."
@@ -1633,7 +1830,8 @@
     "Run more songs (the 20-song set)"
    ],
    "needs_human": [
-    "Choose the next songs for local-only matching (no audio leaves the machine)"
+    "Choose the next songs for local-only matching (no audio leaves the machine)",
+    "Play the calibrated presets on the Stomp and give an ear verdict"
    ],
    "decisions": [
     "Fixed 8-slot template for v0 (DECISIONS 2026-10-13 planning), since superseded by real @position order in the preset code"
@@ -1841,7 +2039,7 @@
    "purpose": "Coordinate the agents through contracts, a task board, gates, an append-only ledger, a decision log and cycle notes so work is honest and traceable.",
    "done_when": "Every cycle ends with synced docs, a current board, a cycle entry and a status page, contracts are current, and the board matches the code.",
    "status": "working",
-   "progress_note": "Four cycles of work sit on a maintained board with gates, a decision log, a ledger and cycle entries; the lead restated the append-only ledger rule after an in-place deletion. Remaining drift: several board lines lag the ledger (see discrepancies), and the page is now produced as both HTML and Markdown so GitHub readers see it.",
+   "progress_note": "Four cycles of work sit on a maintained board with gates, a decision log, a ledger and cycle entries; the lead restated the append-only ledger rule after an in-place deletion. Remaining drift: several board lines lag the ledger (see discrepancies), and the page is now produced as both HTML and Markdown so GitHub readers see it. 2026-10-25 (T226): data/approved-methods.json lists the method settings the human has ruled on, with quotes; tests/test_approved_methods.py pins the song-match flags to it. Bundle approvals are recorded as provisional; one line per item in the human's words from now on.",
    "functionality": "The lead runs cycles from the board, ledger and gates; agents hand off by file and ledger row; this status report is produced each cycle as reports/status/index.html and reports/status/README.md (the GitHub-readable copy).",
    "health": "partial",
    "evidence": [
@@ -1849,6 +2047,12 @@
      "level": "unit-tests",
      "refs": [
       "tests/test_status_report.py"
+     ]
+    },
+    {
+     "level": "unit-tests",
+     "refs": [
+      "tests/test_approved_methods.py"
      ]
     }
    ],
@@ -1862,8 +2066,9 @@
     "T012",
     "T014",
     "T017",
-    "T020a",
-    "T031"
+    "T031",
+    "T226",
+    "T020a"
    ],
    "blockers": [
     "Several tasks wait on the human; board and READMEs have stale lines."
@@ -1887,6 +2092,13 @@
       "docs/features.json",
       "scripts/status_report.py",
       "reports/status/index.html"
+     ]
+    },
+    {
+     "item": "Approved-methods file and pinning test",
+     "paths": [
+      "data/approved-methods.json",
+      "tests/test_approved_methods.py"
      ]
     }
    ],
@@ -2133,6 +2345,121 @@
     "src/tonematch/search/family_adapters.py",
     "src/tonematch/metrics/linear_specialist.py",
     "docs/DECISIONS.md"
+   ],
+   "ledger": []
+  },
+  {
+   "id": "colour-stage",
+   "name": "Colour stage after the drive: EQ and reverb",
+   "purpose": "Lightly colour the drive match with an equaliser and a reverb chosen for the song, as the human's refocus defines the product chain (drive -> EQ -> reverb).",
+   "done_when": "Given a song's separated guitar and its drive match, the tool names an equaliser setting and a reverb (type, decay, mix) that blind listeners hear as closer than the drive match alone, on songs it was not tuned on, with a bar the human approved first.",
+   "status": "prototype",
+   "progress_note": "2026-10-25: colour pilots on three then seven songs (T228, T229). Open listening: a light reverb after the drive was preferred on all seven songs, the fitted equaliser variants could not be told apart (kept, human: 'It didn't hurt anything'), an amp in place of the drive was mixed. One blind Mother pack: the fitted-EQ version was closest. Reverb pilot (T230, 27 candidates per song, pre-registered, blind ranks on six songs, Cherub Rock excluded): no computable signal agreed with the human (AFx-Rep rho 0.05, note-tail 0.04, time-specialist -0.09, dip fill -0.40); the human's repeats were consistent (mean rank difference 0.33 against chance 2.67); Plate was not preferred blind (mean rank by type: Room 3.9, Hall 4.0, Plate 4.4, ties frequent). Blind reverb estimator (T231): validated on 189 known reverbs (decay ordering 36 of 40 triples, rho 0.85-0.89 on 5 songs; mix rho 0.88-0.94; type not separable, 43 percent against 33 chance); on the full stems a real tail is readable on 2 of 7 (Mother 0.70 s, Territorial 0.90 s), the other 5 read the separator's residue. Confirmation (T232, pre-registered): Mother confirmed (named closest ranked 1 of 7, named furthest 7 of 7), Territorial not reproducible (the human's repeat got ranks 4 and 1), pooled not confirmed. No reverb model exists; a fixed default was rejected by the human.",
+   "functionality": "A bounded equaliser fit from the long-term spectrum ratio, a reverb candidate grid, listening packs and comparison pages, and a blind reverb estimator (decay and mix from a stem's note tails). None of it is wired into the song-match command.",
+   "health": "partial",
+   "evidence": [
+    {
+     "level": "unit-tests",
+     "refs": [
+      "tests/test_colour.py",
+      "tests/test_reverb_blind.py (10)",
+      "tests/test_reverb_pilot.py"
+     ]
+    },
+    {
+     "level": "synthetic",
+     "refs": [
+      "ledger 2026-10-25T23:00:13+00:00 reverb-estimator-v1: adc recovers synthetic RT60 within 7 percent, decay ordering 36 of 40, mix monotone 52 of 52 on the 189 T230 candidates (known reverbs, Helix Native renders); docs/notes/reverb-estimator-t231.md"
+     ]
+    },
+    {
+     "level": "real-songs",
+     "refs": [
+      "ledger 2026-10-25T22:40:16+00:00 reverb-pilot-v1 (rho per signal, listener repeat 0.33); ledger 2026-10-25T23:35:34+00:00 reverb-confirm-v1 (pooled rho 0.147, confirmed 0); docs/notes/reverb-pilot-t230.md, docs/notes/reverb-confirm-t232.md"
+     ]
+    },
+    {
+     "level": "ear",
+     "refs": [
+      "DECISIONS 2026-10-25: open listening to the colour pilot (T228) and the seven-song comparison (T229): light reverb 'better'; EQ 'very hard to tell'; one blind Mother pack: fitted EQ closest. Blind reverb ranks on six songs (T230) and a confirmation on two (T232), see progress note"
+     ]
+    }
+   ],
+   "owners": [
+    "search",
+    "tone-metrics"
+   ],
+   "tasks": [
+    "T228",
+    "T229",
+    "T230",
+    "T231",
+    "T232"
+   ],
+   "blockers": [
+    "No reverb model: nothing computed from the stems agreed with the human's reverb ranks, the estimator reads a real tail on only 2 of 7 stems (the rest is separator residue), and the confirmation held on one song of two. The human rejected a fixed default and asked for a model."
+   ],
+   "implemented": [
+    {
+     "item": "Colour pilot and seven-song comparison builders",
+     "paths": [
+      "scripts/colour_pilot_t228.py",
+      "scripts/colour_t229.py",
+      "docs/notes/colour-pilot-t228.md",
+      "docs/notes/colour-t229.md"
+     ]
+    },
+    {
+     "item": "Reverb pilot, blind estimator and confirmation",
+     "paths": [
+      "scripts/reverb_pilot_t230.py",
+      "src/tonematch/metrics/reverb_blind.py",
+      "scripts/reverb_estimator_t231.py",
+      "scripts/reverb_confirm_t232.py",
+      "docs/notes/reverb-pilot-t230.md",
+      "docs/notes/reverb-estimator-t231.md",
+      "docs/notes/reverb-confirm-t232.md"
+     ]
+    }
+   ],
+   "challenges": [
+    {
+     "finding": "Direct measurement found no delay or reverb on any song in the stems and could not have seen a light one: the rebuilt dry is not the real performance (T228).",
+     "source": "docs/notes/colour-pilot-t228.md"
+    },
+    {
+     "finding": "On five of seven stems the 'tail' is the separator's residue (-10 to -13 dB floor, same curve as the full mix); the human said not to work on the separator (2026-10-25).",
+     "source": "docs/notes/reverb-estimator-t231.md"
+    },
+    {
+     "finding": "Reverb type (Room, Plate, Hall) is not separable by the estimator, and the human's blind ranks did not prefer Plate.",
+     "source": "docs/notes/reverb-pilot-t230.md"
+    }
+   ],
+   "todo": [
+    "Rule on the reverb model: estimate decay and mix when the tail is readable, fall back otherwise (human)",
+    "Redo Cherub Rock on another section",
+    "Test the estimator on more songs with a pre-registered named pick",
+    "Compare the T233 reverb heads with the estimator on the seven songs"
+   ],
+   "needs_human": [
+    "Rule on the reverb model: estimate when readable, fall back otherwise",
+    "Pick another section of Cherub Rock for judging reverb",
+    "Rate more reverb ranking packs on other songs"
+   ],
+   "decisions": [
+    "Chain is drive -> EQ -> reverb; no amp or cab; delay on hold (human, DECISIONS 2026-10-25)",
+    "EQ options stay in the chain; a fixed reverb default is rejected; a reverb model is required (human, DECISIONS 2026-10-25)",
+    "No separator work; the stems stay as they are (human, DECISIONS 2026-10-25)"
+   ],
+   "risks": [
+    "Light reverb was preferred in open listening on all seven songs, but not blind; the preference may be for 'more ambience', not for the song's own reverb."
+   ],
+   "key_files": [
+    "src/tonematch/metrics/reverb_blind.py",
+    "scripts/reverb_pilot_t230.py",
+    "scripts/reverb_confirm_t232.py",
+    "docs/notes/reverb-estimator-t231.md"
    ],
    "ledger": []
   }

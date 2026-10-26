@@ -257,7 +257,7 @@ def test_match_block_wraps_run(tmp_path, monkeypatch):
         return 0
     monkeypatch.setattr(MB, "run", fake_run)
     out = tmp_path / "r.json"
-    rc = MB.main(["--target-window", "1:5", "--di", "x.wav", "--out", str(tmp_path / "o"), "--result-json", str(out)])
+    rc = MB.main(["--target-stems", "stems", "--target-window", "1:5", "--di", "x.wav", "--out", str(tmp_path / "o"), "--result-json", str(out)])
     assert rc == 0
     m = manifest(out)
     assert m["tool"] == "match_block" and m["metrics"]["best_model"] == "HD2_DistA"

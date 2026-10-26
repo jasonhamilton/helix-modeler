@@ -22,6 +22,7 @@ Direction (human, 2026-10-17): testing on a guitar extracted from a song moves t
 
 ## Read first
 
+- [`docs/SETUP.md`](docs/SETUP.md) — set up a fresh clone and run your first song (calibrate your guitar, separate, rebuild a dry track, match a drive block). Agents: [`docs/SETUP-AGENTS.md`](docs/SETUP-AGENTS.md). `scripts/setup.sh --check` shows what is missing.
 - [`docs/PLAN.md`](docs/PLAN.md) — the project plan: pipeline, every step with its options, evaluation, roadmap, risks, legal, sources.
 - [`docs/AGENT-TEAM.md`](docs/AGENT-TEAM.md) — the agents that build it, the skills they share, the contracts between them, the cycle and the priority modes.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — the decision log.

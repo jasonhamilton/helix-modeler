@@ -145,7 +145,11 @@ def rank_models(engine, blocks: dict, section, *, embed: Callable | None = None,
     return rows
 
 
-def shortlist(engine, blocks: dict, section, n: int = 8, *, families_path=None, expand: bool = True,
+# The drive-families prior is NOT an approved default (human 2026-10-25, decision 10; data/approved-methods.json).
+FAMILIES_DEFAULT_ON = False
+
+
+def shortlist(engine, blocks: dict, section, n: int = 8, *, families_path=None, expand: bool = FAMILIES_DEFAULT_ON,
               second_choice_below: float | None = None, **kw) -> dict:
     """{"ranked": all rows, "top": top-N models, "models": top-N plus their family, "families": used?}"""
     rows = rank_models(engine, blocks, section, **kw)

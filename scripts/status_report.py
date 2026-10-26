@@ -50,7 +50,9 @@ STAGE_MEANING = {
 }
 PRIORITIES = ("Critical", "High", "Medium", "Low")
 CLASSIFICATIONS = ("Active Blocker", "Confirmed Problem", "Risk", "Unknown/Unverified")
-MILESTONE_STATES = ("Complete", "In Progress", "At Risk", "Blocked", "Not Started")
+# "Superseded": closed by the human without a pass (e.g. Gate 2, 2026-10-25). Never counted as Complete,
+# and skipped when choosing the next milestone.
+MILESTONE_STATES = ("Complete", "In Progress", "At Risk", "Blocked", "Not Started", "Superseded")
 COMPONENT_STATUS = ("Working", "Partially Working", "Not Working", "Not Started", "Blocked")
 ACTION_GROUPS = (("blocking", "Blocking now"), ("soon", "Needed soon"), ("later", "Later / optional"))
 CHANGE_KINDS = {"milestone": "Milestone", "improvement": "Improvement", "problem": "New problem",
@@ -60,7 +62,7 @@ STATUS_GLYPH = {"not-started": "○", "designing": "◔", "prototype": "◑", "w
 HEALTH_GLYPH = {"On Track": "✓", "At Risk": "▲", "Blocked": "■", "Complete": "★",
                 "Insufficient Information": "?"}
 STATE_GLYPH = {"Complete": "✓", "In Progress": "◐", "At Risk": "▲", "Blocked": "■",
-               "Not Started": "○"}
+               "Not Started": "○", "Superseded": "–"}
 COMP_GLYPH = {"Working": "✓", "Partially Working": "◐", "Not Working": "✕", "Not Started": "○",
               "Blocked": "■"}
 LIST_FIELDS = ("owners", "tasks", "todo", "needs_human", "decisions", "risks", "key_files",
@@ -189,11 +191,14 @@ def parse_gates(text: str) -> list[dict]:
         m = re.match(r"^- \[(?P<m>[ x])\] (?P<t>.*)$", line)
         if m and cur is not None:
             ticked = m["m"] == "x"
-            if m["t"].lstrip().lower().startswith("human sign-off"):
+            # Quoted gate text may carry a bar such as "70%"; the report never shows a bare
+            # percentage (it could be read as a completion figure), so spell it out.
+            text = re.sub(r"(\d)\s?%", r"\1 percent", m["t"])
+            if text.lstrip().lower().startswith("human sign-off"):
                 cur["signed"] = ticked
-                cur["sign_text"] = m["t"]
+                cur["sign_text"] = text
             else:
-                cur["criteria"].append({"done": ticked, "text": m["t"]})
+                cur["criteria"].append({"done": ticked, "text": text})
                 cur["total"] += 1
                 cur["done"] += ticked
     return gates
@@ -531,6 +536,29 @@ def validate_curated(cur: dict, reg: dict, facts: dict) -> list[str]:
             check_refs(key, w.get("evidence", []))
 
     errs += validate_engines(cur.get("engines"))
+    ec = cur.get("evidence_classes")
+    if ec is not None:
+        if not isinstance(ec, dict) or not isinstance(ec.get("legend"), list) \
+                or not isinstance(ec.get("claims"), list):
+            errs.append("curated: evidence_classes needs 'legend' and 'claims' lists")
+        else:
+            letters = []
+            for lg in ec["legend"]:
+                if not (lg.get("class") and lg.get("meaning")):
+                    errs.append("curated: evidence_classes.legend entries need class and meaning")
+                letters.append(lg.get("class"))
+            if len(set(letters)) != len(letters):
+                errs.append("curated: evidence_classes.legend has a repeated class")
+            for cl in ec["claims"]:
+                tag = f"evidence class claim {str(cl.get('claim', ''))[:50]!r}"
+                for k in ("claim", "class", "n", "limit"):
+                    if not cl.get(k):
+                        errs.append(f"curated: {tag} missing '{k}'")
+                if cl.get("class") not in letters:
+                    errs.append(f"curated: {tag} class {cl.get('class')!r} is not in the legend")
+                if not cl.get("evidence"):
+                    errs.append(f"curated: {tag} has no evidence")
+                check_refs(tag, cl.get("evidence", []))
     feats = {f["id"]: f for f in reg["features"] if not f.get("retired")}
     placed: dict[str, str] = {}
     cids = [c.get("id") for c in cur["components"]]
@@ -667,7 +695,7 @@ def build_model(reg: dict, cur: dict, facts: dict, baseline: dict | None = None)
             "blocking": c.get("blocking", ""), "next_action": c["next_action"],
             "evidence": refs(c.get("evidence", [])),
         })
-    nxt = next((m for m in milestones if m["state"] != "Complete"), None)
+    nxt = next((m for m in milestones if m["state"] not in ("Complete", "Superseded")), None)
     next_milestone = None
     if nxt:
         next_milestone = {
@@ -718,6 +746,13 @@ def build_model(reg: dict, cur: dict, facts: dict, baseline: dict | None = None)
 
     recent = [dict(c, evidence=refs(c["evidence"])) for c in cur["recent_changes"]]
     recent.sort(key=lambda c: c["date"], reverse=True)
+    ec = cur.get("evidence_classes")
+    evidence_classes = None
+    if ec:
+        evidence_classes = {
+            "about": ec.get("about", ""),
+            "legend": [{"class": x["class"], "meaning": x["meaning"]} for x in ec["legend"]],
+            "claims": [dict(c, evidence=refs(c.get("evidence", []))) for c in ec["claims"]]}
     in_progress = [dict(w, evidence=refs(w["evidence"])) for w in cur.get("in_progress", [])]
     up_next = [dict(w, evidence=refs(w["evidence"])) for w in cur.get("up_next", [])]
 
@@ -761,6 +796,7 @@ def build_model(reg: dict, cur: dict, facts: dict, baseline: dict | None = None)
         "engines": (engine_timing.build(cur["engines"], facts["ledger"], facts.get("root"))
                     if cur.get("engines") else None),
         "glossary": sorted(cur["glossary"], key=lambda g: g["term"].lower()),
+        "evidence_classes": evidence_classes,
         "evidence": [ev_ref(i) for i in used_ev],
         "details": {
             "features": [fdetail[f["id"]] for f in feats],
@@ -849,7 +885,7 @@ def diff_models(prev: dict, now: dict) -> list[dict]:
     for aid, x in now["actions"].items():
         p = prev.get("actions", {}).get(aid)
         if p is None:
-            add("changed", f"New human action: {x['title']}.")
+            add("changed", f"New human action: {x['title'].rstrip('.')}.")
         elif p["group"] != x["group"]:
             add("changed", f"Human action \"{x['title']}\" moved from {p['group']} to {x['group']}.")
     for aid, x in prev.get("actions", {}).items():
@@ -877,28 +913,51 @@ def diff_models(prev: dict, now: dict) -> list[dict]:
     return out
 
 
+def snapshot_date(path: Path) -> str:
+    """The report date a history file belongs to: '2026-10-23.json' and the later same-day
+    revisions '2026-10-23-r2.json', '2026-10-23-r3.json' all belong to 2026-10-23."""
+    return path.stem.split("-r")[0]
+
+
+def snapshot_order(path: Path) -> tuple[str, int]:
+    """Sort key: (date, revision); the plain file is revision 1."""
+    parts = path.stem.split("-r")
+    rev = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+    return parts[0], rev
+
+
 def load_baseline(history: Path, today: str) -> dict | None:
-    """Newest snapshot dated before today, or None."""
+    """Newest snapshot dated before today (the last revision of that day), or None."""
     if not history.is_dir():
         return None
     best: dict | None = None
-    for p in sorted(history.glob("*.json")):
-        if p.stem >= today:
+    for p in sorted(history.glob("*.json"), key=snapshot_order):
+        if snapshot_date(p) >= today:
             continue
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if d.get("schema") == "tonematch.status-snapshot" and d.get("date") == p.stem:
+        if d.get("schema") == "tonematch.status-snapshot" and d.get("date") == snapshot_date(p):
             best = d
     return best
 
 
 def write_snapshot(history: Path, model: dict) -> Path:
+    """Append a snapshot; history is never overwritten or deleted. A second run on the same day
+    whose snapshot differs is written as <date>-r2.json (then -r3, ...); an identical snapshot
+    is left as it is."""
     history.mkdir(parents=True, exist_ok=True)
-    path = history / f"{model['report']['date']}.json"
-    path.write_text(json.dumps(snapshot_of(model), indent=1, sort_keys=True, ensure_ascii=False)
-                    + "\n", encoding="utf-8")
+    date = model["report"]["date"]
+    text = json.dumps(snapshot_of(model), indent=1, sort_keys=True, ensure_ascii=False) + "\n"
+    path = history / f"{date}.json"
+    n = 1
+    while path.exists():
+        if path.read_text(encoding="utf-8") == text:
+            return path
+        n += 1
+        path = history / f"{date}-r{n}.json"
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -1166,7 +1225,7 @@ def render_html(model: dict, board_rel: str = "../../board", root: Path | None =
                     else "")
                  + f'<p><strong>Next action:</strong> {gl(nm["next_action"])}</p></div>')
     else:
-        p.append('<div class="next"><h3>All milestones are complete.</h3></div>')
+        p.append('<div class="next"><h3>No open milestone: every gate is complete or closed as superseded.</h3></div>')
     p.append("</section>")
 
     # --- problems
@@ -1318,6 +1377,21 @@ def render_html(model: dict, board_rel: str = "../../board", root: Path | None =
                  f"{'given' if g['signed'] else 'pending'})</summary><ul>" + "".join(
                      f'<li>{"✓" if c["done"] else "○"} {e(c["text"])}</li>' for c in g["criteria"])
                  + f"<li>{e(g['sign_text'] or 'Human sign-off: not recorded')}</li></ul></details>")
+    ec = model.get("evidence_classes")
+    if ec:
+        p.append('<h3 id="evidence-classes">Evidence classes of the headline claims</h3>')
+        if ec.get("about"):
+            p.append(f'<p class="muted">{gl(ec["about"])}</p>')
+        p.append("<dl>" + "".join(
+            f"<dt><strong>Class {e(x['class'])}</strong></dt><dd>{e(x['meaning'])}</dd>"
+            for x in ec["legend"]) + "</dl>")
+        p.append('<div class="scroll"><table><thead><tr><th>Claim</th><th>Class</th><th>n</th>'
+                 "<th>Limits</th><th>Evidence</th></tr></thead><tbody>")
+        for c in ec["claims"]:
+            p.append(f"<tr><td>{gl(c['claim'])}</td><td><strong>{e(c['class'])}</strong></td>"
+                     f"<td>{e(c['n'])}</td><td>{gl(c['limit'])}</td>"
+                     f"<td>{ev_links(model, c['evidence'])}</td></tr>")
+        p.append("</tbody></table></div>")
     p.append('<h3 id="evidence">Evidence references</h3><div class="scroll"><table><thead><tr>'
              "<th>Reference</th><th>What it shows</th><th>Source</th></tr></thead><tbody>")
     for x in model["evidence"]:
@@ -1714,7 +1788,7 @@ def render_markdown(model: dict, root: Path | None = None, board_rel: str = "../
                 *([f"Blocked by: {mde(nm['blocking'])}  "] if nm["blocking"] else []),
                 f"Next action: {mde(nm['next_action'])}", "")
     else:
-        doc.add("**All milestones are complete.**", "")
+        doc.add("**No open milestone: every gate is complete or closed as superseded.**", "")
 
     # --- problems
     doc.h(2, "Key problems and blockers", "problems")
@@ -1860,6 +1934,17 @@ def render_markdown(model: dict, root: Path | None = None, board_rel: str = "../
         doc.add(f"**{mde(g['name'])}: {mde(g['title'])}** ({g['done']} of {g['total']} criteria "
                 f"ticked, sign-off {'given' if g['signed'] else 'pending'})", "")
         doc.add(*[f"- {'[x]' if c['done'] else '[ ]'} {mde(c['text'])}" for c in g["criteria"]], "")
+    ec = model.get("evidence_classes")
+    if ec:
+        doc.h(3, "Evidence classes of the headline claims", "evidence-classes")
+        if ec.get("about"):
+            doc.add(mde(ec["about"]), "")
+        doc.add(*[f"- **Class {mde(x['class'])}**: {mde(x['meaning'])}" for x in ec["legend"]], "")
+        doc.add("| Claim | Class | n | Limits | Evidence |", "|---|---|---|---|---|")
+        for c in ec["claims"]:
+            doc.add(f"| {mde(c['claim'])} | **{mde(c['class'])}** | {mde(c['n'])} | "
+                    f"{mde(c['limit'])} | {md_refs(model, c['evidence'])} |")
+        doc.add("")
     doc.h(3, "Evidence references", "evidence")
     doc.add("| Reference | What it shows | Source |", "|---|---|---|")
     for x in model["evidence"]:

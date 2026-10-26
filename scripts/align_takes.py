@@ -10,7 +10,8 @@ note onsets do. Both are reduced to an onset-strength envelope (10 ms hop), then
 Writes <take>_align.json next to each take, with alignment.take_sample0_song_s for
 scripts/match_song.py --user-di-json, and prints a ranking. Local only.
 
-    python scripts/align_takes.py data/songs/mother-playalong/takes/20261018-113158_take*_dry.wav
+    python scripts/align_takes.py --song-id my-song data/songs/my-song-playalong/takes/*_take*_dry.wav
+    python scripts/align_takes.py takes/new_dry.wav --stem path/to/guitar_stem.wav
 """
 from __future__ import annotations
 
@@ -26,7 +27,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from tonematch import cli_result
 
-STEM = ROOT / "data" / "songs" / "mother-playalong" / "target_guitar_stem.wav"
 SR = 48_000
 HOP = 480            # 10 ms
 
@@ -90,14 +90,34 @@ def align(stem_env: np.ndarray, take_env: np.ndarray, max_lag_s: float = 2.0, wi
             "score": round(float(np.median(corr)) - spread / 1000.0, 3)}
 
 
+def resolve_stem(stem: Path | None, song_id: str | None, takes: list[Path]) -> Path:
+    """--stem, else the stem of --song-id, else of the play-along pack the first take sits in (data/songs/<id>-playalong/takes/)."""
+    if stem is not None:
+        return stem
+    if song_id is None:
+        pack = takes[0].resolve().parent.parent
+        if pack.name.endswith("-playalong") and takes[0].resolve().parent.name == "takes":
+            song_id = pack.name.removesuffix("-playalong")
+            if (pack / "target_guitar_stem.wav").exists():
+                return pack / "target_guitar_stem.wav"
+    if song_id is None:
+        raise SystemExit("give --stem WAV or --song-id ID (the takes are not inside a data/songs/<id>-playalong/takes/ folder)")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import transcribe_stems as TS
+    return TS.resolve_stem(song_id)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("takes", nargs="+", type=Path)
-    ap.add_argument("--stem", type=Path, default=STEM)
+    ap.add_argument("--stem", type=Path, default=None,
+                    help="separated guitar stem wav (default: from --song-id, or from the play-along pack the takes sit in)")
+    ap.add_argument("--song-id", default=None, help="song id; finds the stem (data/songs/<id>-rebuilt/stem.wav or the stems cache)")
     ap.add_argument("--take-start-song-s", type=float, default=0.0,
                     help="song time at which the played file started (0 for the no-click full mix)")
     cli_result.add_result_arg(ap)
     a = ap.parse_args(argv)
+    a.stem = resolve_stem(a.stem, a.song_id, a.takes)
     return cli_result.run(a, tool="align_takes", body=lambda res: _run(a, res),
                           inputs={"stem": a.stem, "takes": a.takes})
 

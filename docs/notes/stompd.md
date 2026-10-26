@@ -2,7 +2,7 @@
 
 ## What it is
 
-`stompd` is a small **original** wrapper (about 450 lines of Rust, written for this project by `stomp-engine`). It holds one long-lived USB session on the HX Stomp's control interface (interface 0) and speaks JSON lines on stdin and stdout. It is **not part of upstream**. It links three crates from tonepush:
+`stompd` is a small **original** wrapper (about 2,600 lines of Rust as of 2026-10-23; it began at about 450, written for this project by `stomp-engine`). It holds one long-lived USB session on the HX Stomp's control interface (interface 0) and speaks JSON lines on stdin and stdout. It is **not part of upstream**. It links three crates from tonepush:
 
 - `hx-usb`: the USB session (handshake, keepalive, pacing, teardown).
 - `hx-proto`: messages and the preset document.

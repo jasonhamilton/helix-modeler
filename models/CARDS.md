@@ -41,3 +41,14 @@ One card per checkpoint. Checkpoints themselves are never committed. Owner: `lea
 | Known failures | PANNs features hardly separate drive models. DAC loses most on a new player (P2→P1). One MLP seed only |
 | Ledger | `benchmark / - / encoder-swap-v1`, 48 rows, 2026-10-21T03:33Z, agent `learning` |
 | Details | `docs/notes/encoder-swap-t195.md` |
+
+## slot-dataset-v1 heads (T208, 2026-10-22): trained 2026-10-23 (T213, half and full size; results docs/notes/slot-datasets-v1-results.md); measurement only, not adopted, not published
+
+| Field | Value |
+|---|---|
+| Checkpoints | `cache/models/slot-dataset-v1/<slot>/n<clips>/heads_main_{logreg,mlp}_multi.pkl` (main arm only), written by `scripts/slot_dataset_render.py train`; local, gitignored. None exist yet |
+| Task | One slot at a time (amp, cab, mod, delay, reverb, EQ): family, model, and every free knob with calibrated sigma, from wet audio; frozen AFx-Rep `mid` (3 × 3.33 s multi-crop); T189 heads with one knob column per free knob |
+| Data | Helix Native 3.82 single-block renders of the slot on Guitar-TECHS DI (CC BY 4.0; P1/P2 only, P3 never read), drive-dataset-v1's DI file split, raw input level. No song audio, no sealed sets, no human takes |
+| Licence note | Native-derived. The human's 2026-10-17 ruling allows publishing weights trained on Native renders (line6-eula-flags.md). The heads need AFx-Rep, whose training-data terms are unresolved (afxrep-licence.md). Not published |
+| Eval / known failures / ledger | To fill after the first `train`: `benchmark / - / slot-dataset-v1-<slot>` rows; `cache/slot-dataset-v1/<slot>/summary-n<clips>.md` |
+| Details | `docs/notes/slot-datasets-v1.md` (design choices awaiting the human's approval) |

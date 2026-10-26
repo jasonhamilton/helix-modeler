@@ -1,16 +1,16 @@
 # Command-line tools
 
-Reference for the scripts in `scripts/` (129 Python files, 2 shell drivers, 1 README), written for a person who wants to run a tool on their own and for an agent that is handed the result. Written for [T172](../board/TASKS.md#t172 "Command-line tools reference + agent-readable results") (2026-10-18, `platform`). Every flag in an example was checked against the tool's `--help` (and `tests/test_tools_doc.py` re-checks them against the source).
+Reference for the scripts in `scripts/` (151 Python files, 5 shell drivers, 1 README), written for a person who wants to run a tool on their own and for an agent that is handed the result. Written for [T172](../board/TASKS.md#t172 "Command-line tools reference + agent-readable results") (2026-10-18, `platform`). Every flag in an example was checked against the tool's `--help` (and `tests/test_tools_doc.py` re-checks them against the source).
 
-How the 129 scripts split:
+How the 151 scripts split:
 
 | Class | Count | Meaning |
 |---|---|---|
-| user-runnable | 69 | A person can run it for a useful result. Documented in full below. |
-| internal | 19 | A helper that other tools call, a library with a thin command line, or bookkeeping. One line each at the end. |
-| historical spike | 41 | A one-off experiment or live check, kept for the record. One line each at the end. |
+| user-runnable | 84 | A person can run it for a useful result. Documented in full below. |
+| internal | 22 | A helper that other tools call, a library with a thin command line, or bookkeeping. One line each at the end. |
+| historical spike | 45 | A one-off experiment or live check, kept for the record. One line each at the end. |
 
-Thirteen of the user-runnable tools write a result manifest with `--result-json PATH` (see "Handing results to an agent"). The others print to stdout and write their own files; each entry says which.
+Fourteen of the user-runnable tools write a result manifest with `--result-json PATH` (see "Handing results to an agent"). The others print to stdout and write their own files; each entry says which.
 
 ## Contents
 
@@ -81,7 +81,7 @@ nice -n 10 .venv/bin/python scripts/benchmark_suite.py --no-hardware --no-ledger
 | `TONEMATCH_HOST_BUDGET`, `TONEMATCH_HOST_TARGET_LOAD`, `TONEMATCH_HOST_CORES`, `TONEMATCH_NATIVE_MAX_HOSTS`, `TONEMATCH_NATIVE_MANY_HOSTS` | Native pools | Host scaler tuning (see Load limit). Leave at defaults. |
 | `TONEMATCH_CONTACT` | song_meta_probe | Contact address for the MusicBrainz User-Agent. |
 
-**Load limit.** The machine-wide rule: the 1-minute load average never exceeds 10 on this 10-core Mac (the limit is the core count on another machine). A host scaler (`tonematch.engines.host_budget`) grants Native hosts a lease: at most 6 at once, one per core, with room under a target load of 9. Every script with its own guard now uses one: busy cores (`measure_demand`) behind a `BusyGate` (`LoadGuard` in `host_budget.py`; T193): it pauses above 0.95 x cores and resumes below 0.85 x cores, and the 1-minute load average is only a backstop above 1.2 x cores. Their `--max-load X` flag is the pause line in busy cores (default 0.95 x cores; the resume line keeps the 0.85/0.95 ratio). `host_budget_live.py` takes `--start-below` (default 0.85 x cores) and `--abort-load` (default 0.99 x cores) in busy cores; `time_specialist_fit.py` and `stomp_robust.py` wait the same way (no flag, default 0.95 x cores). Progress lines and stats that said `load1` / `load1_max` now say `busy` / `busy_max`. Check with `uptime` before you start; run heavy jobs under `nice -n 10`.
+**Load limit.** The machine-wide rule: the 1-minute load average never exceeds 10 on this 10-core Mac (the limit is the core count on another machine). A host scaler (`tonematch.engines.host_budget`) grants Native hosts a lease: at most 6 at once, one per core, with room under a target load of 9. Every script with its own guard now uses one: busy cores (`measure_demand`) behind a `BusyGate` (`LoadGuard` in `host_budget.py`; [T193](../board/TASKS.md#t193 "Switch the remaining scripts' own os.getloadavg() guards to…")): it pauses above 0.95 x cores and resumes below 0.85 x cores, and the 1-minute load average is only a backstop above 1.2 x cores. Their `--max-load X` flag is the pause line in busy cores (default 0.95 x cores; the resume line keeps the 0.85/0.95 ratio). `host_budget_live.py` takes `--start-below` (default 0.85 x cores) and `--abort-load` (default 0.99 x cores) in busy cores; `time_specialist_fit.py` and `stomp_robust.py` wait the same way (no flag, default 0.95 x cores). Progress lines and stats that said `load1` / `load1_max` now say `busy` / `busy_max`. Check with `uptime` before you start; run heavy jobs under `nice -n 10`.
 
 **Hardware.** "Pedal" tools need the HX Stomp on USB with HX Edit closed, the scratch preset 04C "Smoke Known" selected, and the helper env vars set. They write to the edit buffer only (never flash) and restore the original preset at the end. They take a shared lock (`tonematch.pedal_lock`) so two jobs never drive the pedal at once. Stomp reamping on macOS also needs Microphone permission for the terminal app (`docs/DEV-ENV.md`).
 
@@ -95,7 +95,7 @@ nice -n 10 .venv/bin/python scripts/benchmark_suite.py --no-hardware --no-ledger
 
 ## Handing results to an agent
 
-Thirteen user-runnable tools accept `--result-json PATH`. They write a small JSON manifest when they finish (atomically, so a reader never sees half a file). It lists what the tool did, the files it read and wrote, the headline numbers and the ledger rows it appended. An agent reads that one file instead of scraping stdout. The contract is `contracts/cli-result.md`; the helper is `src/tonematch/cli_result.py`.
+Fourteen user-runnable tools accept `--result-json PATH`. They write a small JSON manifest when they finish (atomically, so a reader never sees half a file). It lists what the tool did, the files it read and wrote, the headline numbers and the ledger rows it appended. An agent reads that one file instead of scraping stdout. The contract is `contracts/cli-result.md`; the helper is `src/tonematch/cli_result.py`.
 
 Schema `cli-result/v0`:
 
@@ -150,13 +150,27 @@ A longer one, as `separate` writes it (values illustrative, field names real):
 }
 ```
 
-To use it: `... --result-json cache/results/separate.json`, then read the file. `status` tells you whether to trust the rest; `outputs` tells you where to look; `metrics` gives the numbers; `ledger_rows` tells you what is on the record. Wired tools: `separate`, `match_song`, `match_block`, `synthetic_v1` (`run`, `summarize`), `loss_trust_check`, `engine_smoke`, `playalong_record`, `align_takes`, `hlx_validate`, `licence_check`, `proc_check`, `no_di_invariance` (`run`, `report`) and `gate2_report build`.
+To use it: `... --result-json cache/results/separate.json`, then read the file. `status` tells you whether to trust the rest; `outputs` tells you where to look; `metrics` gives the numbers; `ledger_rows` tells you what is on the record. Wired tools: `separate`, `match_song`, `song_match`, `match_block`, `synthetic_v1` (`run`, `summarize`), `loss_trust_check`, `engine_smoke`, `playalong_record`, `align_takes`, `hlx_validate`, `licence_check`, `proc_check`, `no_di_invariance` (`run`, `report`) and `gate2_report build`.
 
 Result manifest: **to add** (not wired yet, by design for [T172](../board/TASKS.md#t172 "Command-line tools reference + agent-readable results")) on `ab_session.py` (and `rating_session.py`, `rating_v2.py`), because `benchmark` is rebuilding the rating session; on the `stomp_*` tools (`stomp_live_preview.py`, `stomp_soak.py`, `stomp_verify.py` and the stomp spikes), because `stomp-engine` is fixing the USB freeze; and on `distortion_id_steps01.py`, because `tone-metrics` owns it. Every other user-runnable tool that does not say "wired" is simply not done yet; the wiring is the same few lines (`add_result_arg`, then `cli_result.run`).
 
 ---
 
 ## 1. Setup and health
+
+### `setup.sh` (shell driver; guides: [SETUP.md](SETUP.md) for people, [SETUP-AGENTS.md](SETUP-AGENTS.md) for agents)
+
+**What it does.** One-command setup of a fresh clone, macOS first (Windows from Git Bash or WSL; Linux untested for Native). `--check` prints what is present and missing and changes nothing. Without it, the steps run in order and each download or manual step asks first: `.venv` (`pip install -e .[dev,separation,embed,stomp]` plus librosa and scikit-learn), `cache/native/hostvenv` (pedalboard, GPLv3, own venv), `cache/venvs/basic-pitch` (the `--no-deps` recipe), Guitar-TECHS P1/P2 with its CC BY 4.0 licence file, the AFx-Rep checkpoint (1.16 GB, with the non-commercial training-data caveat), the htdemucs_6s weights, then `catalog_import.py`, `make_smoke_hlx.py`, `native_hc_once.py`, the Native single-block library capture, the optional drive maps, and `engine_smoke.py`, `licence_check.py`, `proc_check.py`. It never downloads or copies a Line 6 file.
+
+**Inputs.** `--check`, `--only STEP[,STEP]` (`venv,hostvenv,bp,guitartechs,afxrep,demucs,catalog,smokehlx,hc,templates,drivemaps,smoke`), `--skip-downloads`, `--consent NAME[,NAME]` (for the human to type; an agent never passes it). **Outputs.** The environments and caches named above, `data/di/LICENCE-Guitar-TECHS.txt`, `data/di/manifest.json`, `cache/setup/env.sh` (exports for `TONEMATCH_NATIVE_PYTHON` and `TONEMATCH_STOMPD`). Exit 0, 1 if a step failed.
+
+```bash
+scripts/setup.sh --check
+scripts/setup.sh --only venv,hostvenv,bp
+scripts/setup.sh --skip-downloads
+```
+
+**Safety.** Downloads only after a typed "yes" with the size and source printed. Local files only. **Machine-readable output.** Not wired.
 
 ### `engine_smoke.py` (wired)
 
@@ -307,9 +321,9 @@ All tools here need the HX Stomp on USB, HX Edit closed, and (macOS) Microphone 
 
 **What it does.** Plays a backing track through the Stomp (host out 1/2) and records your dry guitar (USB in 5) and the processed sound (USB in 1/2) while you play along. One full-duplex stream per take at 48 kHz; the recording is shifted by the calibrated round trip (1207 samples) so it lines up with the played file. Warns about silence, clipping and an unrouted input.
 
-**Needs.** Pedal connected, Input routed to USB 5/6, a calibration (`cache/stomp/latency.json`), a play-along pack (default `data/songs/mother-playalong/`, made by the lead). Audio device only; no control commands. Seconds to minutes (the length of the backing track times the take count).
+**Needs.** Pedal connected, Input routed to USB 5/6, a calibration (`cache/stomp/latency.json`), a play-along pack (`--song-id ID` = `data/songs/<id>-playalong/`, or `--pack DIR`; made by the lead). Audio device only; no control commands. Seconds to minutes (the length of the backing track times the take count).
 
-**Inputs.** `--pack DIR`, `--backing FILE` (default `1_backing_no_guitar_with_countin.wav`), `--with-guitar` (play the full mix instead), `--no-click`, `--takes N` (3), `--seconds N` (first N seconds only), `--level-db` (backing gain, -6), `--countdown S` (10 s before each take), `--check` (3 s of silence out, report the input levels).
+**Inputs.** `--song-id ID` or `--pack DIR` (one is required unless `--check`), `--backing FILE` (default `1_backing_no_guitar_with_countin.wav`), `--with-guitar` (play the full mix instead), `--no-click`, `--takes N` (3), `--seconds N` (first N seconds only), `--level-db` (backing gain, -6), `--countdown S` (10 s before each take), `--check` (3 s of silence out, report the input levels).
 
 **Outputs.** In `<pack>/takes/`: `<stamp>_take<k>_dry.wav`, `<stamp>_take<k>_processed.wav` (float32), `<stamp>_session.json` (per take: peaks, latency, warnings). stdout: peaks and warnings.
 
@@ -317,8 +331,8 @@ All tools here need the HX Stomp on USB, HX Edit closed, and (macOS) Microphone 
 
 ```bash
 .venv/bin/python scripts/playalong_record.py --check
-.venv/bin/python scripts/playalong_record.py --takes 3 --with-guitar --no-click
-.venv/bin/python scripts/playalong_record.py --seconds 8 --takes 2 --countdown 3 --result-json cache/results/playalong.json
+.venv/bin/python scripts/playalong_record.py --song-id mother --takes 3 --with-guitar --no-click
+.venv/bin/python scripts/playalong_record.py --pack data/songs/mother-playalong --seconds 8 --takes 2 --countdown 3 --result-json cache/results/playalong.json
 ```
 
 **Safety.** The backing track is the user's song; takes stay in `data/`. The pedal is not written.
@@ -329,7 +343,7 @@ All tools here need the HX Stomp on USB, HX Edit closed, and (macOS) Microphone 
 
 **What it does.** Lines up play-along takes with the separated guitar stem and picks the tightest. The take and the stem are different guitars, so waveforms do not correlate; note onsets do. Both are reduced to a 10 ms onset-strength envelope; the tool finds the global lag, then the lag and correlation in sliding 6 s windows where the stem has guitar. Score = median window correlation minus a penalty for lag spread. Writes `alignment.take_sample0_song_s`, which `match_song.py --user-di-json` and `match_block.py --di-json` consume.
 
-**Needs.** Takes (`*_dry.wav`) and the stem. Seconds. **Inputs.** Positional `takes` (one or more WAVs), `--stem WAV` (default `data/songs/mother-playalong/target_guitar_stem.wav`), `--take-start-song-s S` (song time at which the played file started; 0 for the no-click full mix).
+**Needs.** Takes (`*_dry.wav`) and the stem. Seconds. **Inputs.** Positional `takes` (one or more WAVs), `--stem WAV` (default: `<pack>/target_guitar_stem.wav` when the takes sit in a `data/songs/<id>-playalong/takes/` folder, else the stem of `--song-id ID`; one of the three is needed), `--take-start-song-s S` (song time at which the played file started; 0 for the no-click full mix).
 
 **Outputs.** `<take>_align.json` next to each take (global lag, windows, `median_corr`, `lag_iqr_ms`, `score`, `alignment`). stdout: a ranking table and `best: <take>`.
 
@@ -338,7 +352,8 @@ All tools here need the HX Stomp on USB, HX Edit closed, and (macOS) Microphone 
 ```bash
 .venv/bin/python scripts/align_takes.py data/songs/mother-playalong/takes/20261018-113158_take1_dry.wav data/songs/mother-playalong/takes/20261018-113158_take2_dry.wav
 .venv/bin/python scripts/align_takes.py data/songs/mother-playalong/takes/20261018-113158_take3_dry.wav --take-start-song-s 0 --result-json cache/results/align.json
-.venv/bin/python scripts/align_takes.py takes/new_dry.wav --stem cache/stems/2ec11f9795be822e/htdemucs_6s/guitar.wav
+.venv/bin/python scripts/align_takes.py takes/new_dry.wav --stem path/to/guitar.wav
+.venv/bin/python scripts/align_takes.py takes/new_dry.wav --song-id mother
 ```
 
 Reference values (Mother, 2026-10-18): take1 score 0.344, take2 0.343, take3 0.312.
@@ -455,6 +470,19 @@ Reference values (Mother, 2026-10-18): take1 score 0.344, take2 0.343, take3 0.3
 
 Both tools search on Helix Native, then write the best presets as `.hlx`, validate them and build a listening pack. Every loss number is the **provisional, unadmitted** loss (equal weights on `ltas_tilt`, `crest_flatness_hnr`, `envelope`, plus a level guard): lower is better, the numbers rank candidates against each other and are not a fidelity score. The ear decides.
 
+### `song_match.py` (wired; owned by search; [T217](../board/TASKS.md#t217 "End-to-end song to drive-block preset command"))
+
+**What it does.** One command from a song to a drive-block preset for your guitar, with a local listening page. It chains the manual steps in order and skips any step whose inputs are unchanged: `separate.py` (stems), the window (yours, or the loudest-guitar picker), `transcribe_stems.py run`, `rebuild_dry.py` (with your guitar profile when given), the dry level, `match_block.py` (drive category, AFx-Rep shortlist, AFx-Rep final order), `finetune_knobs.py` (only with `--finetune`; an option, Output/Master locked), then packaging (`best.hlx` validated, `index.html`, `summary.json`, `summary.md`), and with `--load-stomp` loading the preset into the Stomp's edit buffer when `stompd` is present. The method is the T200 to T211 chain; nothing new is adopted by it.
+
+**Needs.** Everything `docs/SETUP.md` sets up: stems tools, Basic Pitch venv, Guitar-TECHS, the AFx-Rep checkpoint, Native with the single-block library. Heavy (one Native host per step on the default shortlist path; the busy-core guard pauses it). The `--workers` default is 3. **Inputs.** `--song` (file, song id or stems hash, required), `--id`, `--guitar-id`, `--window START:END`, `--level-db`, `--chords`, `--finetune` (opt-in, human 2026-10-25; Output/Master are locked when it is used; there is no flag to unlock them), `--workers`, `--out` (default `cache/song-match/<id>-<guitar id or plain>`), `--force`, `--dry-run`, `--load-stomp`. **Outputs.** In `--out`: `best.hlx`, `best.validate.md`, `index.html` (listening page), `listen/`, `summary.json`, `summary.md`, `steps.json`, `logs/`.
+
+```bash
+.venv/bin/python scripts/song_match.py --song mother --guitar-id strat-main --window 28.3:38.3 --dry-run
+.venv/bin/python scripts/song_match.py --song "data/songs/My Song.mp3" --guitar-id strat-main --finetune
+```
+
+**Safety.** Local only; the Stomp is touched only with `--load-stomp`. **Machine-readable output.** `--result-json`. `outputs`: `out_dir`, `best_hlx`, `listen_page`, `summary_json`, `summary_md`; `metrics`: `song_id`, `window`, `model`, `values`, `dist_before`, `dist_after`, `renders`, `validate_exit`.
+
 ### `match_song.py` (wired)
 
 **What it does.** End-to-end match of one section of a song: picks the most guitar-dominant ~10 s of a snapshot (or the window you give), picks DI clips (or uses yours), searches a beam of Native chains (K, A, B0, B, A30, C, H templates; CMA-ES), refines the best, checks the top 3 on the full excerpt with stems and mask, writes the best preset as `.hlx` (firmware 3.50, HX Stomp), validates it and builds `report.md` and a listening pack.
@@ -484,7 +512,7 @@ TONEMATCH_NATIVE_PYTHON=cache/native/hostvenv/bin/python .venv/bin/python script
 
 **Needs.** As `match_song.py`. The play-along DI is aligned by onsets, not by sample, so the sample-aligned `mrstft_v2` is not used to rank (it is reported for reference only).
 
-**Inputs.** `--target-window START:END` (required), `--di WAV` (required, true level), `--out DIR` (required), `--target-stems DIR`, `--di-json align.json`, `--category` (drive), `--song`, `--wall-min` (25), `--workers auto|N`, `--k` (models refined per shard), `--hybrid-f`, `--hybrid-scale`, `--specialists [FAMILY ...]` (default `gain`), `--search-clip S`, `--final-top N`, `--level-tol-db`, `--level-slope`, `--amp-cab-loss`, `--knob-tol T` (default 0.15 for `drive`, 0 for other categories; 0 gives the old T164 behaviour: stop refining a knob once it is within T on a 0..1 scale, because the human could not hear Drive or Tone steps of 0.05 to 0.2, and spend the renders on model choice instead: first a coarse grid of about 3 Drive x 2 Tone settings on every model, then the top models, twice as many as `--k`, are refined and each refinement stops once its search step on the knobs, or its last two improvements, are inside T; the render budget (set by `--wall-min`) is a ceiling, so a match ends sooner), `--knob-tol-drive T` (Drive tolerance, 0.15), `--knob-tol-tone T` (Tone/Treble/Filter/Contour tolerance, default 0.1, and 0.05 within 0.1 of either end of the knob, where the knob does most of its work), `--knob-tol-map PATH` (per-model tone/drive knob names and tolerances; read from `reports/local/distortion-id/tone-ends/knob_sensitivity.json` or `cache/drive-maps/knob_sensitivity.json` when one exists) — these build a per-knob tolerance (`search/knob_tol.py`) and `--knob-tol X` still means the old single tolerance (T178); `--shortlist afxrep` (T178, for no-DI matching: rank all models by AFx-Rep distance between the target and each model's coarse renders, keep `--shortlist-n` (8) plus their measured family from `cache/drive-maps/drive-families-v1.json` (or `--families`) when that file exists; knobs then come from the fingerprint inversion if `tonematch.metrics.distortion_step4.estimate_knobs` exists, else from `--aligned-take` (the take is sample-aligned, so the shortlist is searched with `mrstft_v2`), else from the coarse Drive x Tone grid alone, reported as LOW CONFIDENCE: a sound score never counts as knob accuracy; default `none` keeps the old behaviour), `--preset-name`, `--preroll`, `--seed`, `--progress-dir DIR` (writes `current_best.hlx/.json` atomically whenever the best improves, for `stomp_live_preview.py`), `--dry-run`.
+**Inputs.** `--target-stems DIR` (required unless `--target-wav`; no song is the default any more, [T217](../board/TASKS.md#t217 "End-to-end song to drive-block preset command")), `--target-window START:END` (required), `--di WAV` (required, true level), `--out DIR` (required), `--di-json align.json`, `--category` (drive), `--song`, `--wall-min` (25), `--workers auto|N`, `--k` (models refined per shard), `--hybrid-f`, `--hybrid-scale`, `--specialists [FAMILY ...]` (default `gain`), `--search-clip S`, `--final-top N`, `--level-tol-db`, `--level-slope`, `--amp-cab-loss`, `--knob-tol T` (default 0.15 for `drive`, 0 for other categories; 0 gives the old [T164](../board/TASKS.md#t164 "Play-along single-block match") behaviour: stop refining a knob once it is within T on a 0..1 scale, because the human could not hear Drive or Tone steps of 0.05 to 0.2, and spend the renders on model choice instead: first a coarse grid of about 3 Drive x 2 Tone settings on every model, then the top models, twice as many as `--k`, are refined and each refinement stops once its search step on the knobs, or its last two improvements, are inside T; the render budget (set by `--wall-min`) is a ceiling, so a match ends sooner), `--knob-tol-drive T` (Drive tolerance, 0.15), `--knob-tol-tone T` (Tone/Treble/Filter/Contour tolerance, default 0.1, and 0.05 within 0.1 of either end of the knob, where the knob does most of its work), `--knob-tol-map PATH` (per-model tone/drive knob names and tolerances; read from `reports/local/distortion-id/tone-ends/knob_sensitivity.json` or `cache/drive-maps/knob_sensitivity.json` when one exists) — these build a per-knob tolerance (`search/knob_tol.py`) and `--knob-tol X` still means the old single tolerance ([T178](../board/TASKS.md#t178 "Per-knob tolerance (Tone about +-0.1, finer near the ends")); `--shortlist afxrep` ([T178](../board/TASKS.md#t178 "Per-knob tolerance (Tone about +-0.1, finer near the ends"), for no-DI matching: rank all models by AFx-Rep distance between the target and each model's coarse renders, keep `--shortlist-n` (8) plus their measured family from `cache/drive-maps/drive-families-v1.json` (or `--families`) when that file exists; knobs then come from the fingerprint inversion if `tonematch.metrics.distortion_step4.estimate_knobs` exists, else from `--aligned-take` (the take is sample-aligned, so the shortlist is searched with `mrstft_v2`), else from the coarse Drive x Tone grid alone, reported as LOW CONFIDENCE: a sound score never counts as knob accuracy; default `none` keeps the old behaviour), `--preset-name`, `--preroll`, `--seed`, `--progress-dir DIR` (writes `current_best.hlx/.json` atomically whenever the best improves, for `stomp_live_preview.py`), `--dry-run`.
 
 **Outputs.** In `--out`: `best.hlx`, `rank2.hlx`, `rank3.hlx` (+ `.validate.md`), `report.md`, `result.json`, `shard<i>.json`, `run.log`, `listen/`.
 
@@ -492,8 +520,8 @@ TONEMATCH_NATIVE_PYTHON=cache/native/hostvenv/bin/python .venv/bin/python script
 
 ```bash
 TONEMATCH_NATIVE_PYTHON=cache/native/hostvenv/bin/python .venv/bin/python scripts/match_block.py --target-stems cache/stems/2ec11f9795be822e/htdemucs_6s --target-window 28.3:38.3 --di data/songs/mother-playalong/takes/20261018-113158_take1_dry.wav --di-json data/songs/mother-playalong/takes/20261018-113158_take1_align.json --category drive --song Mother-0-68s --out cache/matches/Mother-0-68s-drive --progress-dir cache/matches/Mother-0-68s-drive
-.venv/bin/python scripts/match_block.py --target-window 28.3:38.3 --di data/songs/mother-playalong/takes/20261018-113158_take1_dry.wav --out cache/matches/dry --dry-run
-.venv/bin/python scripts/match_block.py --target-window 28.3:38.3 --di data/songs/mother-playalong/takes/20261018-113158_take1_dry.wav --category amp --workers 2 --wall-min 10 --out cache/matches/Mother-amp --result-json cache/results/match_block.json
+.venv/bin/python scripts/match_block.py --target-stems cache/stems/2ec11f9795be822e/htdemucs_6s --target-window 28.3:38.3 --di data/songs/mother-playalong/takes/20261018-113158_take1_dry.wav --out cache/matches/dry --dry-run
+.venv/bin/python scripts/match_block.py --target-stems cache/stems/2ec11f9795be822e/htdemucs_6s --target-window 28.3:38.3 --di data/songs/mother-playalong/takes/20261018-113158_take1_dry.wav --category amp --workers 2 --wall-min 10 --out cache/matches/Mother-amp --result-json cache/results/match_block.json
 ```
 
 **Safety.** Local only; no pedal. **Machine-readable output.** `--result-json`, written by the parent process only (shard workers write none). `metrics`: `label`, `renders`, `wall_s`, `workers`, `n_models`, `best_model`, `best_loss`, `top` (five). `outputs`: `out_dir`, `run_log`, `best_hlx`, `rank2_hlx`, `rank3_hlx`, `report_md`, `result_json`, `listen`.
@@ -974,6 +1002,54 @@ nice -n 10 .venv/bin/python scripts/native_block_fingerprints.py run --hosts 3 -
 
 **Safety.** `ir_library_analyze.py` reads `data/ir/` (your files, gitignored); only smoothed 55-point magnitude responses are written. **Machine-readable output.** Not wired for any of them.
 
+### `rebuild_dry.py` (result manifest: to add; owned by dry-signal; [T201](../board/TASKS.md#t201 "Rebuild a dry DI track for Mother"))
+
+**What it does.** Builds a dry DI track from a MIDI transcription (Basic Pitch) by concatenating REAL Guitar-TECHS DI notes (P1/P2 single notes and scales; P3 is refused; no synth). It cleans the transcription (drops sub-E2 ghosts, trims same-pitch re-strikes, caps polyphony at 6), places one bank note of the same pitch per transcribed note at its onset (cut to the transcribed length with a 30 ms cosine release, scaled by MIDI velocity), and writes three level versions: loud-frame -26.7 dBFS (`ref`), +6 dB (`hot`) and +12 dB (`veryhot`), peaks capped at -1 dBFS (the capped version is flagged). Also writes two LUFS-matched A/B files (stem against rebuilt, human take against rebuilt) and an onset-alignment score against the separated stem (the `align_takes.py` method). Method and findings: [docs/notes/rebuilt-dry-t201.md](notes/rebuilt-dry-t201.md).
+
+**Needs.** `data/di/Guitar-TECHS`, a MIDI file, the separated guitar stem (optional: without one the length is the MIDI's last note plus 2 s and the stem comparisons are skipped), optionally a take with its `_align.json`. About 20 s, one core, no Native, no Stomp. **Inputs.** `--song-id ID` (alias `--song`; fills `--midi` = `data/songs/<id>-rebuilt/transcription.mid`, `--stem` = the song's separated guitar stem, `--take` = the best aligned take in `data/songs/<id>-playalong/takes/` if any, `--out` = `data/songs/<id>-rebuilt/`), or explicit `--midi FILE --out DIR` (with `--stem`, `--take`); one of `--song-id`, `--songs`, `--midi` is required. `--bank-root`, `--seconds N` (explicit length override; default the full stem length, printed as `rebuild length: ... s`; it used to default to 68), `--max-poly` (6), `--player P1|P2` (default: the one covering most pitches), `--prefer-position low` (lowest-fret bank notes, open strings first), and `--songs <ids>|all` with `--variant NAME` ([T203](../board/TASKS.md#t203 "Install Spotify Basic Pitch locally"): `all` is every `data/songs/<id>-rebuilt/` folder that has a `transcription.mid`; reads that file, full song length unless `--seconds`, writes the same folder or its `<variant>/` subfolder).
+
+**Outputs.** `rebuilt_dry_ref.wav`, `rebuilt_dry_hot.wav`, `rebuilt_dry_veryhot.wav`, `ab_L-stem_R-rebuilt.wav`, `ab_L-humantake_R-rebuilt.wav`, `report.json`. Local only (`data/songs` is gitignored): never commit or upload.
+
+```bash
+.venv/bin/python scripts/rebuild_dry.py --song-id mother
+.venv/bin/python scripts/rebuild_dry.py --song-id mother --seconds 30 --player P2 --out cache/rebuilt-test
+.venv/bin/python scripts/rebuild_dry.py --midi my.mid --stem guitar.wav --out data/songs/my-song-rebuilt
+.venv/bin/python scripts/rebuild_dry.py --chords "B5,G5,A5,F#5,D5,C#5" --song-id mother
+```
+
+**`--chords` ([T205](../board/TASKS.md#t205 "rebuild_dry --chords"), human 2026-10-22).** The user names the song's chords (X5 power chords, X or Xmaj, Xm or Xmin; # or b); each becomes a low-position voicing (root on the low E or A string, G5 also gets its octave). Viterbi over the Basic Pitch frame posteriors (cached by `transcribe_stems.py posteriors`, computed through the Basic Pitch venv when missing) restricted to those chords plus silence, switch penalty 0.6, silence 0.05, minimum segment 0.06 s; one strike per chord change plus onset peaks of at least 0.6 that are at least 0.45 s after the previous strike. Renders low-position with the same level variants and `report.json`, and writes `chords.json` (voicings, constants, segment timeline) into `data/songs/<song>-rebuilt/chords/` (`--variant` renames the folder). The constants are fixed defaults in `src/tonematch/chord_rebuild.py`; tuning them is a method decision for the human. Note: [chord-rebuild-t205](notes/chord-rebuild-t205.md).
+
+**`--envelope-from-stem` ([T224](../board/TASKS.md#t224 "Dry-signal ablation"), human 2026-10-25 decision 4; OFF by default).** Note dynamics come from the separated stem instead of Basic Pitch velocity; pitch, timing and note count still come from the transcription. Notes whose onsets lie within 50 ms form one attack moment; a moment's level is the RMS in dB of the stem over the first 0.30 s after its onset (shortened to the next moment's onset, at least 30 ms); the levels are smoothed (moving average in dB over +-0.25 s), referenced to their median and limited to +-12 dB; each note then takes its moment's level minus 10*log10(notes in the moment) so a chord sums to the stem's level. `dry_rebuild.stem_envelope_db` computes it; `dry_rebuild.render` and `guitar_profile.render_profiled` take it as `rel_db` (a per-note dB offset around the median velocity level, replacing the velocity mapping). Needs a stem (`--stem` or `--song-id`); works with `--profile`, `--chords`, `--songs`. `report.json` gains `envelope_from_stem` (notes, rel dB min, max, std). Example: `.venv/bin/python scripts/rebuild_dry.py --midi data/songs/mother-rebuilt/transcription.mid --stem <guitar.wav> --profile prs-7-tone --envelope-from-stem --out data/songs/mother-rebuilt/t224-envelope`. The ablation driver is `scripts/dry_ablation_t224.py` (`prep`, `run`, `ledger`, `pack`, `table`); results in [dry-ablation-t224](notes/dry-ablation-t224.md). Measurement only; the constants are not tuned and adopting the option as a default is the human's decision.
+
+### `transcribe_stems.py` (result manifest: to add; owned by dry-signal; [T203](../board/TASKS.md#t203 "Basic Pitch on all guitar stems"))
+
+**What it does.** Runs Spotify Basic Pitch (Apache-2.0; an EXTERNAL tool in its own venv `cache/venvs/basic-pitch`, ONNX runtime, no TensorFlow; not a project dependency) on the separated guitar stems. `tune` sweeps its settings (onset and frame threshold, minimum note length, frequency range, melodia) plus post-filters (pitch range, quiet-neighbour drop, re-strike merge) and scores note F-measure (onset within 50 ms, pitch exact, and an octave-tolerant variant) against Basic Pitch run on the human's clean dry takes of the same parts (Mother take1; DS-Sample take2 at 30 to 50 s), shifted to song time with each take's `_align.json`. `run` transcribes the stems with the chosen settings and writes `data/songs/<id>-rebuilt/transcription.mid`. `facts` is a Mother diagnostic (pitch floor, B-minor key flags that only flag, tempo over time by onset autocorrelation). Song ids: `mother`, `ds-sample`, `teen-spirit`, `territorial`, `seek-destroy`, `satisfaction`, `cherub-rock` are aliases; any other separated song is found under its slug (the source file name lower-cased and hyphenated), or give `--stem` for a single id (`run`, `posteriors`). Without `--songs`, `run` takes every separated song found in `cache/stems/`. `posteriors` caches the whole stem unless `--seconds N` crops it. `tune` and `facts` are research commands: `tune` uses every `data/songs/<id>-playalong/` pack with an aligned take (best score per song), `facts` is Mother-specific. It relaunches itself with the venv's python when `basic_pitch` is not importable. Network outputs are cached in `cache/basic-pitch/`. Results, sweep table, chosen settings and limits: [docs/notes/basic-pitch-t203.md](notes/basic-pitch-t203.md); then `rebuild_dry.py --songs all` makes the dry tracks.
+
+**Needs.** `cache/venvs/basic-pitch` (install recipe in the note), the separated stems, the takes. One core, a few minutes for the sweep, seconds per stem for `run`. Local only (song audio and transcriptions never leave the machine).
+
+```bash
+.venv/bin/python scripts/transcribe_stems.py tune
+.venv/bin/python scripts/transcribe_stems.py run --songs mother cherub-rock
+.venv/bin/python scripts/transcribe_stems.py run --songs my-song --stem path/to/guitar.wav
+.venv/bin/python scripts/transcribe_stems.py facts
+.venv/bin/python scripts/transcribe_stems.py posteriors --songs mother
+.venv/bin/python scripts/rebuild_dry.py --songs all
+.venv/bin/python scripts/rebuild_dry.py --songs mother --prefer-position low --variant low-position
+```
+
+### `guitar_profile_record.py`, `guitar_profile_build.py` (result manifest: `--result-json`; owned by dry-signal; [T204](../board/TASKS.md#t204 "Guitar calibration"))
+
+**What they do.** Per-guitar calibration (human 2026-10-22). `guitar_profile_record.py` is a guided session through the Stomp's dry input (host in 5 = Main L; the `playalong_record.py` audio path; audio only): prompted segments for open strings, a run up each string, chords, soft/medium/hard picks, palm mutes, optional bends/slides/harmonics and 30 s of free playing, each saved as a wav under `data/guitars/<id>/session-<stamp>/` with `session.json`. `guitar_profile_build.py` turns a session (or `--free-wav` stand-in takes) into `data/guitars/<id>/profile.json` (loud-frame level, peak, crest, soft-to-hard range; a capped +-12 dB minimum-phase tone EQ against the Guitar-TECHS P1/P2 bank over matched notes; pitch coverage) and `bank.json` (labelled own notes in the [T201](../board/TASKS.md#t201 "Rebuild a dry DI track for Mother from the Basic Pitch transcription…") BankNote format). `rebuild_dry.py --profile <id>` then rebuilds with own notes, the EQ on bank fallbacks, velocity mapped onto the soft..hard range and the profile's level; `--profile-tone-only` ignores the own notes. Method, the human's checklist and the stand-in results: [docs/notes/guitar-profile-t204.md](notes/guitar-profile-t204.md).
+
+**Needs.** Recording: the HX Stomp on USB, the guitar in its main input (about 10 min). Build: `data/di/Guitar-TECHS`; Basic Pitch from `cache/venvs/basic-pitch` is used when present, else YIN. All local, gitignored.
+
+```bash
+.venv/bin/python scripts/guitar_profile_record.py --guitar-id strat-main --check
+.venv/bin/python scripts/guitar_profile_record.py --guitar-id strat-main
+.venv/bin/python scripts/guitar_profile_build.py --guitar-id strat-main
+.venv/bin/python scripts/rebuild_dry.py --profile strat-main
+```
+
 ---
 
 ## 11. Distortion research
@@ -1008,7 +1084,7 @@ nice -n 10 .venv/bin/python scripts/distortion_pilot_step2.py run --hosts 3
 
 **What it does.** [T174](../board/TASKS.md#t174 "Distortion measurement step 3"), step 3 of `docs/notes/distortion-identification.md`: fingerprints every drive model of `match_block.category_pool('drive')` (60) at 12 settings each with the dfp-v1 probe (6 s sweeps, tone staircases from -91 dBFS), on Native single-block templates, at most `--hosts` hosts (capped at 5) through the host scaler and at most `--workers` analysis processes (capped at 4). Stores fingerprints only, no audio. `tonecheck` checks that Scream 808's Tone reaches Native (CC route against a controller-free drop, and the Tone 0 vs 1 spectra); `plan` lists the settings and which knob is "drive" and "tone" per model without starting Native; `analyse` runs leave-one-setting-out identification, clusters against the circuit labels and builds the fingerprint cards and figures; `ledger` appends the `benchmark / native / distortion-fp-v1` rows. Nothing is adopted. `run` resumes: settings already in `index.json` are skipped.
 
-**Inputs.** `{tonecheck,plan,run,analyse,ledger}`, `--hosts N` (default 5), `--workers N` (default 4), `--batch N` (default 24), `--limit N` (shakedown), `--max-load X` (busy cores; default 0.95 x cores: pause rendering above it, resume below 0.85 x cores; T193), `--out DIR`. **Outputs.** `cache/distortion-fp/dfp-v1/<model>/<setting>.npz` (about 6.7 KB each) and `index.json`; `reports/local/distortion-id/step3/summary.json`, `cards.md`, `tonecheck.json`, summary SVGs and two SVGs per model under `models/`.
+**Inputs.** `{tonecheck,plan,run,analyse,ledger}`, `--hosts N` (default 5), `--workers N` (default 4), `--batch N` (default 24), `--limit N` (shakedown), `--max-load X` (busy cores; default 0.95 x cores: pause rendering above it, resume below 0.85 x cores; [T193](../board/TASKS.md#t193 "Switch the remaining scripts' own os.getloadavg() guards to…")), `--out DIR`. **Outputs.** `cache/distortion-fp/dfp-v1/<model>/<setting>.npz` (about 6.7 KB each) and `index.json`; `reports/local/distortion-id/step3/summary.json`, `cards.md`, `tonecheck.json`, summary SVGs and two SVGs per model under `models/`.
 
 ```bash
 .venv/bin/python scripts/distortion_step3.py plan
@@ -1047,7 +1123,7 @@ TONEMATCH_AGENT=tone-metrics .venv/bin/python scripts/drive_tone_families.py led
   - condition B (output only): output-only features against the gallery on the other excerpts, alone and after the AFx-Rep shortlist;
   - the baselines (chance, `mrstft_v2` nearest render, AFx-Rep alone).
 - `ledger` appends the `benchmark / native / distortion-step4-dryknown` and `distortion-step4-blind` rows.
-- Nothing is adopted. `render` resumes. `analyse` writes `cache/distortion-step4/calibration.npz`, which `tonematch.metrics.distortion_step4.estimate_knobs` (the T178 hook) reads.
+- Nothing is adopted. `render` resumes. `analyse` writes `cache/distortion-step4/calibration.npz`, which `tonematch.metrics.distortion_step4.estimate_knobs` (the [T178](../board/TASKS.md#t178 "Per-knob tolerance (Tone about +-0.1, finer near the ends") hook) reads.
 
 **Inputs.**
 - `{plan,render,analyse,ledger,clean}`;
@@ -1100,7 +1176,7 @@ TONEMATCH_AGENT=stomp-engine .venv/bin/python scripts/pedal_probe_sim.py ledger
 ### `nodi_drive_e2e.py` (result manifest: to add; owned by search)
 
 **What it does.** [T183](../board/TASKS.md#t183 "End-to-end check of no-DI drive matching"), measurement only. It runs the no-DI drive matcher (`match_block.py --shortlist afxrep`) end to end on 24 held-out random single-drive targets rendered from real guitar DI excerpts, with the matcher rendering through a different DI (another player or another take).
-- `plan` picks 8 DI excerpts of 5 s (Guitar-TECHS P1 and P2, the human's dry takes), 24 models out of the 54 non-flagged, random off-grid Drive and Tone, and a 6-target subset for the old full search. Its seed (183) is separate from T181's, and it avoids T181's excerpts and settings. It also writes the explicit tolerance map (`suggested_tol` from `cache/drive-maps/knob_sensitivity.json`).
+- `plan` picks 8 DI excerpts of 5 s (Guitar-TECHS P1 and P2, the human's dry takes), 24 models out of the 54 non-flagged, random off-grid Drive and Tone, and a 6-target subset for the old full search. Its seed (183) is separate from [T181](../board/TASKS.md#t181 "Step 4: identify model and settings from real guitar takes at random…")'s, and it avoids [T181](../board/TASKS.md#t181 "Step 4: identify model and settings from real guitar takes at random…")'s excerpts and settings. It also writes the explicit tolerance map (`suggested_tol` from `cache/drive-maps/knob_sensitivity.json`).
 - `render` renders the targets on one Native host and the DI excerpts as wavs (pauses above `--max-load` busy cores).
 - `match --path coarse_grid|inversion|inversion_samedi|full` runs `match_block.py` once per target, `--procs` at a time. `inversion_samedi` hands the matcher the target's own DI (the upper bound for the fingerprint inversion). `full` is the old search at a wall cap (`--wall-min`) on the 6-target subset.
 - `analyse` writes `reports/local/t183/rows.json` and `summary.json`; `ledger` appends the `search / native / nodi-drive-e2e-v1` rows; `clean` deletes the target audio.
@@ -1118,11 +1194,13 @@ nice -n 10 .venv/bin/python scripts/nodi_drive_e2e.py match --path coarse_grid -
 .venv/bin/python scripts/nodi_drive_e2e.py clean
 ```
 
-### `match_block.py --final-rank` and `nodi_drive_e2e_v2.py` (T185, measurement only)
+### `match_block.py --final-rank` and `nodi_drive_e2e_v2.py` ([T185](../board/TASKS.md#t185 "Larger no-DI drive e2e measurement"), measurement only)
 
-**`--final-rank provisional|afxrep`** (match_block.py, with `--shortlist afxrep`). Default `provisional`: the final models are ordered by the unadmitted re-score, as before. `afxrep` orders them by AFx-Rep distance (the T183 proposal); the re-score is still computed and kept in each row of `result.json` (`loss`, `provisional_rank`). Not a default; the human decides. Tests in `tests/test_match_block.py`. The default families file is now `cache/drive-maps/drive-families-v1.json` (the old `data/` path was stale after the lead's move).
+**`--pack-lufs`** (match_block.py, [T200](../board/TASKS.md#t200 "Blind single-drive matches of five songs the human added to data/songs")). Level-matches the listening pack to the target by K-weighted loudness (LUFS, BS.1770) instead of RMS; `gains.json` and the pack's `matching` field say which was used. Signals too quiet to measure fall back to RMS. Default off.
 
-**`nodi_drive_e2e_v2.py`.** 96 held-out random drive targets (seed 185; T181 and T183 settings and excerpts excluded) from 15 real DI excerpts (5 each: Guitar-TECHS P1, P2, the human's takes). Three conditions: `blind` (the matcher's DI is another player), `same_player` (same player, other excerpt), `same_di` (the target's own DI, upper bound; the fingerprint inversion can run). Four arms: final order (provisional | AFx-Rep) x shortlist (top 8 + families + second choice | plain top 8). One job per (target, condition) renders the shared coarse grid once and scores the whole expanded shortlist once; the arms are read off afterwards.
+**`--final-rank provisional|afxrep`** (match_block.py). Default `afxrep` when `--shortlist afxrep` is used (interim approval, human 2026-10-25, `data/approved-methods.json`): the final models are ordered by AFx-Rep distance; the re-score is still computed and kept in each row of `result.json` (`loss`, `provisional_rank`). Without `--shortlist afxrep` there is no default and the tool stops with an error: the provisional re-score is not an approved default, so ask for it by name with `--final-rank provisional` (a test setting). **`--families [JSON]`** is opt-in (the families prior is not a default): bare, it reads `cache/drive-maps/drive-families-v1.json`; `--second-choice` implies it. `tests/test_approved_methods.py` pins these defaults to `data/approved-methods.json`. Tests in `tests/test_match_block.py`. The default families file is now `cache/drive-maps/drive-families-v1.json` (the old `data/` path was stale after the lead's move).
+
+**`nodi_drive_e2e_v2.py`.** 96 held-out random drive targets (seed 185; [T181](../board/TASKS.md#t181 "Step 4: identify model and settings from real guitar takes at random…") and [T183](../board/TASKS.md#t183 "End-to-end check of no-DI drive matching") settings and excerpts excluded) from 15 real DI excerpts (5 each: Guitar-TECHS P1, P2, the human's takes). Three conditions: `blind` (the matcher's DI is another player), `same_player` (same player, other excerpt), `same_di` (the target's own DI, upper bound; the fingerprint inversion can run). Four arms: final order (provisional | AFx-Rep) x shortlist (top 8 + families + second choice | plain top 8). One job per (target, condition) renders the shared coarse grid once and scores the whole expanded shortlist once; the arms are read off afterwards.
 
 - `plan`, `render` (target audio on one host), `run --shard i/n` (one process, one Native host; pauses above `--max-load` busy cores (default 0.95 x cores); `--stop-file`), `analyse` (tables, Wilson CIs, McNemar; writes `reports/local/t185/{rows,summary,predictions}.json`), `ledger` (`search / native / nodi-drive-e2e-v2`), `clean` (deletes the target audio).
 - Set `TONEMATCH_AFXREP_DEVICE=cpu` (the script sets it by default).
@@ -1135,9 +1213,9 @@ for s in 0 1 2; do .venv/bin/python scripts/nodi_drive_e2e_v2.py run --shard $s/
 
 **Safety.** Native only, no pedal, no song audio. At most 2 Native hosts. The target clips are deleted by `clean`. Run `scripts/proc_check.py` before and after.
 
-### `match_block.py --shortlist predictor` and `predictor_first_t196.py` (T196, search; measurement only, NOT the default)
+### `match_block.py --shortlist predictor` and `predictor_first_t196.py` ([T196](../board/TASKS.md#t196 "Predictor-first drive matcher option"), search; measurement only, NOT the default)
 
-**`--shortlist predictor`** (match_block.py). The predictor-first drive matcher, an option next to `--shortlist afxrep`; the default stays `none`. It embeds the target once (three 3.33 s AFx-Rep crops, as the head was trained), runs the T191 head (`cache/models/predictor-dataset-v1/heads_main_v2data_mlp_multi.pkl`, MLP, multi-crop; `--predictor-heads PATH`), keeps the models that cover `--predictor-cum` (0.95) of the calibrated probability, at most `--predictor-max-models` (6), and renders about 5 candidates per model: the predicted Drive/Tone mean and +-1 sigma on Drive and on Tone (a Drive-only model gets the mean and +-1, +-2 sigma). The final order is the AFx-Rep distance of each model's best candidate (it forces `--final-rank afxrep`). The report and `result.json` also carry the predictor's own pick and knobs (no renders), its probabilities and every candidate's distance. No shard search runs. Expect 6 to 30 renders and 2 to 15 s per match, against about 370 and 150 s for `--shortlist afxrep`. Drive estimates are level-confounded (docs/notes/drive-anomaly-t194.md): treat them as provisional. The stage is `src/tonematch/search/predictor_first.py`; tests in `tests/test_predictor_first.py` (fake head, fake engine).
+**`--shortlist predictor`** (match_block.py). The predictor-first drive matcher, an option next to `--shortlist afxrep`; the default stays `none`. It embeds the target once (three 3.33 s AFx-Rep crops, as the head was trained), runs the [T191](../board/TASKS.md#t191 "Unattended overnight drive dataset render") head (`cache/models/predictor-dataset-v1/heads_main_v2data_mlp_multi.pkl`, MLP, multi-crop; `--predictor-heads PATH`), keeps the models that cover `--predictor-cum` (0.95) of the calibrated probability, at most `--predictor-max-models` (6), and renders about 5 candidates per model: the predicted Drive/Tone mean and +-1 sigma on Drive and on Tone (a Drive-only model gets the mean and +-1, +-2 sigma). The final order is the AFx-Rep distance of each model's best candidate (it forces `--final-rank afxrep`). The report and `result.json` also carry the predictor's own pick and knobs (no renders), its probabilities and every candidate's distance. No shard search runs. Expect 6 to 30 renders and 2 to 15 s per match, against about 370 and 150 s for `--shortlist afxrep`. Drive estimates are level-confounded (docs/notes/drive-anomaly-t194.md): treat them as provisional. The stage is `src/tonematch/search/predictor_first.py`; tests in `tests/test_predictor_first.py` (fake head, fake engine).
 
 ```bash
 .venv/bin/python scripts/match_block.py --target-wav T.wav --dry-wav DI.wav --shortlist predictor --out cache/matches/pf --lean
@@ -1145,13 +1223,13 @@ for s in 0 1 2; do .venv/bin/python scripts/nodi_drive_e2e_v2.py run --shard $s/
 
 **`predictor_first_t196.py`.** The measurement: 72 targets of 10 s (seed 196; T181/T183/T185 settings excluded): 24 from Guitar-TECHS P1 and 24 from P2 (only files the head never trained on) and 24 from the human's own takes; two matcher-DI conditions each (blind, same_player); both arms run in one job on one host. `plan`, `render`, `run --shard i/n` (busy-core guard; `--stop-file`), `analyse` (tables, Wilson intervals, McNemar, Drive error by DI level, `reports/local/t196/`), `ledger`, `clean` (deletes the target and DI audio). Results: docs/notes/predictor-first-t196.md.
 
-### `drive_dataset_render.py` and `overnight_drive.sh` (T191, learning; measurement only)
+### `drive_dataset_render.py` and `overnight_drive.sh` ([T191](../board/TASKS.md#t191 "Unattended overnight drive dataset render"), learning; measurement only)
 
-Unattended single-drive dataset render on Helix Native plus a retrain of the T189 predictor heads. Every searchable drive model (minus the six flagged fuzzes) x random knob settings (CC grid, level knobs at default) x random 10 s excerpts with real playing from the Guitar-TECHS P1/P2 DI files; P3 is never read. Split by whole DI file: `test` (about 20 % of the files, never used by T186/T189), `v1test` (the T186/T189 test files, evaluation only), `cal`, `train`. Features only (frozen AFx-Rep `mid`: 6 s centre crop + three 3.33 s crops, float16); the audio is dropped.
+Unattended single-drive dataset render on Helix Native plus a retrain of the [T189](../board/TASKS.md#t189 "Drive predictor pilot v1") predictor heads. Every searchable drive model (minus the six flagged fuzzes) x random knob settings (CC grid, level knobs at default) x random 10 s excerpts with real playing from the Guitar-TECHS P1/P2 DI files; P3 is never read. Split by whole DI file: `test` (about 20 % of the files, never used by T186/T189), `v1test` (the T186/T189 test files, evaluation only), `cal`, `train`. Features only (frozen AFx-Rep `mid`: 6 s centre crop + three 3.33 s crops, float16); the audio is dropped.
 
 - `plan` (seeded; `--target` cap, default 60,000; `--hours`, `--hosts`, `--sec-per-clip` size the plan; `--limit` for a shakedown) writes `cache/drive-dataset-v1/plan.json`.
-- `render` is an elastic job: a supervisor asks the host scaler for at most 4 hosts (`--hosts`); each worker claims a 100-clip shard, pauses while the busy cores (CPU utilisation x cores, smoothed) are above `--max-load` (default 0.95 x cores, 9.5 on 10; resumes below 0.85 x cores; the 1-minute load above 1.2 x cores is a backstop; T192), stops cleanly when free disk is below `--min-free-gb` (8.5) or `--hours` elapse. Shards in `shards/` (`<id>.single.npy`, `<id>.crops.npy`, `<id>.labels.jsonl`, then `<id>.json` last); a rerun resumes. A failed or silent render is retried once, then skipped and logged in the shard JSON. SIGTERM: the current shard finishes and the hosts close.
-- `train` retrains logistic + MLP heads (multi-crop) on T186 train (`v1data`) and on T186 train + new train (`v2data`); evaluates on the T186/T189 test split, the new held-out files and new renders on the v1 test files, within player and across players. Writes `summary.json`, `summary.md`, checkpoints in `cache/models/predictor-dataset-v1/`, and `benchmark / - / predictor-dataset-v1` ledger rows (`--no-ledger` to skip; a `--limit` run never writes them).
+- `render` is an elastic job: a supervisor asks the host scaler for at most 4 hosts (`--hosts`); each worker claims a 100-clip shard, pauses while the busy cores (CPU utilisation x cores, smoothed) are above `--max-load` (default 0.95 x cores, 9.5 on 10; resumes below 0.85 x cores; the 1-minute load above 1.2 x cores is a backstop; [T192](../board/TASKS.md#t192 "CPU demand = busy cores")), stops cleanly when free disk is below `--min-free-gb` (8.5) or `--hours` elapse. Shards in `shards/` (`<id>.single.npy`, `<id>.crops.npy`, `<id>.labels.jsonl`, then `<id>.json` last); a rerun resumes. A failed or silent render is retried once, then skipped and logged in the shard JSON. SIGTERM: the current shard finishes and the hosts close.
+- `train` retrains logistic + MLP heads (multi-crop) on [T186](../board/TASKS.md#t186 "Predictor pilot v0, drive only, on renders on disk") train (`v1data`) and on [T186](../board/TASKS.md#t186 "Predictor pilot v0, drive only, on renders on disk") train + new train (`v2data`); evaluates on the T186/T189 test split, the new held-out files and new renders on the v1 test files, within player and across players. Writes `summary.json`, `summary.md`, checkpoints in `cache/models/predictor-dataset-v1/`, and `benchmark / - / predictor-dataset-v1` ledger rows (`--no-ledger` to skip; a `--limit` run never writes them).
 - `all`: plan if needed, render, train, then `proc_check.py --kill`. `scripts/overnight_drive.sh` starts `all` with nohup, nice 10 and `caffeinate -i`, logging to `cache/drive-dataset-v1/run.log`, and prints the PID.
 
 ```bash
@@ -1163,21 +1241,203 @@ cat cache/drive-dataset-v1/progress.json
 
 **Safety.** Native only, no pedal, no song audio, P3 never read. At most 4 hosts, load guard 0.95 x cores busy, disk floor 8.5 GB. Stop with `kill <PID>` (never a pattern kill); run `scripts/proc_check.py` afterwards. Docs: `docs/notes/drive-dataset-v1.md`.
 
+[T208](../board/TASKS.md#t208 "Commands for the next training sessions on the other slots") hooks (drive behaviour unchanged): `render_shard` / `work_loop` take `label_keys` and honour a per-clip `lead` (samples read and rendered before the clip, dropped before embedding); `cmd_render` takes `run_tag` and `worker_script` so another script can reuse the supervisor.
+
+### `slot_dataset_render.py` and `slot_batch.sh` ([T208](../board/TASKS.md#t208 "Commands for the next training sessions on the other slots"), learning; measurement only, design not yet approved)
+
+The drive-dataset-v1 job for the other chain slots: `--slot amp|cab|mod|delay|reverb|eq` (order drive > amp > cab > mod > delay > reverb > EQ). One block per clip on a raw Guitar-TECHS P1/P2 DI (P3 never read); every free knob uniform on the CC grid, level knobs (and cab Early Reflections) at default; mod, delay and reverb clips get a random 0.5–2 s lead-in that is rendered and then dropped. The DI file split is drive-dataset-v1's. Features as drive (AFx-Rep `mid`, 6 s + 3 × 3.33 s, float16); the audio is dropped. Per-clip labels add `lead` and `di_level_db` (the DI window's loud-frame level). Library: `src/tonematch/learning/slot_dataset.py`.
+
+- `plan --slot S` (seeded 208; `--target` default is the slot's recommended count; `--limit`; `--all-native` = every Native model of the category, not only the stand-ins; `--fresh-splits`). It refuses to replace a plan that already has rendered shards.
+- `render --slot S --hours H` is drive's elastic supervisor (at most 4 hosts, busy-core pause, disk floor, deadline, one retry, SIGTERM between shards, resumable). `scripts/slot_batch.sh S H` runs one batch under nohup, nice 10 and `caffeinate -i`, prints the PID (the supervisor itself), refuses to start while another batch is running, and appends a `proc_check.py` report to the batch log when the batch ends.
+- `status` prints done / planned / failed / last rate / ETA for every slot.
+- `train --slot S` fits the [T189](../board/TASKS.md#t189 "Drive predictor pilot v1") heads (logreg, MLP) with one knob column per free knob of the model, within player and across players, on the held-out `test` and `v1test` files. It writes `summary.md`/`.json` plus kept copies `summary-n<clips>.md`, checkpoints in `cache/models/slot-dataset-v1/<S>/n<clips>/` (never overwritten; a repeat gets a time suffix), and `benchmark / - / slot-dataset-v1-<S>` ledger rows (`--no-ledger` skips them). `--device cpu` is the default, as for drive.
+- `smoke --slots ... --clips N --out DIR` renders N clips per slot on one host in-process and reports seconds per clip (`--ledger` appends `render-cost` rows).
+- `refill --slot S [--silence-db -240] [--dry-run]` ([T211](../board/TASKS.md#t211 "All seven songs with the calibrated guitar"), proposal) writes `cache/slot-dataset-v1/<S>-refill/plan.json`: the main plan's silence failures (identical clip records; digital-zero clips skipped) with their own render floor and an `out_db` label; append-only. Render it with `scripts/slot_batch.sh <S>-refill H` (or `render --slot S --refill`); train with `train --slot S --with-refill [--min-out-db X]`. A main plan has no floor key and keeps drive's -90 dBFS floor.
+
+```bash
+.venv/bin/python scripts/slot_dataset_render.py plan --slot amp
+scripts/slot_batch.sh amp 2
+.venv/bin/python scripts/slot_dataset_render.py status
+.venv/bin/python scripts/slot_dataset_render.py train --slot amp
+```
+
+**Safety.** As drive-dataset-v1. One batch at a time. Docs and the decisions still open: `docs/notes/slot-datasets-v1.md`.
+
+### `slot_overnight.py` and `slot_overnight.sh` ([T213](../board/TASKS.md#t213 "slot-dataset-v1 overnight run"), learning; measurement only)
+
+One unattended supervisor for the slot-dataset-v1 overnight run (human 2026-10-22: "you have 12 hours on the cpu. run what you need"; [T212](../board/TASKS.md#t212 "Diagnose the slot-dataset-v1 amp \"Native returned silence\" failures…") options A and B). Nothing is admitted. In order: wait for the running amp batch (`--wait-pid`) and resume it; amp refill at a -240 dBFS floor and render; train amp at half and full size with `--with-refill` (training lane at nice 15 and 2 threads, alongside the next render); then `--slots` (default cab, delay, mod, reverb, eq): plan with `--silence-db -240`, render, refill if non-digital-zero silence failures remain, train half and full. A slot whose render cannot finish before the deadline is skipped (never started), and a stopped render stays resumable. After every step: a `proc_check.py` report and ledger rows; `docs/notes/slot-datasets-v1-results.md` is rewritten after every training.
+
+- `--deadline "YYYY-MM-DD HH:MM"` (required, local time), `--stop-margin-min` (stop everything this long before it), `--wait-pid PID`, `--slots`, `--silence-db`, `--hosts`, `--note PATH`; `--limit N` and `--no-ledger` are for a smoke run.
+- `scripts/slot_overnight.sh` launches it under nohup, nice 10 and `caffeinate -i`, refuses to start a second supervisor, and prints the PID, status file and log. `TONEMATCH_SLOT_BASE` and `TONEMATCH_SLOT_MODELS` move the whole tree (a smoke run in a scratch directory).
+
+```bash
+scripts/slot_overnight.sh --wait-pid 78416 --deadline "2026-10-23 09:00"
+cat cache/slot-dataset-v1/overnight/status.txt
+tail -f cache/slot-dataset-v1/overnight/overnight.log
+.venv/bin/python scripts/slot_dataset_render.py train --slot cab --fraction 0.5 --with-refill --min-out-db -90
+```
+
+**Safety.** As slot-dataset-v1: one batch at a time, at most 4 hosts, busy-core pause, disk floor. Stop with `kill <PID>` (the render finishes its shard; training stops); never a pattern kill. Results and open decisions: `docs/notes/slot-datasets-v1-results.md`.
+
+### `chain_transfer.py` ([T214](../board/TASKS.md#t214 "Chain transfer test (human 2026-10-23 \"yes\")"), learning; measurement only, nothing adopted)
+
+Do the single-block heads (slot-dataset-v1 amp, cab, mod, delay, reverb, EQ; the T191/T196 drive head) still name their block inside a full chain? Human 2026-10-23 "yes". Library: `src/tonematch/learning/chain_transfer.py`.
+
+- `plan [--n 300] [--seed 214] [--force]`: seeded random chains in the fixed slot order, drive (p 0.7) > amp > cab > mod (0.2) > delay (0.3) > reverb (0.3) > EQ (0.2). Models and drawn knobs from the slot-dataset-v1 plans and drive-dataset-v1's pool; every drawn knob uniform on the CC grid, level knobs at default; a 0.5–2 s lead-in (rendered, then dropped) when a time effect is present. DI: drive-dataset-v1 `test` split files only (P3 never read). Writes `cache/chain-transfer-v1/chains.json`.
+- `render [--hosts 3] [--chunk 24] [--max-busy X] [--limit N] [--ledger]`: block-serial on Helix Native (library templates, 3 s preroll), one stage (slot) at a time with a fresh `NativeRenderPool` per stage (a host that switches category slows down), busy-core `LoadGuard` before each chunk, -240 dBFS silence floor, one retry; a chain whose block fails twice is dropped. Embeds every stage's output (AFx-Rep mid, 3 × 3.33 s crops of the 10 s clip; audio not kept): `features.npz`, `render_meta.json`, `run.log`; `--ledger` adds a `render-cost / native / chain-transfer-v1` row. At most 4 hosts (refused above).
+- `score [--ledger]`: each slot's full-size MLP and logreg heads (drive: `heads_main_v2data_*_multi.pkl`, masked to drive-dataset-v1's models as `--shortlist predictor` does) on the finished chain output and on the output right after the block; model top-1/3/5, family top-1, knobs within ±0.15 for the true model, Wilson / bootstrap 95 % intervals, breakdowns by what else is in the chain, along-the-chain accuracy, top confusions; next to the same head's single-block test numbers (slots: [T213](../board/TASKS.md#t213 "slot-dataset-v1 overnight run") summaries; drive: recomputed on drive-dataset-v1 test shards). Writes `results.{json,md}`; `--ledger` adds one `benchmark / native / chain-transfer-v1` row per slot (`<slot>_mlp_model_top3`).
+
+```bash
+.venv/bin/python scripts/chain_transfer.py plan
+TONEMATCH_AGENT=learning caffeinate -i nice -n 10 .venv/bin/python scripts/chain_transfer.py render --hosts 3 --ledger
+TONEMATCH_AGENT=learning .venv/bin/python scripts/chain_transfer.py score --ledger
+```
+
+**Safety.** Native only, no pedal, no song audio, P3 never read. Run `proc_check.py` before and after; stop with `kill <PID>` (never a pattern kill). Results: `docs/notes/chain-transfer-t214.md`.
+
+### `chain_train.py` (T215, learning; measurement only, nothing adopted)
+
+Chain-rendered training pilot (human 2026-10-23 "yes start pilot"). Library: `src/tonematch/learning/chain_train.py` (training and scoring); the chain generator and renderer are T214's.
+
+- `plan [--n 5000] [--seed 215] [--shard 250] [--force]`: the T214 generator with a new seed (214 is refused), drive-dataset-v1 `train` split DIs only (never test, cal, v1test or P3; checked against the T214 test files). Writes `cache/chain-train-v1/chains.json` with shards; refuses to re-plan once a shard is rendered.
+- `render [--hosts 4] [--hours 2] [--chunk 24] [--max-busy X] [--ledger]`: T214's block-serial path, in shards of 250 chains written atomically (the shard JSON last). Each shard embeds only the finished chain output (AFx-Rep mid, 3 × 3.33 s crops). A rerun resumes. It stops between shards at the deadline or on SIGTERM, refuses to run twice (`job.pid`) and never writes into `cache/chain-transfer-v1/`. `--ledger` adds a `render-cost / native / chain-train-v1` row.
+- `train [--threads N] [--arms chain,single+chain] [--fractions 0.5,1] [--slots ...] [--ledger]`: for each slot, trains the T189 heads (logreg, MLP; one knob column per drawn knob; calibrated as T189 on out-of-fold predictions by DI file) in two arms: chain clips only, and single-block `train` clips plus chain clips. It also trains presence heads for drive, mod, delay, reverb and EQ (logreg and MLP, chain clips only), plus a half-chains learning-curve point (chain arm). Everything is scored on the 295 T214 test chains exactly as T214 scores them, and on single-block held-out clips. Writes `cache/chain-train-v1/results.{json,md}` and checkpoints `cache/models/chain-train-v1/<arm>/<slot>_<head>.pkl`. `--ledger` adds `benchmark / native / chain-train-v1` rows.
+
+```bash
+.venv/bin/python scripts/chain_train.py plan
+TONEMATCH_AGENT=learning nohup caffeinate -i nice -n 10 .venv/bin/python scripts/chain_train.py render --hosts 4 --hours 2 --ledger &
+TONEMATCH_AGENT=learning nice -n 10 .venv/bin/python scripts/chain_train.py train --threads 6 --ledger
+```
+
+**Safety.** Native only, no pedal, no song audio, P3 never read; at most 4 hosts. Stop the render with `kill <PID>` from `cache/chain-train-v1/job.pid` (it finishes its shard); never a pattern kill; run `proc_check.py` afterwards. Results: `docs/notes/chain-train-pilot-t215.md`.
+
+### `product_chain_t233.py` ([T233](../board/TASKS.md#t233 "Product-chain predictor"), learning; measurement only, nothing adopted)
+
+Product-chain predictor (human 2026-10-26 "Do both now"): random drive -> (EQ p 0.5) -> (reverb p 0.6) chains on Helix Native, features only, then level-conditioned heads for the drive model and knobs, reverb presence/type/Mix/RT60 and EQ presence/type/curve. Library: `src/tonematch/learning/product_chain.py` (sources, sampling, labels, small heads, scores) and `product_chain_train.py` (training, scoring, ledger rows); the renderer is T214's `run_chains` (now with a per-chain input gain and a stage hook).
+
+- `plan [--n 40000] [--n-lib-test 1000] [--n-prs-test 600] [--prs-frac 0.15] [--seed 233] [--shard 400] [--force]`: training DIs = drive-dataset-v1 `train` split P1/P2 files plus the training part of the human's prs-7-tone session (runs, open chords, palm mutes, first half of the free playing); evaluation = the `test` split files and the held-out session part (free playing second half, E5/A5/D5). P3 is never read; the held-out session spans are checked disjoint. Input gain +-6 dB per excerpt (peak capped at -1 dBFS); the loud-frame level after the gain is stored. Writes `cache/product-chain-v1/chains.json`.
+- `render [--hosts 4] [--deadline "YYYY-MM-DD HH:MM"] [--hours H] [--chunk 24] [--max-busy X] [--max-shards N] [--est-s-per-chain S] [--ledger]`: block-serial, a fresh pool per stage, LoadGuard, -240 dBFS floor; evaluation shards first, then training shards; each shard written atomically; resumable; stops between shards when the next would end after the deadline, or on SIGTERM; refuses to run twice (`render.pid`). The EQ stage's curve (8 bands, 125 Hz-16 kHz) is measured during the render. `--ledger` adds a `render-cost / native / product-chain-v1` row.
+- `train [--threads N] [--arms lib,lib+prs] [--fractions 0.5,1] [--heads logreg,mlp] [--folds 3] [--epochs 60] [--aux-epochs 30] [--no-uncond] [--no-resume] [--ledger]`: writes `cache/product-chain-v1/results.{json,md}` and checkpoints under `cache/models/product-chain-v1/` (not `models/`; not adopted). Resumes per fit. `--ledger` adds `benchmark / native / product-chain-v1` rows.
+- `songs`: the heads on the seven T229 stems (input level from the T211 calibrated dry) next to the human's T211 drive, T230/T232 closest reverbs and the T229 EQ fit; `songs.{json,md}`; descriptive only, local.
+- `note [--note PATH]`: writes `docs/notes/product-chain-t233.md` from the files above.
+- `overnight --deadline "YYYY-MM-DD HH:MM" [--hosts 4] [--train-threads 4] [--plan-args "..."] [--train-args "..."] [--no-ledger] [--no-board] [--note PATH] [--models DIR]`: one unattended supervisor: proc_check, plan (if none), render to the deadline, proc_check, train (nice 15), songs, note, board line T233 marked done, proc_check. Status in `cache/product-chain-v1/overnight/status.txt`, log `overnight.log` (children: `render.log`, `train.log`, ...); refuses to start a second supervisor (`supervisor.pid`). With `--out` in a scratch folder plus `--no-ledger --no-board` it is the smoke run.
+
+```bash
+TONEMATCH_AGENT=learning nohup caffeinate -i nice -n 10 .venv/bin/python scripts/product_chain_t233.py overnight --deadline "2026-10-26 20:00" --hosts 4 --train-threads 4 > cache/product-chain-v1/nohup.log 2>&1 &
+cat cache/product-chain-v1/overnight/status.txt
+.venv/bin/python scripts/product_chain_t233.py overnight --out /tmp/pc-smoke --deadline "2026-10-26 23:00" --plan-args "--n 48 --shard 16" --train-args "--epochs 3" --no-ledger --no-board --note /tmp/pc-smoke/note.md
+```
+
+**Safety.** Native only, no pedal; the human's session audio and the song stems are read locally and never copied out; features and numbers only on disk. At most 4 hosts, nice 10 (renders) and 15 (training). Stop with `kill $(cat cache/product-chain-v1/overnight/supervisor.pid)`: the render finishes its current shard and closes its hosts, a training child is stopped, proc_check runs; never a pattern kill. Results: `docs/notes/product-chain-t233.md`.
+
+### `finetune_knobs.py` (result manifest: to add; owned by search; [T209](../board/TASKS.md#t209 "Knob fine-tuning on the seven T207 picks"))
+
+**What it does.** Knob fine-tuning for the seven songs' [T207](../board/TASKS.md#t207 "All seven songs (human 2026-10-22 \"render the dry tracks for all of…") matches (human 2026-10-22). The model is fixed (`cache/matches/<song>-dryrebuild/result.json`, `finals[0]`); the same rebuilt dry DI, window and target as [T207](../board/TASKS.md#t207 "All seven songs (human 2026-10-22 \"render the dry tracks for all of…"); a local search of ALL the model's free knobs around the coarse-grid point (`src/tonematch/search/afx_refine.py`) scored by the AFx-Rep distance of the render to the separated guitar (no mask). One Native host per song, at most `--jobs` at once, a busy-core guard before each launch and generation. Writes a LUFS-matched listening pack and the fine-tuned preset. A distance that falls is not an ear verdict.
+
+**Needs.** Native, the [T207](../board/TASKS.md#t207 "All seven songs (human 2026-10-22 \"render the dry tracks for all of…") results, the rebuilt dry at play level (`data/songs/<song>-rebuilt/playlevel/`), the separated stems. Local only.
+
+**Inputs.** `--songs a,b` (required; song ids resolved through `src/tonematch/songs.py`, no song is built in), `--budget N` (renders per song, 96), `--jobs N` (3), `--patience N` (6), `--seed N` (0), `--variant SUFFIX` (reads `<song>-dryrebuild<SUFFIX>` and `playlevel<SUFFIX>`, writes `<song>-finetune<SUFFIX>`, so a calibrated-guitar or chord rebuild runs beside the first). `--stems-dir`, `--match-dir`, `--dry-dir`, `--out` (explicit folders instead of the id-derived ones; exactly one song; [T217](../board/TASKS.md#t217 "End-to-end song to drive-block preset command")), `--lock-level-knobs` (keeps Output/Master at the model defaults; off by default, not approved by the human). `--worker` is internal (the per-song child).
+
+**Outputs.** `cache/matches/<song>-finetune[<variant>]/`: `result.json` (distance before and after, renders, wall time), `best.hlx` with `best.validate.md`, `listen/` (target, match, [T207](../board/TASKS.md#t207 "All seven songs (human 2026-10-22 \"render the dry tracks for all of…") match, A/B), `run.log`.
+
+```bash
+.venv/bin/python scripts/finetune_knobs.py --songs mother --budget 96 --jobs 1
+.venv/bin/python scripts/finetune_knobs.py --songs mother,ds-sample --jobs 3 --variant=-prs
+.venv/bin/python scripts/finetune_knobs.py --songs mother --stems-dir cache/stems/2ec11f9795be822e/htdemucs_6s --match-dir cache/matches/mother-dryrebuild --dry-dir data/songs/mother-rebuilt/playlevel --out cache/matches/mother-ft
+```
+
+**Safety.** Native only, no pedal. Run `scripts/proc_check.py` before and after.
+
+### `colour_pilot_t228.py` (owned by search; [T228](../board/TASKS.md#t228 "Colour pilot"))
+
+**What it does.** The colour pilot (human 2026-10-25): per song, the fine-tuned drive match (a), plus delay and/or reverb found by direct measurement of the separated stem (b; a block only if present), a bounded EQ fitted on the long-term-spectrum ratio of stem to render (c; d = b + EQ), an amp block with no cab in place of the drive (e; AFx-Rep screen of 15 usage-ranked amps, then a CMA-ES fine-tune with Master locked), and two optional extras of mine (g: a fixed light Room reverb; h: a Parametric EQ with a high-cut). It also renders known effects onto the real stem to find what the measurement can see (controls). No cab block anywhere (human 2026-10-25). Measurement code is `src/tonematch/search/colour.py`. Nothing is adopted; the ear decides.
+
+**Needs.** Native, `cache/matches/<song>-finetune-prs7`, `data/songs/<song>-rebuilt/playlevel-prs7`, the separated stems, `reports/local/preset-corpus/model_usage.json`. Local only (song audio stays under `cache/colour-pilot-t228/`).
+
+**Inputs.** Step `run | pack | loadlist | ledger | ledgerfix | table | eqstudy`; `--songs` (default mother seek-destroy teen-spirit), `--force`, `--seed` (pack letters, 228), and for `run`: `--redo-h` (only the Parametric EQ), `--redo-controls` (only the controls, saves their audio), `--remeasure` (offline, 0 renders: the evidence again from saved audio).
+
+**Outputs.** `cache/colour-pilot-t228/<song>/{audio,hlx,state.json}`, blind LUFS-matched packs `packs/<song>/` (variants a to e; identical audio is one clip) and `packs-extra/<song>/` with answer sheets and sealed keys, `stomp-load/<song>-<variant>/` folders for `stomp_live_preview.py`, `load_list.md`, `eq_study.json`. Ledger: `search / native / colour-pilot-<song>-<variant|controls|total>`.
+
+```bash
+nice -n 10 .venv/bin/python scripts/colour_pilot_t228.py run --songs mother seek-destroy teen-spirit
+.venv/bin/python scripts/colour_pilot_t228.py pack && .venv/bin/python scripts/colour_pilot_t228.py loadlist
+```
+
+**Safety.** Native only, one host at a time behind `LoadGuard`; no pedal is touched (the load list is for the human). Run `scripts/proc_check.py` before and after. Results: [colour-pilot-t228](notes/colour-pilot-t228.md).
+
+### `reverb_pilot_t230.py` (owned by tone-metrics; [T230](../board/TASKS.md#t230 "Reverb-model pilot"))
+
+**What it does.** The reverb-model pilot (human 2026-10-25 "yes"): per song of the seven T229 songs, 27 reverb candidates (Room, Plate, Hall x Mix 0.25/0.35/0.50 x three Decay values per model chosen by impulse calibration at common RT60 targets 1.05/1.48/2.09 s; Predelay 11 ms, LowCut 150, HighCut 3700) rendered after the T229 chain c, plus the T229 r35 and p35 audio; four candidate signals per item computed before listening (AFx-Rep distance, note-tail statistics in real gaps, time-specialist regressors, envelope dip fill; `src/tonematch/metrics/reverb_signals.py`); one blind ranking page per song (6 candidates by a seeded design + 1 repeat, left = song's guitar, right = candidate, LUFS-matched); a pre-registered scorer run only after the human has answered. Nothing is adopted; the tool never judges audio.
+
+**Needs.** Native; `cache/colour-t229/<song>/` (T229 audio, state, hlx); the AFx-Rep checkpoint; the time-specialist seed bank `cache/time-specialist/seeds.json`. Local only.
+
+**Inputs.** Step `calibrate | prereg | amend | render [--songs ...] [--check-t229] | signals | build [--rebuild] | hlx | ledger | score [--no-ledger]`. `prereg` refuses to overwrite a different registration; `amend` refuses once the pages exist; `build` refuses without a registration and sealed signals, and refuses to overwrite existing pages without `--rebuild`; `score` refuses if the registration or the sealed signals changed after the build.
+
+**Outputs.** `cache/reverb-pilot-t230/` (calibration, candidate audio, `sealed/signals.json`, `<song>/hlx/<candidate>/best.hlx`, `load_list.md`, `render_counts.json`); pages `reports/local/ratings/reverb-pilot-v1/` (index + one per song, `trials.json` without labels); key and registration `cache/ratings/reverb-pilot-v1.{key,prereg}.json`; after scoring `reports/local/ratings/reverb-pilot-v1.results.{json,txt}`. Ledger: `benchmark / native / reverb-pilot-v1 / trials_built, renders`; `score` adds `ab / reverb-pilot-v1` rows.
+
+```bash
+nice -n 10 .venv/bin/python scripts/reverb_pilot_t230.py calibrate && .venv/bin/python scripts/reverb_pilot_t230.py prereg
+nice -n 10 .venv/bin/python scripts/reverb_pilot_t230.py render --check-t229 && nice -n 10 .venv/bin/python scripts/reverb_pilot_t230.py signals
+.venv/bin/python scripts/reverb_pilot_t230.py build && .venv/bin/python scripts/reverb_pilot_t230.py hlx
+.venv/bin/python scripts/reverb_pilot_t230.py score      # only after the human has downloaded the answers
+```
+
+**Safety.** Native only, one host behind `LoadGuard`, nice 10; no pedal is touched (the load list is for the human). Run `scripts/proc_check.py` before and after. Results: [reverb-pilot-t230](notes/reverb-pilot-t230.md).
+
+### `reverb_estimator_t231.py` (owned by tone-metrics; [T231](../board/TASKS.md#t231 "Blind reverb estimator"); measurement only, nothing adopted)
+
+**What it does.** Blind reverb estimation from a running signal with no dry reference and no silent gaps (`src/tonematch/metrics/reverb_blind.py`): three estimators (spectral decay distribution, Ratnam's maximum-likelihood decay rate, abandonment-synchronous decay averaging `adc`) read a decay time (RT60), a tail level (early_db, tracks the Mix) and two weak type features. `synth` checks them on noise bursts with a known tail; `validate` reads the 189 T230 candidates, the pre-reverb renders, the rebuilt dry, the T229 stems and the T228 controls (known type, Mix, tail length; 0 renders); `songs` reads the full-length separated stems and full mixes with bootstrap intervals; `compare` is a post hoc agreement check against the human's T230 ranks; `ledger` appends the rows.
+
+**Needs.** `cache/reverb-pilot-t230/`, `cache/colour-t229/`, `cache/colour-pilot-t228/`, `cache/stems/<hash>/htdemucs_6s/`, and for `compare` the T230 key and the human's answers. Local only. Order matters: `synth`, `validate`, `songs`, `compare`, `ledger`.
+
+**Inputs.** `synth | validate [--songs ...] | songs [--songs ...] [--boot N] | compare | ledger`.
+
+**Outputs.** `cache/reverb-estimator-t231/{synth,validate,songs,compare}.{json,txt}`. Ledger: `benchmark / - / reverb-estimator-v1` (synthetic within-15% rates, decay-rank accuracy per estimator, Mix monotonicity, per-song full-stem RT60, post hoc mean rho).
+
+```bash
+.venv/bin/python scripts/reverb_estimator_t231.py synth
+nice -n 10 .venv/bin/python scripts/reverb_estimator_t231.py validate && nice -n 10 .venv/bin/python scripts/reverb_estimator_t231.py songs
+.venv/bin/python scripts/reverb_estimator_t231.py compare && TONEMATCH_AGENT=tone-metrics .venv/bin/python scripts/reverb_estimator_t231.py ledger
+```
+
+**Safety.** No engine, no pedal, no renders; CPU only (about a minute for everything). Results: [reverb-estimator-t231](notes/reverb-estimator-t231.md).
+
+### `reverb_confirm_t232.py` (owned by tone-metrics; [T232](../board/TASKS.md#t232 "Pre-registered confirmation of the T231 reverb estimator"); measurement only, nothing adopted)
+
+**What it does.** A pre-registered listening check of the T231 blind reverb estimator on Mother and Territorial Pissings. `register` reads the decay time and tail level from each song's full separated stem, applies the fixed T231 distance rule to the 29 reverb items already on disk (27 T230 candidates and the T229 r35 / p35), names the closest and the furthest, seals the 29 readings and writes the registration (text and sha256) before any page exists. `build` makes one blind page per song: the named closest, the named furthest, four others by a seeded design covering every type, Mix and decay length, and one repeat, left ear the song's guitar, right ear the candidate, loudness-matched; answer sheets; a sealed key. `score` runs the registered analysis on the human's ranks. The tool never judges audio.
+
+**Needs.** `cache/reverb-pilot-t230/<song>/audio/`, `cache/colour-t229/<song>/audio/`, `cache/reverb-estimator-t231/`, the full stems in `cache/stems/`, the T230 key and answers (for the registration's disclosure of what the human heard before). Local only. 0 renders.
+
+**Inputs.** `register | build [--rebuild] | ledger | score [--no-ledger]`. `register` refuses to overwrite a different registration; `build` and `score` refuse if the registration text, its hash pinned in the script (`REGISTERED_SHA256`), the sealed estimates or (for `score`) the sealed key changed; `build` refuses to overwrite pages without `--rebuild`.
+
+**Outputs.** `cache/reverb-confirm-t232/{prereg.json,prereg.txt,sealed/estimates.json,key.sha256}`; registration and key `cache/ratings/reverb-confirm-v1.{prereg,key}.json`; pages `reports/local/ratings/reverb-confirm-v1/` (index with "Download all answers", one page per song, `trials.json` without labels); after scoring `reports/local/ratings/reverb-confirm-v1.results.{json,txt}`. Ledger: `benchmark / - / reverb-confirm-v1 / trials_built`; `score` adds `ab / - / reverb-confirm-v1` rows.
+
+```bash
+.venv/bin/python scripts/reverb_confirm_t232.py register && .venv/bin/python scripts/reverb_confirm_t232.py build
+TONEMATCH_AGENT=tone-metrics .venv/bin/python scripts/reverb_confirm_t232.py ledger
+.venv/bin/python scripts/reverb_confirm_t232.py score      # only after the human has downloaded the answers
+```
+
+**Safety.** No engine, no pedal, no renders; CPU only (a few seconds). Results: [reverb-confirm-t232](notes/reverb-confirm-t232.md).
+
 ## Internal helpers
 
 Not meant to be run on their own for a result. Libraries with a thin or no command line, comparison helpers for one dev run, or bookkeeping. Several have no `--help` (`parity_snap.py`, `rating_session.py`, `task_links.py`, `evidence_links.py`, `corpus_report.py`, `devmod2_pair.py`, `devmod2_make.py`), and `devmod2_make.py` runs its work at import: do not call these to see what they do.
 
 | Script | What it is |
 |---|---|
-| `distortion_step4_analysis.py` | Library for `distortion_step4.py analyse` / `ledger` (T181): twin fitting in worker processes, the dev calibration, baselines, condition B, the summary and the ledger rows. |
+| `gate3_set.py` | Gate 3 sealed blind set `gate3-v1` ([T223](../board/TASKS.md#t223 "Blind validation of AFx-Rep against separated stems and Gate 3 set")): `generate` draws and renders 120 single-drive targets on the reserved player P3 and seals the labels, `verify` rechecks the hashes, `score` runs the registered scoring (needs `--launched-by`); driven by the `gate3-set` skill. |
+| `rating_rank.py` | Blind validation of AFx-Rep distance against separated stems ([T223](../board/TASKS.md#t223 "Blind validation of AFx-Rep against separated stems and Gate 3 set")): `build` a rank and pair pack with a pre-registered analysis, `play` trials on the pedal outputs, `score` after the human has answered; driven by the `afx-stem-validation` skill. |
+| `distortion_step4_analysis.py` | Library for `distortion_step4.py analyse` / `ledger` ([T181](../board/TASKS.md#t181 "Step 4: identify model and settings from real guitar takes at random…")): twin fitting in worker processes, the dev calibration, baselines, condition B, the summary and the ledger rows. |
 | `parity_snap.py` | Library: writes the CC-snapped knob values into a Stomp `.hlx` so the 128-step CC grid is never scored as an engine difference (used by `parity_spot`, `parity_timefx`, `parity_timefx_stimuli`). |
+| `di_invariance_check.py` | Measurement script for the DI-invariance ratio check (T221, 2026-10-23): `run --jobs 3` scores cached cross-DI renders, `report [--ledger]` writes the tables; results in docs/notes/di-invariance-check-2026-10-23.md. |
 | `task_links.py` | Library behind `link_tasks.py`: turns task ids into links to their board anchors. |
 | `evidence_links.py` | Library: turns ledger-row and DECISIONS citations into links with hover text, in Markdown and HTML (status report, local site). |
 | `rating_session.py` | Library for the withdrawn rating session v1; used through `ab_session.py rating-build`. |
 | `rating_v2.py` | Library for human-ratings-v2 (hidden Helix settings over your own take); used through `ab_session.py rating-build-v2`. |
 | `rating_v3.py` | Library for human-ratings-v3 (hard pairs where the scores disagree, over your own take); used through `ab_session.py rating-build-v3`. |
 | `rating_v4.py` | Library for human-ratings-v4 (near-twin models vs large knob moves, over your own take); used through `ab_session.py rating-build-v4`. |
-| `rating_v5.py` | Library for human-ratings-v5 (T185 blind predictions re-rendered on the target's own DI: AFx-ordered pick vs provisional-ordered pick); used through `ab_session.py rating-build-v5`. |
+| `rating_v5.py` | Library for human-ratings-v5 ([T185](../board/TASKS.md#t185 "Larger no-DI drive e2e measurement") blind predictions re-rendered on the target's own DI: AFx-ordered pick vs provisional-ordered pick); used through `ab_session.py rating-build-v5`. |
 | `synthetic_benchmark.py` | Manifest, label generator, metrics and cost estimate behind the `synthetic-benchmark` skill; the runnable harness is `synthetic_v1.py`. |
 | `corpus_report.py` | Library for `chain_patterns.py --corpus`: corpus statistics and the README under `reports/local/preset-corpus/`. |
 | `drive_seed_eval.py` | Offline check of the drive calibration table on a dev set's saved targets (no renders). |
@@ -1195,16 +1455,18 @@ One-off experiments and live checks, kept for the record. Their findings are in 
 
 | Script | What it was |
 |---|---|
-| `drive_anomaly_t194.py` | T194: retrain-only measurement that traced the drive-dataset Drive regression to DI input level (docs/notes/drive-anomaly-t194.md). |
-| `ds_sample_reference_chain.py` | T197: loads the DS-Sample tutorial reference chain onto the Stomp edit buffer, reamps a take through it (`capture`), and restores 04C (`restore`). Capture re-writes the stored chain, so it overwrites hand edits on the pedal. |
-| `ds_sample_tune_t198.py` | T198: Native template capture of the reference chain, three-arm tuning (mrstft_v2 above 250 Hz, full range, AFx-Rep), Stomp confirmation, rating session v6. |
-| `ds_sample_tune_t199.py` | T199: refine version c with the cab High Cut freed; Stomp confirmation; rating session v7. |
-| `encoder_swap_t195.py` | T195: PANNs and DAC against AFx-Rep as the drive-predictor encoder on a drive-dataset-v1 subset (render, embed, train). |
-| `predictor_pilot_v0.py` | T186 drive-only predictor pilot: a small log-mel CNN trained on drive renders on disk, held-out DI files; measurement only (docs/notes/predictor-pilot-v0.md). |
-| `predictor_pilot_v0_afx.py` | T186 paired baseline: frozen AFx-Rep embeddings plus a logistic-regression head on the same split. |
-| `predictor_pilot_v0_paired.py` | T186 paired comparison of the CNN and the AFx-Rep head per test file, with bootstrap intervals. |
-| `predictor_pilot_v1_embed.py` | T189: frozen AFx-Rep embeddings for predictor-pilot-v1 (6 s centre crop, reused from T186, plus three 3.33 s crops per 10 s clip); CPU, 2 threads, resumable; about 54 min for 14,631 clips. |
-| `predictor_pilot_v1.py` | T189 drive-only predictor pilot v1: small heads (hierarchical logistic regression + ridge, or an MLP) on frozen AFx-Rep, single vs multi-crop, multi-file calibration, within- and cross-player arms; measurement only (docs/notes/predictor-pilot-v1.md). |
+| `colour_t229.py` | [T229](../board/TASKS.md#t229 "Colour comparison on seven songs"): colour comparison on seven songs, variants a (drive match), c (+ fitted Graphic 10 Band), r25 / r35 (+ Room) and p35 (+ Plate) on Native; `run`, `compare`, `loadlist`, `ledger`, `table` (docs/notes/colour-t229.md). |
+| `dry_ablation_t224.py` | [T224](../board/TASKS.md#t224 "Dry-signal ablation"): the same drive search run on five dry inputs per song (library DI, plain rebuild, envelope rebuild, own take, level-only arm); `prep`, `run`, `ledger`, `pack` (docs/notes/dry-ablation-t224.md). Its `level_match_pack` is reused by later listening packs. |
+| `drive_anomaly_t194.py` | [T194](../board/TASKS.md#t194 "Explain the Drive anomaly"): retrain-only measurement that traced the drive-dataset Drive regression to DI input level (docs/notes/drive-anomaly-t194.md). |
+| `ds_sample_reference_chain.py` | [T197](../board/TASKS.md#t197 "DS-Sample reference chain on the Stomp"): loads the DS-Sample tutorial reference chain onto the Stomp edit buffer, reamps a take through it (`capture`), and restores 04C (`restore`). Capture re-writes the stored chain, so it overwrites hand edits on the pedal. |
+| `ds_sample_tune_t198.py` | [T198](../board/TASKS.md#t198 "Tune the DS-Sample reference chain"): Native template capture of the reference chain, three-arm tuning (mrstft_v2 above 250 Hz, full range, AFx-Rep), Stomp confirmation, rating session v6. |
+| `ds_sample_tune_t199.py` | [T199](../board/TASKS.md#t199 "Refine DS-Sample version c with the cab High Cut freed"): refine version c with the cab High Cut freed; Stomp confirmation; rating session v7. |
+| `encoder_swap_t195.py` | [T195](../board/TASKS.md#t195 "Permissive encoders PANNs and DAC vs AFx-Rep on a drive-dataset-v1…"): PANNs and DAC against AFx-Rep as the drive-predictor encoder on a drive-dataset-v1 subset (render, embed, train). |
+| `predictor_pilot_v0.py` | [T186](../board/TASKS.md#t186 "Predictor pilot v0, drive only, on renders on disk") drive-only predictor pilot: a small log-mel CNN trained on drive renders on disk, held-out DI files; measurement only (docs/notes/predictor-pilot-v0.md). |
+| `predictor_pilot_v0_afx.py` | [T186](../board/TASKS.md#t186 "Predictor pilot v0, drive only, on renders on disk") paired baseline: frozen AFx-Rep embeddings plus a logistic-regression head on the same split. |
+| `predictor_pilot_v0_paired.py` | [T186](../board/TASKS.md#t186 "Predictor pilot v0, drive only, on renders on disk") paired comparison of the CNN and the AFx-Rep head per test file, with bootstrap intervals. |
+| `predictor_pilot_v1_embed.py` | [T189](../board/TASKS.md#t189 "Drive predictor pilot v1"): frozen AFx-Rep embeddings for predictor-pilot-v1 (6 s centre crop, reused from [T186](../board/TASKS.md#t186 "Predictor pilot v0, drive only, on renders on disk"), plus three 3.33 s crops per 10 s clip); CPU, 2 threads, resumable; about 54 min for 14,631 clips. |
+| `predictor_pilot_v1.py` | [T189](../board/TASKS.md#t189 "Drive predictor pilot v1") drive-only predictor pilot v1: small heads (hierarchical logistic regression + ridge, or an MLP) on frozen AFx-Rep, single vs multi-crop, multi-file calibration, within- and cross-player arms; measurement only (docs/notes/predictor-pilot-v1.md). |
 | `native_spike.py` | T002/T013: can a whole preset be written into Helix Native's saved state from code. |
 | `native_drop_load.py` | [T018n](../board/TASKS.md#t018n "Hands-off Native loading") prototype: hands-off chain capture by in-process file drop (macOS). |
 | `native_capture_bench.py` | Times Native chain captures step by step (one host per file against one editor session). |
@@ -1238,6 +1500,8 @@ One-off experiments and live checks, kept for the record. Their findings are in 
 | `stomp_twopath_random.py` | [T071](../board/TASKS.md#t071 "Two-path parity on the Stomp"): two-path parity on a random chain. |
 
 All `stomp_*` spikes drive the pedal and follow the pedal rules; do not run them while stomp-engine is fixing the USB freeze ([T168](../board/TASKS.md#t168 "TOP PRIORITY (human 2026-10-18 \"fix the stomp freezing issue")). Their result manifest is "to add" only if one is promoted to a tool.
+| `t200_run.py` | [T200](../board/TASKS.md#t200 "Blind single-drive matches of five songs the human added to data/songs"): picks a Guitar-TECHS DI as `match_song` does and runs the blind predictor-first drive match for one song id on a window from `t200_windows.py` (`--dry-run` prints the plan). Local only (docs/notes/five-songs-t200.md). |
+| `t200_windows.py` | [T200](../board/TASKS.md#t200 "Blind single-drive matches of five songs the human added to data/songs"): picks one loud, distorted, high-confidence 10 s guitar window per separated song by a stated rule (LUFS near the 90th percentile, crest at or below the median, highest separator confidence); prints numbers only. |
 
 ## Checking this document
 

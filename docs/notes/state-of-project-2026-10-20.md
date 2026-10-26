@@ -45,3 +45,19 @@ There is real progress, but it is narrow. The drive-identification pipeline work
 - new scoring methods;
 - further ratings of easy same-performance pairs;
 - further DS-Sample refinement.
+
+## Corrections 2026-10-23 (status-reporter, from the methodology audit section 6)
+
+The text above is kept as written on 2026-10-20. The following rows of it overstate their evidence (see [methodology-audit-2026-10-23.md](methodology-audit-2026-10-23.md) sections 1 and 6, and [project-analysis-2026-10-23.md](project-analysis-2026-10-23.md)). Evidence classes: A blind, sealed set, pre-registered bar; B blind, unsealed; C open listen by the human; D numbers only on an unadmitted metric or without a bar; E none.
+
+| Row above | Said | Correction | Class |
+|---|---|---|---|
+| AFx-Rep final ranking vs the provisional score | "Strong: two independent tests" ([T185](../../board/TASKS.md#t185 "Larger no-DI drive e2e measurement"), v5) | One experiment heard, not two independent tests: v5 rated [T185](../../board/TASKS.md#t185 "Larger no-DI drive e2e measurement")'s own picks on [T185](../../board/TASKS.md#t185 "Larger no-DI drive e2e measurement")'s targets. The direction (18 vs 3) is confirmed on 21 decided same-performance trials; the 39% vs 10% top-1 is on unadmitted metrics, same engine and players. | D + B |
+| Measured-pedal mode (simulation), listed under "What is working" | "Model 96%, Drive 85%, Tone 90%" | Built, simulation only, never run on a pedal. It does not belong under "working"; it is an unverified build. | D |
+| Predictor-first matcher, blind | "Strong (48 targets, McNemar p 1e-5)" | Unsealed set drawn by `search` after the method was built; no bar; Helix against Helix; the human's own-take cells are not significant (p 0.13 and 1.0). | D |
+| DS-Sample tuned chain (version c) | "Beat the tutorial blind (4.0 vs 2.5, v6)" | 8 trials, 6 decided, 1 of 2 repeats consistent, one song, one window; arm c's EQ sits at the ±12 dB limit on 8 of 10 bands; c2 improved the score and was heard as identical (v7). Directional only; it does not show that a whole chain can be tuned by ear-checked search. | B + C |
+| Mother, drive only | "it sounded pretty good" | As stated: one section, open, one pass, no alternative heard. | C |
+| Knobs unreliable (lower table) | "Drive within ±0.15 in about 50–70% of cases" | The earlier "15 of 17" figure did not hold at n = 96 (52%); the v2 note carries the correction, the v1 note does not. | D |
+| Infrastructure, "matching cost down about 30×" | | True for Helix single-drive targets (144 matches); not shown on a song. | D |
+
+General: no claim in this note rests on a blind test with a sealed set and a pre-registered bar. Gate 2, the one gate run that way, was judged "garbage" / unusable by the human ([DECISIONS 2026-10-18 model and method decisions](../../docs/DECISIONS.md#2026-10-18-human-recorded-by-lead-model-and-method-decisions-require-the-humans-approval-the-current-model-is-judged-unusable "2026-10-18 (human, recorded by lead): model and method decisions require the human's approval; the current model is judged unusable")) and is unsigned with [T152](../../board/TASKS.md#t152 "Gate 2 confirmation run on a fresh sealed synthetic-v4 with the…") (confirmation run) and [T155](../../board/TASKS.md#t155 "Test-validity checks") (harness sanity checks) open. The admitted known-DI score (mrstft_v2 + level_db) is unapproved and at chance on hard same-performance pairs (v3: 10 of 25). The human's test-retest consistency on repeated blind pairs is 7 of 12 (v2–v7), so the 2–28-trial sessions quoted here are directional, as the note's own "small listening samples" row says. Reflected in `reports/status/` the same day.

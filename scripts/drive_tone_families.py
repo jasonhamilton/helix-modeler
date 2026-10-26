@@ -45,8 +45,10 @@ FP3 = ROOT / "cache" / "distortion-fp" / "dfp-v1"
 FP_DIR = ROOT / "cache" / "distortion-fp" / "dfp-v1-tone-ends"
 OUT_T = ROOT / "reports" / "local" / "distortion-id" / "tone-ends"
 OUT_F = ROOT / "reports" / "local" / "distortion-id" / "families"
-DATA_T = ROOT / "data" / "knob_sensitivity.json"   # the second path search T178 reads
-DATA_F = ROOT / "data" / "drive-families-v1.json"
+from tonematch import drive_maps as DMAPS  # noqa: E402
+
+DATA_T = DMAPS.maps_dir(ROOT) / DMAPS.SENSITIVITY_NAME   # cache/drive-maps/, where search T178 reads
+DATA_F = DMAPS.maps_dir(ROOT) / DMAPS.FAMILIES_NAME
 K_RULE = ("consensus of Ward partitions on resamples (settings bootstrap + 20% feature dropout); k in 4..16 "
           "with the two half-consensus partitions agreeing at ARI >= 0.9 and at most 2 single-model families of "
           "unflagged models, then the lowest PAC")
@@ -415,6 +417,7 @@ def cmd_families(a) -> dict:
             "member_confidence": {m: round(member_stab[m], 3) for m in ms},
             "member_confidence_meaning": "mean share of resamples in which the model sits with its family mates",
             "second_choice": {m: {"family": fid(v["family"]), "coassoc": v["coassoc"]} for m, v in second.items()}}
+    DATA_F.parent.mkdir(parents=True, exist_ok=True)
     DATA_F.write_text(json.dumps(P._clean(data), indent=1))
     # figures
     ser = [(ks, [stab[x]["halves_ari"] for x in ks], "two halves agree (ARI)", S01.COLORS[0], False),

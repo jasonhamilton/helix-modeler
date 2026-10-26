@@ -12,8 +12,8 @@ later, from the audio.
 Local only: the song and the takes stay under data/songs/ (gitignored). Never upload or commit them.
 
     python scripts/playalong_record.py --check            # 3 s silent level meter: play a few notes
-    python scripts/playalong_record.py --takes 3          # three takes, 10 s countdown before each
-    python scripts/playalong_record.py --takes 1 --seconds 20 --level-db -12
+    python scripts/playalong_record.py --song-id my-song --takes 3          # three takes, 10 s countdown before each
+    python scripts/playalong_record.py --pack data/songs/my-song-playalong --takes 1 --seconds 20 --level-db -12
 
 Before running: the preset's Input block must be the guitar input (Main L/R or Multi), NOT "USB 5/6",
 or the Stomp will not hear the guitar. Leave the pedal on its original preset afterwards.
@@ -35,7 +35,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from tonematch import cli_result, reamp
 
-PACK = ROOT / "data" / "songs" / "mother-playalong"
+SONGS = ROOT / "data" / "songs"
 BACKING = "1_backing_no_guitar_with_countin.wav"
 FULL_MIX = "3_full_mix_with_countin.wav"
 NO_CLICK = {BACKING: "5_backing_no_guitar.wav", FULL_MIX: "4_full_mix.wav"}  # same audio, click count-in removed
@@ -89,7 +89,8 @@ def countdown(s: int) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--pack", type=Path, default=PACK)
+    ap.add_argument("--song-id", default=None, help="song id: the pack is data/songs/<id>-playalong/")
+    ap.add_argument("--pack", type=Path, default=None, help="play-along pack folder (backing wavs inside; takes go to <pack>/takes/)")
     ap.add_argument("--backing", default=BACKING)
     ap.add_argument("--with-guitar", action="store_true",
                     help="play the full mix (original guitar included) instead of the backing without guitar")
@@ -102,6 +103,10 @@ def main(argv=None) -> int:
     ap.add_argument("--check", action="store_true", help="3 s of silence out; report the input levels")
     cli_result.add_result_arg(ap)
     a = ap.parse_args(argv)
+    if a.pack is None and a.song_id:
+        a.pack = SONGS / f"{a.song_id}-playalong"
+    if a.pack is None and not a.check:
+        ap.error("give --song-id ID or --pack DIR (not needed with --check)")
     return cli_result.run(a, tool="playalong_record", body=lambda res: _run(a, res),
                           inputs={"pack": a.pack})
 

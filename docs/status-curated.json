@@ -8,31 +8,31 @@
  "assessments": {
   "health": {
    "value": "At Risk",
-   "rationale": "Gate 2 attempt 3, run once on the fresh sealed set of 96 known-answer items, met all seven checks of the frozen rule: category 0.885 (bar 0.85), model 0.771 (bar 0.60), settings error 0.101 (bar 0.15), ranking the true preset first 0.979 (bar 0.95), better than the random walk on model (+0.208, interval low end +0.094) and on settings (-0.083, whole interval below zero), and the consistency split, which carries no information on this set. The ranking check was amended by the human before the run so that two settings differing only in volume count as a tie; attempts 1 and 2 keep their figures under the old rule. The gate is not passed until the human signs. At Risk rather than On Track: pedal results still cannot be counted, real songs are unmeasured, the test is the known-clean-recording case only, and delay model accuracy is weak (5 of 12)."
+   "rationale": "Nothing is blocked, but the main bet is in doubt. The first blind listening on real songs (five songs, the five best drive candidates against the separated guitar) drew 'so bad I can't even compare them'. That contradicts the open listens of 22 October that called the same kind of match 'pretty good', and a blind listen is the stronger evidence. Nothing computed from a recording sets the reverb: a pre-registered pilot found no agreeing signal, and the estimator built afterwards held on one song of two. The pass bars for the sealed drive test are proposed, not approved, so the next product-level milestone cannot be scored. Gate 2 was closed as superseded on 25 October (its model was already judged unusable). The open bet is a predictor of the new product chain (drive, equaliser, reverb); its training data is still being rendered, so it has no result."
   },
   "technical": {
    "value": "Advancing",
-   "rationale": "Engineering advanced a long way on 2026-10-17 and 2026-10-18: specialists for each effect family, a crash-safe parallel job runner that scales to the machine's core count, a portable load measure, a level-aware tie rule for the ranking check, a gain-aware score term, and a mod-family prior. Attempt 3 moved category to 0.885 and model to 0.771 and met every check. Advancing is earned on the known-answer test only; real songs and the pedal are not yet advanced.",
+   "rationale": "Since 23 October: a sealed 120-item test for the drive stage, a file that pins the song-match defaults to what the human has approved, a colour comparison on seven songs, a reverb pilot, a blind reverb estimator validated on 189 known reverbs, and a pre-registered confirmation. An overnight job has rendered 37,998 of about 40,000 chains for the product-chain predictor. Advancing is earned on tooling and on negative results that narrowed the product, not on matching quality: no new capability has been verified on real songs, and the one blind song test was negative.",
    "breakdown": {
-    "implemented": "Control of both sound engines, preset reading and writing, guitar separation, a clean-guitar picker, tone-comparison measures (one admitted for the known-clean-recording case), an optimiser, a hybrid model-and-settings search, measured seeding, the 605-template Native library, the 96-item known-answer set and runner with the frozen pass rule, a block-presence detector, a chain-pattern prior, a chain builder (fake engines only), a cabinet-response estimator, a blind A/B tool, and verification suites for both engines. Since attempt 1: specialists for cabinet and equaliser, time-based effects, modulation, amp and gain, a family dispatcher, an elastic job runner, and a sealed fresh set (synthetic-v2).",
-    "integrated": "A hand-run script takes one prepared song section through separation, clean-guitar choice, search and preset export on one machine. The known-answer runner drives the hybrid search on the real Native engine. Nothing runs from a single command from a song to a pedal-checked preset; the chain builder has not been run on a real engine.",
-    "tested": "Last verified suite run: commit 68f0310, lint clean, 750 passed, 28 skipped on the committed set; no suite was run for this report (the lead runs it separately). Real Helix sound from Native was used for the tone-comparison test, the Native verification and the full 96-item known-answer run.",
-    "verified": "Software engine (Native): settings land exactly apart from recorded misses and renders repeat (216 of 216). Pedal: control, restore and layout agreement were verified on hardware earlier, but the new sampling checks found defects, and no pedal result counts until the residual USB slip is handled. Gate 2 attempt 1 measured model choice, category, settings and ranking on synthetic known-answer items. Matching on real songs is verified only by one informal listen. Gate 2 attempt 2 passed 6 of 7 checks and attempt 3 passed all 7 on 96 sealed synthetic items each (ledger 2026-10-18T15:46:15 for attempt 3), awaiting the human's sign-off.",
-    "unfinished": "The human's Gate 2 sign-off, delay model accuracy (5 of 12) and drive (7 of 12), the pedal-side fixes, the chain builder on a real engine, a one-command song-to-preset tool, blind listening, real-song separation measurement, and anything beyond macOS."
+    "implemented": "Everything in the previous report, plus: a sealed-set generator, verifier and scorer for Gate 3 (scorer not run); a blind ranking-pack builder and scorer; a dry-signal ablation driver; colour-stage builders (bounded equaliser fit, reverb candidate grid, comparison pages); a blind reverb estimator; the approved-methods file with a pinning test; and the product-chain render, training and seven-song table job (running).",
+    "integrated": "Still hand-run scripts: separation, a rebuilt clean guitar, a drive search and optional knob fine-tune, with the colour stage built as separate pilots. The estimator, the colour stage and the chain predictor are in no matcher. Nothing is one command, and nothing verifies on the pedal automatically.",
+    "tested": "Unit tests for each new module (reverb estimator 10, Gate 3 set, ranking pack, approved-methods pinning, colour, product chain). The estimator was validated on 189 known reverbs made in Helix Native; the reverb pilot and its confirmation were pre-registered and ranked blind by one listener.",
+    "verified": "On Helix Native renders only: the estimator on known reverbs (decay ordering 36 of 40 triples, mix always monotone), the human's ranking consistency in the reverb pilot (mean rank difference 0.33 against 2.67 by chance), and a null result for four candidate reverb signals. By ear: one negative blind session on drive-only matches, open preference for a light reverb on seven songs, one blind pack favouring the fitted equaliser on Mother. No real pedal has been matched, and nothing was scored against a bar the human approved.",
+    "unfinished": "Gate 3 bars (proposed, not approved) and any scoring of the sealed set; the product-chain predictor result (training not started); a reverb model; scoring of the stem-validation pack and the dry-ablation packs; a blind listen of the colour stage; matching on a real pedal; anything beyond macOS."
    }
   },
   "readiness": {
    "stage": "Prototype",
-   "rationale": "Important pieces are demonstrated: a real song was matched by a script and listened to, the tone comparison passes on single blocks with a known clean recording, and the known-answer run now meets every Gate 2 check (category 88.5 percent, model 77 percent of 96 sealed items, settings close). Gate 2 is not signed yet, so the system cannot be called Validated, and the pieces are not shown to work together from a song to a pedal-checked preset.",
-   "blocker_to_next": "Integrated needs one command from song to a pedal-checked preset, a chain builder that has run on a real engine, and a comparison that works without a lined-up clean recording. Validated also needs the human's Gate 2 sign-off."
+   "rationale": "At the low end of Prototype. A script turns a separated song into a rebuilt clean guitar, finds a drive effect and its knobs, and writes a preset that plays on the Stomp, and bolt-on pilots show a light reverb and a fitted equaliser can be built. But the one blind listening of the drive-only matches was negative, so the demonstration is weaker than the open listens suggested. It is not Integrated: the steps are hand-run, the colour stage and the chain predictor are in no matcher, the reverb has no model, and the pedal check is manual. It is not Validated: no gate has been scored on a bar the human approved.",
+   "blocker_to_next": "Integrated needs the product chain (drive, equaliser, reverb) predicted together from a song, run from one command, with the preset checked on the pedal. Today the drive match was rated badly blind, the reverb has no model and the chain predictor has no result. Validated also needs the Gate 3 bars approved, the sealed set scored once, and a blind listen that goes the right way."
   }
  },
- "summary": "The goal is a tool that listens to a recorded guitar tone and builds a matching preset for the HX Stomp pedal. The third attempt at Gate 2, the known-answer test on 96 single effects, met all seven agreed checks: the tool names the effect category 88.5 percent of the time and the exact model 77 percent, finds close settings, beats a random-guess baseline, and its comparison score ranks the true preset first on 94 of 96 items. The gate is not passed until the owner signs it. The ranking check was relaxed by the owner beforehand so that settings differing only in loudness count as a tie, and this is the known-clean-recording case only. The weakest effect is now delay (5 of 12 exact models, mostly one delay mistaken for another). Nothing yet turns a song into a finished preset in one step.",
+ "summary": "The goal is a tool that turns a song into an HX Stomp preset that sounds like the recorded guitar. This week the first blind listening on real songs came back negative: the human said the drive-only matches were so poor they could not even be compared, although earlier open listens called them pretty good. The human then narrowed the product to a drive effect, an equaliser and a light reverb, with no amp, cabinet or delay. A light reverb is preferred by ear, but nothing measured from the recording picks it reliably: one song confirmed a reverb estimator and one did not. A sealed blind test for the drive stage exists, but its pass bars await the human's ruling. An overnight job is rendering training data for a chain predictor and has no result yet.",
  "biggest_problem": {
-  "issue": "delay-model-accuracy",
-  "why": "With Gate 2 awaiting the owner's sign-off, the weakest measured part of the method is delay: the exact model was named on only 5 of 12 delay items on the sealed set (drive 7, amp 8; cabinet 12). Four of the seven misses name a different delay model, which may still sound close, and three name a different kind of effect. It is not a gate issue, but delay is common in real tones, so it is the next target for the search and the next thing to listen to (the Gate 2 page has the delay misses with the target on the left channel and our guess on the right)."
+  "issue": "no-stem-signal",
+  "why": "The product promises a preset that sounds like the recorded guitar, and the first blind listening on real songs said the current drive-only matches do not. Reverb, the next stage the human wants, has no usable signal either. Until a model tied to what the human hears beats a sealed baseline and passes a blind listen, the tool cannot know whether a candidate is closer, so more search or tuning would be steering by an instrument the ear has not validated. The open bet is a predictor trained on drive, equaliser and reverb chains; it is still rendering its data."
  },
- "ear_qualifier": "informal, not blind",
+ "ear_qualifier": "open listening, one negative blind session",
  "milestones": {
   "Gate 1": {
    "tier": "Foundational",
@@ -56,17 +56,17 @@
   },
   "Gate 2": {
    "tier": "Core method",
-   "state": "At Risk",
+   "state": "Superseded",
    "goal": "Show the tool can recover a known answer: given audio made from a preset we already know, its comparison measure picks the true preset and its search finds the right blocks and settings, at thresholds agreed in advance.",
    "criteria_plain": [
     "On the known-answer set, the tone-comparison measure ranks the true preset first at the agreed threshold.",
     "Block types, amp and effect models, and parameter values are identified within the agreed accuracy.",
     "A curve showing how accuracy falls as guitar separation gets worse has been recorded."
    ],
-   "demonstrated": "Attempt 3 ran on all 96 sealed synthetic-v3 items (ledger 2026-10-18T15:46:15): all 7 checks met. Category 0.885 (bar 0.85), model 0.771 (bar 0.60), settings error 0.101 (bar 0.15), ranking the true preset first 0.979, 94 of 96 (bar 0.95; misses i039 and i095, both cabinets), model against the random walk +0.208 (interval low end +0.094, needs -0.05), settings against the random walk -0.083 (whole interval below zero). The consistency split carries no information on this set. The ranking check used the owner's extended rule B (volume-only matches count as ties), amended before the run; attempts 1 and 2 keep their old-rule figures (attempt 1 met 5 of 7, attempt 2 met 6 of 7, rank-1 0.9375). The separation stress curve is ticked from 2026-10-16. Only the owner's sign-off is missing.",
-   "remaining": "The owner's sign-off. Later work (not a gate condition): delay model accuracy, drive, and real songs.",
-   "blocking": "Awaiting the owner's sign-off (2026-10-18). No check is failing.",
-   "next_action": "Owner: sign Gate 2 or say what is missing. The gate ledger row is written only with the sign-off.",
+   "demonstrated": "Attempt 3 ran on all 96 sealed synthetic-v3 items (ledger 2026-10-18T15:46:15): all 7 checks met on paper. Category 0.885 (bar 0.85), model 0.771 (bar 0.60), settings error 0.101 (bar 0.15), ranking the true preset first 0.979, 94 of 96 (bar 0.95), model against the random walk +0.208, settings against the random walk -0.083. The ranking check used the owner's extended rule B, amended before the run; attempts 1 and 2 keep their old-rule figures. The separation stress curve is ticked from 2026-10-16. The human's verdict the same day (DECISIONS 2026-10-18 model and method decisions): 'the model we created is garbage. Something is flawed in our testing and/or our methodology'; every lead-made method ruling behind the gate, including the admitted score and the pass claim, is treated as unapproved until the human reviews it. Still open: the confirmation run on a fresh sealed set with the attempt-3 configuration unchanged (T152) and the harness sanity checks (T155). The independent audit adds that the admitted score changed between attempts, the model bar of 0.60 sits at the random-walk level, and the result holds only when the clean recording is known. Evidence class A on paper; disowned in substance. Closed as superseded by the human on 2026-10-25 (bundle approval of the lead's decision 9; the 2026-10-18 verdict stands; the confirmation run and harness checks were cancelled). The checklist is kept as a record and is not a pass.",
+   "remaining": "Nothing: the gate is closed, not passed. The sign-off line stays unticked.",
+   "blocking": "",
+   "next_action": "None.",
    "evidence": [
     "ev-gate2-attempt3",
     "ev-gate2-attempt2",
@@ -81,7 +81,9 @@
     "ev-helix-trust",
     "ev-sep-stress",
     "ev-gates",
-    "ev-decisions"
+    "ev-decisions",
+    "ev-audit",
+    "ev-ratings-v3"
    ]
   },
   "Gate 3": {
@@ -89,17 +91,23 @@
    "goal": "Show that the tool can name the right block and settings from the rendered output alone, without ever seeing the dry guitar track that made it.",
    "criteria_plain": [
     "A sealed set of single-block items exists: random model, random settings, rendered in Native from a random held-out guitar sample the matcher never sees.",
-    "The pass bars and the two baselines (middle of every knob, random walk) are registered before the run, under the same no-dry-track condition.",
-    "Blind prediction meets the bars and beats both baselines on the sealed set.",
+    "The pass bars and baselines are registered before the run, under the same no-dry-track condition. They were written down before the set was drawn but are proposed by benchmark, not approved by the human.",
+    "Blind prediction meets the bars and beats every baseline on the sealed set.",
     "A short blind listen of the prediction re-rendered from the held-out dry sample agrees."
    ],
-   "demonstrated": "Nothing yet: no sealed blind set, bars or blind prediction exist. Gate 2 passed only with the dry track known, and earlier evidence says the no-dry-track case is the hard part.",
-   "remaining": "Finish the no-DI research (T158), choose the method, build the held-out dry-sample split and the sealed set (T159), register the bars, then run and listen.",
-   "blocking": "Not started: blocked on the no-DI research (T158). Also depends on Gate 2 sign-off by the human.",
-   "next_action": "Complete research T158, then build the held-out set (T159).",
+   "demonstrated": "One of four criteria evidenced. The sealed set gate3-v1 exists: 120 single drive-block items (60 product drive models x 2 random settings) played from the reserved third guitarist's clean recordings, seed 223001, hashes recorded, labels unread, verifier re-checks every file. The bars (G3-1 to G3-5) were written down before the draw; the human has not ruled on them and nothing has been scored. Earlier informal groundwork stays evidence class D (predictor-first drive matcher on 48 blind Helix drive targets, set drawn after the method was built, no bar).",
+   "remaining": "The human rules on the bars; one frozen method is scored once on the sealed set against the baselines; then the short blind listen (at least 30 decided trials, 6 repeats). The method to score is the chain predictor, which has no result yet.",
+   "blocking": "The human has not ruled on the bars. Scoring allows one attempt per frozen method, and the method that would be scored (the chain predictor) is still being trained. Limit: the 120 items share about 31 distinct playing windows.",
+   "next_action": "Human: rule on the bars. Then the lead launches one scoring run of a frozen method.",
    "evidence": [
     "ev-gates",
-    "ev-decisions"
+    "ev-decisions",
+    "ev-gate3-note",
+    "ev-gate3-sealed",
+    "ev-gate3-bars",
+    "ev-predictor-first",
+    "ev-predictor-note",
+    "ev-audit"
    ]
   },
   "Gate 4": {
@@ -111,14 +119,15 @@
     "The matched presets meet a quality bar set before the run, and a short blind listen agrees.",
     "Two- and three-pedal chains have been recorded and matched by the chain builder at the same bar."
    ],
-   "demonstrated": "Nothing yet: no dry reference, pedal recording or real-pedal match exists. Some groundwork carries over (the chain builder tested with fake engines, the blind listening tool), but none of it has been run on real pedals.",
+   "demonstrated": "Nothing yet on real pedals. Groundwork that carries over: the guitar calibration recorder and profile (one guitar), the dry-track rebuild, and a measured-pedal mode that is built and simulated only (model 96 percent in simulation); it has never been run on a pedal.",
    "remaining": "Capture the dry reference and the single-pedal set, choose the quality bar before the run, then record and match two- and three-pedal chains. The matcher must work without a lined-up dry take (note-invariant comparison terms, a learned guitar embedding, a phase-insensitive modulation score).",
    "blocking": "Depends on Gate 3 and on the player recording the pedals.",
-   "next_action": "Wait for Gate 3; the player can plan the recording session.",
+   "next_action": "Wait for Gate 3; the player can plan which real distortion pedals to record.",
    "evidence": [
     "ev-gates",
     "ev-chain-builder",
-    "ev-ab-tool"
+    "ev-ab-tool",
+    "ev-measured-pedal"
    ]
   },
   "Gate 5": {
@@ -129,10 +138,10 @@
     "The difference between the pedal and Native on firmware 3.80 has been recorded.",
     "Native-mode and pedal-mode matching have been compared on the same songs."
    ],
-   "demonstrated": "One song section was matched and listened to informally (not blind). Pedal-versus-Native agreement on firmware 3.80 is recorded (ticked). Groundwork: a chain-pattern prior from 2,068 curated presets with strong order rules, a block-presence detector (only the cabinet and gain-stage calls pass, so it is a soft hint), a chain builder tested with fake engines, a cabinet-response study, and a blind A/B listening tool (built; no session rated). The Native-versus-pedal comparison on songs has not been run.",
+   "demonstrated": "Seven songs were matched with drive blocks and heard once, openly, with no alternative candidate (evidence class C: not blind, one listener, no community-preset comparison). Pedal-versus-Native agreement on firmware 3.80 is recorded (ticked). The Native-versus-pedal comparison on songs has not been run.",
    "remaining": "Gate 2, the chain builder on a real engine, the pedal verification fixes, the 20-song set, blind sessions, and the Native-versus-pedal comparison on songs. A full-library test is not planned (human decision).",
    "blocking": "Depends on Gate 4, on the chain builder, on the pedal fixes, and on song selection.",
-   "next_action": "Wait for Gate 4. The owner can start choosing songs now.",
+   "next_action": "Wait for Gate 4. A blind check of the seven matches (see actions) is a useful early read.",
    "evidence": [
     "ev-ab-informal",
     "ev-parity-380",
@@ -151,26 +160,128 @@
  },
  "issues": [
   {
-   "id": "delay-model-accuracy",
-   "title": "Delay is the weakest effect: 5 of 12 exact models on the sealed set",
+   "id": "no-stem-signal",
+   "title": "Nothing measured from the recording reliably sets the drive knobs, and the first blind test of drive-only matches was negative",
    "priority": "High",
    "classification": "Confirmed Problem",
    "executive": true,
-   "problem": "On Gate 2 attempt 3 (96 sealed items, all seven checks met) the exact model was right on cab 12, eq 11, reverb 11, mod 10, comp 10, amp 8, drive 7 and delay 5 of 12. The seven delay misses: four named another delay model (i001, i049, i073, i089), three a different kind of effect (i041 a compressor, i065 and i081 an equaliser). Two ranking misses (i039, i095) are cabinets.",
-   "impact": "Does not block Gate 2, which met every check, but delay is common in real tones and the model is wrong on more than half of the delay items. Real songs will be harder than this known-clean-recording test.",
-   "cause": "Not yet diagnosed. Swell-type and ducked delays look similar to other delays at the settings drawn; v3 is now seen, so diagnosis must use the development sets.",
-   "resolution": "Diagnose the delay misses on development data (echo time, feedback and mix versus model), then strengthen the time-based specialist; listen to the delay misses to see whether the swaps matter by ear.",
-   "owner": "search builds the delay work; the human listens; the lead schedules",
-   "next_step": "Listen to the delay misses on the Gate 2 page, then decide the order of work.",
+   "problem": "On 25 October the human heard, blind, the five best drive candidates for each of five songs against the separated guitar and said 'only 23 comes even close. That was pretty bad all around', then 'it's so bad I can't even compare them'. This is the first blind listening on real songs and it is negative (evidence class C as recorded by the lead: heard blind, answered aloud, not scored). It contradicts the open listen of 22 October that called the seven matches 'pretty good'. The dry-signal ablation then showed the winning drive model barely depends on the clean guitar fed to the search: against the plain rebuild, 5 to 6 of 7 songs keep the same model under each alternative input, one song changes model in every arm, and the distances are not comparable across inputs. The listening measure that ranks the candidates (AFx-Rep) has no ear validation against a separated guitar, and its validation session produced a verdict instead of ranks.",
+   "impact": "A drive-only match cannot be shown to beat anything the human would accept, and the ranking and knobs rest on a measure the ear has not validated on real songs. Without a signal that tracks what the human hears, neither search nor prediction can be tuned toward a better answer.",
+   "cause": "Not established. Candidates named in the notes: one drive effect standing in for a whole rig (the human has since moved to drive, equaliser and reverb), the rebuilt clean guitar being an approximation, the separated stem carrying leftovers from other instruments, and the measure not tracking the ear on real songs. None was isolated.",
+   "resolution": "Predict the product chain with a model trained on chain-rendered audio and judge it against the sealed set and a blind listen, with bars the human approves first; rate the built dry-ablation packs; treat the stem verdict as a standing negative until a blind session goes the other way.",
+   "owner": "learning (the chain predictor, running); benchmark scores once the human approves the bars; the human rates the dry-ablation packs",
+   "next_step": "Read the chain predictor when training ends; the human rates the dry-ablation packs and rules on the Gate 3 bars.",
    "components": [
     "searching",
     "judging",
+    "learning"
+   ],
+   "evidence": [
+    "ev-t223-note",
+    "ev-decisions",
+    "ev-t224-note",
+    "ev-t224-ledger",
+    "ev-audit",
+    "ev-mother-live"
+   ]
+  },
+  {
+   "id": "reverb-no-model",
+   "title": "Reverb has no model: nothing measured from the recording agrees with the listener, and a real tail is readable on only 2 of 7 stems",
+   "priority": "High",
+   "classification": "Confirmed Problem",
+   "executive": true,
+   "problem": "The human rejected a fixed reverb default and asked for a model. The pre-registered pilot (27 reverb candidates per song, blind ranks on six songs, the listener consistent: mean rank difference 0.33 against 2.67 by chance) found no agreement from any computable signal: the listening measure 0.05, tail statistics 0.04, the time-based regressors -0.09, dip fill -0.40 (opposite sign). A blind estimator built afterwards is accurate on known reverbs (decay ordering 36 of 40 triples, rank correlation 0.85 to 0.89 on five songs; mix 0.88 to 0.94) but cannot tell Room from Plate from Hall (43 percent against 33 by chance), and on the real stems it reads a real tail on only 2 of 7 (Mother 0.70 s, Territorial 0.90 s); the other five read the separator's leftover. The pre-registered confirmation held on Mother (named closest ranked 1 of 7, named furthest 7 of 7) and was not reproducible on Territorial (the human's repeat got ranks 4 and 1), so pooled it did not confirm.",
+   "impact": "The product chain needs a reverb per song. The only evidence that reverb helps is open listening (a light reverb preferred on all seven songs); type and amount cannot be chosen from the stem on 5 of 7 songs, and Plate, the open favourite, was not preferred in the blind ranks (mean rank Room 3.9, Hall 4.0, Plate 4.4; ties frequent).",
+   "cause": "Known in part: separator leftovers hide the tail on 5 of 7 stems and the human said not to work on the separator; the shared low and high cuts remove most of what tells reverb types apart; some clips are hard to rank (Territorial repeat inconsistent; the Cherub Rock section was unsuitable).",
+   "resolution": "The human rules on 'estimate when readable, fall back otherwise'; the overnight reverb heads are compared with the estimator on the seven songs; more songs are ranked blind with the estimator's pick named in advance.",
+   "owner": "tone-metrics (estimator); learning (reverb heads); the human rules on the model and ranks more songs",
+   "next_step": "Human: rule on the reverb model and choose another Cherub Rock section (see the action list).",
+   "components": [
+    "searching",
+    "judging"
+   ],
+   "evidence": [
+    "ev-t230-note",
+    "ev-t230-ledger",
+    "ev-t231-note",
+    "ev-t231-ledger",
+    "ev-t232-note",
+    "ev-t232-ledger",
+    "ev-decisions"
+   ]
+  },
+  {
+   "id": "chain-gap",
+   "title": "The product-chain predictor is the open bet, and single-block predictors do not transfer to chains",
+   "priority": "High",
+   "classification": "Confirmed Problem",
+   "executive": true,
+   "problem": "The human set the product chain to drive, equaliser, reverb (no amp, cabinet or delay). The predictors built for other slots were trained on single blocks and fail inside chains: inside a finished chain the drive is named right 2 times in 100 and the amp 1 in 100, against 93 and 54 alone. A small chain-trained pilot reached 18 percent top-3 on the drive (chance 6). A larger job is rendering now: about 40,000 drive, optional equaliser and optional reverb chains, 15 percent from the human's own session recordings. At 2026-10-26 16:23 local it had 37,998 chains done (shard 96 of 105, 2 dropped); rendering stops by 20:00, then training. No result, no ledger row, nothing adopted.",
+   "impact": "Until a chain predictor works, every song match is a single drive effect and the product cannot be called integrated. If the larger run also fails, the plan for predicting a chain needs a different method.",
+   "cause": "Predictors and search were built drive first, and single-block data came before the chain check. Inside a chain, anything in front of a block hurts its predictor and a cabinet after it nearly erases it.",
+   "resolution": "Read the new heads against held-out library files, the held-out part of the human's session and the seven songs; then, once the bars are approved, against the sealed Gate 3 set; the human hears any adopted match blind.",
+   "owner": "learning runs the job; benchmark scores; the human approves the method",
+   "next_step": "Let the render and training finish, then read the seven-song table.",
+   "components": [
+    "learning",
+    "searching"
+   ],
+   "evidence": [
+    "ev-t233",
+    "ev-decisions",
+    "ev-t214",
+    "ev-t214-note",
+    "ev-slot-results"
+   ]
+  },
+  {
+   "id": "gate3-bars-pending",
+   "title": "Gate 3 bars are proposed, not approved, so the sealed test cannot be scored",
+   "priority": "High",
+   "classification": "Active Blocker",
+   "executive": true,
+   "problem": "A sealed test set exists: 120 single drive-block items rendered from the reserved third guitarist's recordings, hashes recorded, labels unread. Benchmark wrote the pass bars down before drawing it: right model first at least 0.50 and in the top three at least 0.70; Drive knob within 0.15 on at least 0.60 of right-model items (and 0.50 across the other free knobs); each bar beating every baseline by 0.15 or more (paired, exact test p below 0.05); then a short blind listen with at least 30 decided trials where the prediction wins at least 70 percent. The human has not ruled on any of them.",
+   "impact": "The only product-level milestone cannot be scored, and the overnight predictor's numbers, when they arrive, will not count toward the gate. A set allows one scoring attempt per frozen method.",
+   "cause": "Waiting on a human ruling (standing rule: pass bars need the human's approval before they take effect). A limit to weigh: the 120 items share about 31 non-overlapping 10-second windows of playing, so the effective sample is nearer 30 to 40 than 120.",
+   "resolution": "The human approves, changes or rejects each bar; the lead records it in the human's words; benchmark scores once.",
+   "owner": "the human rules; benchmark scores after the lead launches the run",
+   "next_step": "Human: rule on the Gate 3 bars (see the action list).",
+   "components": [
     "testing"
    ],
    "evidence": [
-    "ev-gate2-attempt3",
+    "ev-gate3-note",
+    "ev-gate3-sealed",
+    "ev-gate3-bars",
     "ev-decisions",
     "ev-gates"
+   ]
+  },
+  {
+   "id": "slot-new-player",
+   "title": "The effect-slot predictors are trained, not verified: weak on a new guitarist and failing inside chains",
+   "priority": "High",
+   "classification": "Confirmed Problem",
+   "executive": false,
+   "problem": "On held-out recordings of players seen in training (18 files from the two library players; the many test clips are cut from those files, so the effective sample is 18, not thousands) the predictors name the exact model about 54 percent of the time for amps (224 models), 76 percent for cabinets, 56 percent for delays, 75 percent for modulation, 47 percent for reverb and 82 percent for equalisers. On a player held out of training the same predictors drop to roughly 19 to 31 percent (amp), 32 to 35 (cabinet), 25 to 32 (delay), 47 to 60 (modulation), 31 to 39 (reverb) and 49 to 67 (equaliser). Inside a finished chain they fall to near chance. Knob accuracy is modest, and the 'constant mid-range guess scores about 0.3' baseline it is compared with was not re-measured. Scope note: the amp, cabinet, modulation and delay slots are out of scope while the product chain is drive, equaliser and reverb (human, 2026-10-25), so these numbers matter again only if the chain is widened.",
+   "impact": "The human is a new player to these predictors, and so is any later user, and the product matches chains. As they stand, the slot predictors cannot shortlist anything in a chain matcher.",
+   "cause": "Only two library guitarists and one session of the human's playing exist in the training pool. Drive showed the same gap until the 150,000-render dataset added more guitar variety (new-player model accuracy 33 to 47 percent became 62 to 75).",
+   "resolution": "Train on chain-rendered audio first (the pilot), then add guitar variety: the human's calibrated notes, and another licensed library if one can be found. Re-measure with the same held-out-player split and on the chain test set.",
+   "owner": "learning builds the data; the human decides which guitar material to add",
+   "next_step": "Read the chain training pilot; then propose which guitars to add and the render budget.",
+   "components": [
+    "learning"
+   ],
+   "evidence": [
+    "ev-slot-results",
+    "ev-slot-amp",
+    "ev-slot-cab",
+    "ev-slot-delay",
+    "ev-slot-eq",
+    "ev-state-1023",
+    "ev-t214",
+    "ev-audit"
    ]
   },
   {
@@ -178,7 +289,7 @@
    "title": "No pedal measurement counts until the sampling defects are handled",
    "priority": "High",
    "classification": "Confirmed Problem",
-   "executive": true,
+   "executive": false,
    "problem": "The pedal verification found real defects: the audio stream over USB is not stable for about 0.7 s after it starts, amps carry sound over from the previous render, the pedal refuses four effect models in whole-preset writes, and some delay and reverb settings glide slowly when changed in place. Setting truth passed 20 of 40 items, repeatability 12 of 17. A longer pre-roll fixed the first problem, but a one-sample slip still happens about once in 90 renders. The human confirmed the pedal's blocks are editable after sessions.",
    "impact": "The pedal is the final judge of the preset. Until the slip is detected or re-taken, pedal numbers cannot be used as evidence, and earlier pedal agreement figures are understated in noise. Gate 2 (Native only) is not affected; Gate 5 is.",
    "cause": "Known for each defect (stream start-up, amp state, device refusals, parameter glide). The remaining slip has no recorded cause.",
@@ -197,40 +308,96 @@
   },
   {
    "id": "tone-comparison-known-di-only",
-   "title": "The tone comparison is only admitted when the clean recording is known",
-   "priority": "High",
-   "classification": "Risk",
-   "executive": true,
-   "problem": "The tool's comparison measure passed its registered test on single-block Helix sound (0.990 against a bar of 0.90), but only for the case where the clean guitar recording behind the target is known and lined up. The earlier tests of the song case, where no clean recording exists, failed (about 7 correct in 40 on different notes). The song case with a separation stand-in reached 0.948 on single blocks and is not yet admitted; drive effects are its weak category.",
-   "impact": "Gate 2 can be passed on this footing, but real songs have no lined-up clean recording, so Gate 5 matching has no validated score yet. On the one real song tried, the top two candidates were nearly tied.",
-   "cause": "Level-free spectral comparison works when the notes match; it reacts to which notes were played when they do not. Four of seven test misses were drive Output changes, which this measure cannot see by design (a level guard handles loudness).",
-   "resolution": "Admit the song case separately once an aligned recording exists, add note-proof measures for the no-recording case (deferred option C), and re-test on real separated songs.",
-   "owner": "tone-metrics; the lead decides admission",
-   "next_step": "Propose admission of the separated-song case with the drive weakness named; take note-proof measures into the Gate 3 (blind single block) method choice after research T158.",
+   "title": "The rebuilt clean guitar barely changes which drive wins, and nothing says it improves the match",
+   "priority": "Medium",
+   "classification": "Unknown/Unverified",
+   "executive": false,
+   "problem": "Songs have no clean guitar, so the matcher rebuilds one from transcribed notes. The dry-signal ablation (4 arms per song plus a level-only arm, 30 searches) found the winning drive model mostly unchanged by the input: against the plain rebuild, the envelope-imposed rebuild kept the model on 6 of 7 songs, the library clean guitar and the level-only arm on 5 of 7; DS-Sample changed in every arm and Satisfaction's plain pick is a dead tie. The distances are from different dry tracks and are not comparable, so they say nothing about which input is closer. The seven blind packs are built and unrated. The level convention is settled provisionally at the play-along level (-28.1 dBFS; bundle approval, 25 October).",
+   "impact": "Either the rebuild adds little to the pick, or the measure cannot see its effect; the ear on the unrated packs is the only way to tell. Until then the rebuild and the calibration cannot be credited with a gain.",
+   "cause": "Level and the drive amount are entangled, the rebuild ablation (same search, generic library clean guitar) was never run, and the calibrated run changed three things at once.",
+   "resolution": "The human rates the seven dry-ablation packs (blind, sealed keys) before reading the picks table.",
+   "owner": "the human rates; dry-signal reads the result",
+   "next_step": "Human: rate the dry-ablation packs.",
    "components": [
+    "prep",
     "judging"
    ],
    "evidence": [
-    "ev-trust-v2-test",
-    "ev-helix-trust",
-    "ev-ab-informal",
+    "ev-t207",
+    "ev-t211",
+    "ev-chord-ablation",
+    "ev-guitar-profile",
+    "ev-basic-pitch",
+    "ev-research-dry",
+    "ev-audit",
+    "ev-t224-note",
+    "ev-t224-ledger"
+   ]
+  },
+  {
+   "id": "no-blind-listening",
+   "title": "Blind evidence on real songs is one negative session, and the listener's consistency is mixed",
+   "priority": "High",
+   "classification": "Confirmed Problem",
+   "executive": false,
+   "problem": "The seven song matches and their fine-tunes were heard once, openly. The first blind listening on real songs (25 October) was negative, but it was answered aloud and not scored, so there is no agreement number for the listening measure. The listener was very consistent on the reverb pilot (mean rank difference 0.33 against 2.67 by chance, 6 of 6 within 1) and mixed on the confirmation (Mother within 1, Territorial not reproducible); across the earlier pair sessions the human's repeats agreed 7 of 12 times. The one gate run that was blind, sealed and pre-registered (Gate 2) was disowned by the human and is now closed as superseded. The score the lead admitted for the known-recording case is unapproved and at chance on hard same-performance pairs (10 of 25).",
+   "impact": "The ear is the final judge, and an open listen can flatter a method. Every 'closer', 'same or better' and 'pretty good' in this report is directional, not a result; method choices made on those numbers (fine-tuning, calibration, chord lists) are not yet defensible.",
+   "cause": "Blind sessions take preparation and the quick open listens were what the human asked for; meanwhile test settings became defaults by reuse (the final ranking by the listening measure, knob fine-tuning with the level knobs free) without an itemised approval, which the lead has acknowledged as its failure.",
+   "resolution": "Run the blind validation of the listening measure against separated guitars (5 songs by 5 candidates on the same rebuilt dry, ranked blind with repeats; report rank agreement); ablate fine-tuning and calibration blind, one factor at a time; carry at least 6 repeats per session and report the listener's consistency first; seal Gate 3 with bars before the chain pilot is read; record approvals one line per item.",
+   "owner": "the human decides the design (decisions 2, 3, 6, 8); the lead prepares the packs; benchmark registers bars",
+   "next_step": "Score the stem-validation pack if the human wants the agreement number; rate the dry-ablation packs; carry at least 6 repeats per session and report the listener's consistency first.",
+   "components": [
+    "testing"
+   ],
+   "evidence": [
+    "ev-t209",
+    "ev-t211",
+    "ev-ds-tune-ratings",
+    "ev-ratings-v3",
+    "ev-ratings-v5",
+    "ev-retest-v6",
+    "ev-audit",
+    "ev-analysis",
     "ev-decisions",
-    "ev-gate2-attempt1",
-    "ev-gate2-attempt2"
+    "ev-t223-note",
+    "ev-t230-ledger"
+   ]
+  },
+  {
+   "id": "delay-model-accuracy",
+   "title": "Delay is the weakest effect: 5 of 12 exact models on the sealed set",
+   "priority": "Low",
+   "classification": "Confirmed Problem",
+   "executive": false,
+   "problem": "On Gate 2 attempt 3 (96 sealed items; all seven checks met on paper, but the human judged the model unusable and the gate is unsigned) the exact model was right on cab 12, eq 11, reverb 11, mod 10, comp 10, amp 8, drive 7 and delay 5 of 12. The seven delay misses: four named another delay model (i001, i049, i073, i089), three a different kind of effect (i041 a compressor, i065 and i081 an equaliser). Two ranking misses (i039, i095) are cabinets.",
+   "impact": "Gate 2's checklist is not what blocks it now, but delay is common in real tones and the model is wrong on more than half of the delay items. Real songs will be harder than this known-clean-recording test.",
+   "cause": "Not yet diagnosed. Swell-type and ducked delays look similar to other delays at the settings drawn; v3 is now seen, so diagnosis must use the development sets.",
+   "resolution": "Diagnose the delay misses on development data (echo time, feedback and mix versus model), then strengthen the time-based specialist; listen to the delay misses to see whether the swaps matter by ear.",
+   "owner": "search builds the delay work; the human listens; the lead schedules",
+   "next_step": "None: delay is on hold (human, 2026-10-25: 'I don't think any of the songs have any delay in them').",
+   "components": [
+    "searching",
+    "judging",
+    "testing"
+   ],
+   "evidence": [
+    "ev-gate2-attempt3",
+    "ev-decisions",
+    "ev-gates"
    ]
   },
   {
    "id": "separation-unmeasured",
    "title": "Guitar separation quality on real songs is unknown",
-   "priority": "High",
+   "priority": "Medium",
    "classification": "Unknown/Unverified",
-   "executive": true,
-   "problem": "Guitar separation has been scored only on artificial mixes: quality falls from 21.2 dB (guitar alone) to 7.3 dB with a second guitar in the mix. No real song has a quality score.",
+   "executive": false,
+   "problem": "Guitar separation has been scored only on artificial mixes: quality falls from 21.2 dB (guitar alone) to 7.3 dB with a second guitar in the mix. No real song has a quality score. Update 2026-10-23: seven real songs have been separated and heard, and the human compared each match with the separated guitar, but no separation quality number exists for real songs, and one stem lost about 20 dB of bass. Update 2026-10-25: the human said not to work on the separator ('The extracted samples are just fine'); the reverb estimator shows five of seven stems hide the tail under separator leftovers.",
    "impact": "If the isolated guitar on a real song contains drums, vocals or artefacts, the tone comparison will chase those instead of the guitar and Gate 5 results will be unreliable.",
    "cause": "No real-song stress set exists, and the only separation model aimed at guitar has no stated licence so it was not used.",
    "resolution": "Run the separation stress test on a few real songs, locally, and record how accuracy falls as the mix gets denser.",
    "owner": "separation, after the owner supplies songs",
-   "next_step": "Owner chooses the first songs (one action covers this and the Gate 5 song set).",
+   "next_step": "None: no separator work (human, 2026-10-25). Real-song separation quality stays unmeasured.",
    "components": [
     "prep"
    ],
@@ -242,15 +409,15 @@
   {
    "id": "chain-builder-unproven",
    "title": "Building whole chains from single blocks is not yet shown to work",
-   "priority": "Medium",
+   "priority": "Low",
    "classification": "Unknown/Unverified",
-   "executive": true,
+   "executive": false,
    "problem": "Single blocks are matched first and whole chains are built from analysis: the kinds of block present, ordered by common patterns. The pattern prior now rests on 2,068 curated presets and shows strong order rules. But the block-presence detector passed its test only for the cabinet and for whether a gain stage is present; for delay, reverb and modulation it missed its bars. The chain builder exists and is tested only with fake engines.",
    "impact": "Gate 5 (real songs) needs whole chains. Presence is used only as a soft hint, so every time-based block must be confirmed by rendering with and without it.",
    "cause": "Behind an amp and cabinet, single-block detectors call the extra block a drive almost every time; comparing against the clean recording cannot isolate a block that follows a non-linear amp.",
    "resolution": "Judge post-amp blocks against the chain's current best render, render a multi-block test set on Native, and run the chain builder on a real engine. Cabinet choice by deconvolution looks promising.",
    "owner": "search (builder), tone-metrics (detector), native-engine (multi-block renders)",
-   "next_step": "Schedule the multi-block render set; this is Gate 5 work and does not block Gate 2.",
+   "next_step": "None now: the product chain is drive, equaliser, reverb and the chain builder is out of scope until the chain widens.",
    "components": [
     "searching",
     "judging"
@@ -373,26 +540,6 @@
    ]
   },
   {
-   "id": "no-blind-listening",
-   "title": "No blind listening has happened (the tool is now built)",
-   "priority": "Medium",
-   "classification": "Unknown/Unverified",
-   "executive": false,
-   "problem": "The only listening so far was informal and unblinded. The blind A/B tool is built but has not been used in a session.",
-   "impact": "Whether matches sound better than a ready-made preset is still unknown; Gate 5 cannot start.",
-   "cause": "Sessions need matched presets from the whole pipeline, which does not exist yet.",
-   "resolution": "Run sessions once the pipeline produces candidates; an optional short listen can accompany the Gate 2 review.",
-   "owner": "benchmark prepares sessions; the owner listens",
-   "next_step": "Nothing until Gate 2 and the chain builder produce candidates.",
-   "components": [
-    "testing"
-   ],
-   "evidence": [
-    "ev-ab-informal",
-    "ev-board"
-   ]
-  },
-  {
    "id": "board-hygiene",
    "title": "A few task-board lines are stale",
    "priority": "Low",
@@ -410,22 +557,56 @@
    "evidence": [
     "ev-board"
    ]
+  },
+  {
+   "id": "defaults-by-reuse",
+   "title": "Test settings became defaults without itemised approval: now pinned, approvals still provisional",
+   "priority": "Low",
+   "classification": "Risk",
+   "executive": false,
+   "problem": "Since 18 October several test settings became defaults of the song-match script by reuse, and several approvals were one-word answers to bundled lists. Fixed on 25 October: a file (data/approved-methods.json) lists what the human has ruled on, with quotes, and a test pins the song-match flags to it; knob fine-tuning is an option with the level knobs locked; the provisional loss and the drive families are no longer defaults. Still open: the bundle approvals of 25 October are recorded as provisional, and the final ranking by the listening measure is an interim default.",
+   "impact": "Small now: the record says which methods are approved. The interim ranking default is exactly the instrument the first blind session questioned.",
+   "cause": "Agents proposed correctly, the next task reused the proposal as its configuration, and the one after packaged it. The lead has recorded this as its failure.",
+   "resolution": "Itemised approvals in the human's words from now on (adopted); the human can object to any provisional line.",
+   "owner": "tone-matcher-lead proposes; the human rules",
+   "next_step": "None required; the human may rule on the interim ranking default when the stem validation question is settled.",
+   "components": [
+    "searching",
+    "foundations"
+   ],
+   "evidence": [
+    "ev-audit",
+    "ev-analysis",
+    "ev-decisions",
+    "ev-approved-methods"
+   ]
   }
  ],
  "actions": [
   {
-   "id": "signoff-gate2",
-   "group": "blocking",
-   "priority": "High",
-   "title": "Sign Gate 2, or decline to",
-   "why": "Attempt 3 met all seven checks on the sealed set. Only the owner can sign; the gate ledger row is written only with that sign-off.",
-   "unblocks": "Gate 2 complete, and readiness can move toward Validated.",
-   "recommended": "Read the Gate 2 page (verdict, rule-B amendment, delay misses), listen to a few target-left, guess-right files, then sign if you accept the caveats: known-clean-recording case only, ranking rule amended before the run, three sealed sets consumed.",
-   "defer": "Gate 2 stays open and later gates keep waiting on it.",
+   "id": "test-presets-stomp",
+   "group": "soon",
+   "priority": "Medium",
+   "title": "Load presets on the Stomp and play them",
+   "why": "You said you want to test the calibrated matches yourself. No record shows the calibrated matches or the colour-pilot presets being played on the Stomp (the colour packs were built and not loaded); the ear on the real pedal is the final judge.",
+   "unblocks": "The first verdict on the real pedal for the calibrated matches and for the light reverb.",
+   "recommended": "Play each preset after its separated original, level-matched; say which version you prefer.",
+   "defer": "The pedal remains unheard for these matches.",
    "covers": [
-    "Listen blind to the DS-Sample candidates",
-    "Rate blind sessions when they exist",
-    "Sign off Gates 2 and 3"
+    "Play the calibrated presets"
+   ]
+  },
+  {
+   "id": "chord-lists-optional",
+   "group": "later",
+   "priority": "Low",
+   "title": "Supply chord lists for other songs (optional)",
+   "why": "A chord list made the rebuild more decisive on Mother, but you preferred the plain rebuild by ear.",
+   "unblocks": "Nothing needed; it keeps the option open for songs with unclear transcriptions.",
+   "recommended": "Skip unless a song's plain rebuild sounds wrong.",
+   "defer": "No consequence.",
+   "covers": [
+    "Supply chord lists"
    ]
   },
   {
@@ -433,7 +614,7 @@
    "group": "soon",
    "priority": "Medium",
    "title": "Decide whether to commit and push the accumulated work",
-   "why": "A large body of specialist, job-runner, report and Gate 2 evidence work exists locally and the public repository does not have it.",
+   "why": "A large body of work (dry rebuild, calibration, fine-tune, slot data, Gate 3 set, colour and reverb pilots, governance file, report) exists locally and the public repository does not have it.",
    "unblocks": "A saved, reviewable history; the public status page stays current.",
    "recommended": "Commit and push after the lead confirms the full suite is green.",
    "defer": "Work stays local and unreviewed; a lost disk loses it.",
@@ -444,7 +625,7 @@
   {
    "id": "choose-songs",
    "group": "soon",
-   "priority": "High",
+   "priority": "Medium",
    "title": "Choose the first real songs for local testing",
    "why": "Separation quality on real songs is unmeasured and the final test needs 20 songs. Pick a few now spanning clean to high-gain tones; the full 20 can follow.",
    "unblocks": "The separation stress test and the song set for Gate 5.",
@@ -561,6 +742,72 @@
     "Read the Discogs terms"
    ],
    "standalone": true
+  },
+  {
+   "id": "g3-bars",
+   "group": "blocking",
+   "priority": "High",
+   "title": "Rule on the Gate 3 bars",
+   "why": "Benchmark proposed five bars (G3-1 to G3-5) and sealed a 120-item test on the reserved third guitarist before drawing it. The standing rule is that you approve pass bars before they take effect, and you have not ruled on any.",
+   "unblocks": "Scoring the sealed set once with one frozen method, and counting the overnight chain predictor toward Gate 3.",
+   "recommended": "Approve, amend or reject each bar in your own words, one line each. Note from the set's author: the items share about 31 distinct playing windows, so an interval around 0.50 is wide.",
+   "defer": "Predictor numbers stay unscored measurements and the product-level milestone cannot move.",
+   "covers": [
+    "Rule on the Gate 3 bars"
+   ]
+  },
+  {
+   "id": "reverb-model",
+   "group": "soon",
+   "priority": "High",
+   "title": "Rule on the reverb model: estimate when the tail is readable, fall back otherwise",
+   "why": "You rejected a fixed reverb default and asked for a model. The pre-registered pilot found no agreeing signal; the estimator is accurate on known reverbs, was confirmed on Mother, was not reproducible on Territorial, and reads a real tail on 2 of 7 stems.",
+   "unblocks": "A defined reverb stage in the chain and a clear comparison for the overnight reverb heads.",
+   "recommended": "Adopt 'estimate decay and mix when a tail is readable, otherwise fall back' as a test setting, not a default; the fallback value is yours to name (Plate was not preferred in the blind ranks).",
+   "defer": "Reverb stays an open listening choice and the chain has no defined third stage.",
+   "covers": [
+    "Rule on the reverb model"
+   ]
+  },
+  {
+   "id": "rate-packs",
+   "group": "soon",
+   "priority": "Medium",
+   "title": "Rate the dry-ablation packs and more reverb ranking packs on other songs",
+   "why": "The seven dry-ablation packs are built with sealed keys and unheard; only your ear can say whether the clean-guitar choice changes the sound. The reverb estimator has a blind test on only two songs, one not reproducible.",
+   "unblocks": "Whether the rebuilt clean guitar earns its place, and whether the estimator holds on more songs.",
+   "recommended": "Rate the packs before reading the picks table. Reverb packs for more songs will be built with the estimator's pick named in advance, and a repeat clip included so your consistency can be reported first.",
+   "defer": "The rebuild stays an unmeasured hypothesis and the estimator stays one song confirmed.",
+   "covers": [
+    "Rate the seven dry-ablation packs",
+    "Rate more reverb ranking packs"
+   ]
+  },
+  {
+   "id": "cherub-section",
+   "group": "soon",
+   "priority": "Medium",
+   "title": "Choose another section of Cherub Rock for judging reverb",
+   "why": "You said the clip was not a good section for judging, so it was left out and only six songs were ranked.",
+   "unblocks": "A seventh reverb ranking.",
+   "recommended": "Name a section, or say to drop the song.",
+   "defer": "Six songs stay the sample.",
+   "covers": [
+    "Pick another section of Cherub Rock"
+   ]
+  },
+  {
+   "id": "gate5-rating-later",
+   "group": "later",
+   "priority": "Low",
+   "title": "Rate blind sessions for the final song test when they exist",
+   "why": "Gate 5 ends in a blind rating by you; the sessions do not exist yet.",
+   "unblocks": "Gate 5 sign-off.",
+   "recommended": "Nothing now.",
+   "defer": "None.",
+   "covers": [
+    "Rate blind sessions when they exist"
+   ]
   }
  ],
  "agent_owned": [
@@ -658,6 +905,37 @@
      "ev-native-canary",
      "ev-native-sentinel"
     ]
+   },
+   {
+    "capability": "Write down the notes of a separated guitar part",
+    "reality": "Basic Pitch runs locally on all seven separated stems. Tuned settings gave note accuracy 0.30 against the human's own takes, up from 0.26, and the gain is small and unconfirmed. Stray notes remain.",
+    "evidence": [
+     "ev-basic-pitch",
+     "ev-rebuilt-dry"
+    ]
+   },
+   {
+    "capability": "Record and build a profile of one guitar",
+    "reality": "The human recorded the guided session (26 segments, no warnings): 263 own notes, a tone curve and a normal playing level of -36.1 dBFS. One guitar only.",
+    "evidence": [
+     "ev-guitar-profile"
+    ]
+   },
+   {
+    "capability": "Seal a blind test set before any method is scored",
+    "reality": "gate3-v1: 120 single drive-block items, hashes recorded, bars written down before the draw, a verifier re-checks every target; the scorer refuses to run without a launch reference. Nothing has been scored, so this shows the mechanism, not a result.",
+    "evidence": [
+     "ev-gate3-note",
+     "ev-gate3-sealed"
+    ]
+   },
+   {
+    "capability": "Pin song-match defaults to what the human approved",
+    "reality": "A file lists the ruled settings with quotes and a test fails if the song-match flags drift from it; bundle approvals are marked provisional.",
+    "evidence": [
+     "ev-approved-methods",
+     "ev-decisions"
+    ]
    }
   ],
   "unproven": [
@@ -670,11 +948,13 @@
    },
    {
     "capability": "Judge tone similarity reliably",
-    "reality": "One measure is admitted for single blocks when the clean recording is known: 0.990 on a held-out Helix split against a 0.90 bar (older measure 0.781). With separation stand-in audio 0.948, not admitted. Without a known recording the earlier tests failed (about 7 of 40). Not tested on real songs; the ear has not judged it.",
+    "reality": "No measure is approved by the human. The lead admitted one for single blocks with a known clean recording (0.990 on a held-out Helix split against a 0.90 bar), but the human judged that model unusable on 2026-10-18 and the admission is unapproved; on hard same-performance pairs that measure agreed with the ear 10 of 25 times (chance). The learned listening measure agrees with the ear on ordering effect models on the same performance (18 of 25, then 20 of 21 on the same experiment's picks) and nowhere else yet; never rated against a separated guitar. Without a known recording the earlier tests failed (about 7 of 40). Evidence class B at best. Update 2026-10-25: the first blind session against separated guitars answered with a verdict ('so bad I can't even compare them'), not ranks, so agreement on real songs is still unmeasured.",
     "evidence": [
      "ev-trust-v2-test",
      "ev-helix-trust",
-     "ev-loss-proxy"
+     "ev-ratings-v3",
+     "ev-ratings-v5",
+     "ev-decisions"
     ]
    },
    {
@@ -760,6 +1040,104 @@
      "ev-stomp-verify",
      "ev-stomp-verify-final"
     ]
+   },
+   {
+    "capability": "Rebuild a clean guitar from a separated song",
+    "reality": "Runs on seven songs; alignment to the stem is 0.29 to 0.46 on slow parts and unmeasurable on three fast riffs. The ablation (30 searches) shows the winning drive model mostly stays the same under other clean guitars (5 to 6 of 7 songs), so the rebuild's contribution looks small, but the distances are not comparable and the seven blind packs are unrated.",
+    "evidence": [
+     "ev-rebuilt-dry",
+     "ev-t207",
+     "ev-research-dry",
+     "ev-t224-note",
+     "ev-t224-ledger"
+    ]
+   },
+   {
+    "capability": "Match a song's drive effect from a rebuilt clean guitar",
+    "reality": "Seven songs searched across all 60 drive models; the human said they 'all sound pretty good' in one open pass, one listener, no alternative heard (evidence class C). One block stands in for the rig. The first blind listening on real songs (25 October, five songs, top-5 candidates) was negative: 'so bad I can't even compare them'.",
+    "evidence": [
+     "ev-t207",
+     "ev-t209",
+     "ev-t211",
+     "ev-t223-note"
+    ]
+   },
+   {
+    "capability": "Fine-tune the knobs of the chosen effect",
+    "reality": "The listening-measure distance fell on 6 of 7 songs and the human heard the same or better in one open pass (evidence class C). Output and Master were free and moved. The measure is not validated for knob moves (its invariance test says a small knob move changes it less than a change of clean guitar), and the human's 2026-10-18 ruling said knobs are not set by a sound-comparison score; this step is a test setting, not an approved method.",
+    "evidence": [
+     "ev-t209",
+     "ev-audit",
+     "ev-decisions"
+    ]
+   },
+   {
+    "capability": "Name an effect from its output in slots after drive",
+    "reality": "Trained, not verified. On single blocks: strong on 18 held-out recordings of seen players, weak on a new player. Inside a finished chain the predictors fail (drive 2 percent, amp 1 percent exact model; knobs at the level of a constant guess). Evidence class D.",
+    "evidence": [
+     "ev-slot-results",
+     "ev-slot-amp",
+     "ev-slot-cab",
+     "ev-slot-delay",
+     "ev-slot-eq",
+     "ev-t214"
+    ]
+   },
+   {
+    "capability": "Learned predictor for good starting points",
+    "reality": "The drive predictor narrowed 48 blind Helix targets to 85 percent right model first and 100 percent in three; on the human's own takes 67 and 88 percent (not statistically significant). Evidence class D: the set was drawn after the method was built, no bar, no listen. Slot predictors are trained, not used by any matcher, and fail inside chains.",
+    "evidence": [
+     "ev-predictor-first",
+     "ev-predictor-note",
+     "ev-t214"
+    ]
+   },
+   {
+    "capability": "Identify a real pedal by probing it (measured-pedal mode)",
+    "reality": "Built and simulated only: model 96 percent, Drive 85, Tone 90 in simulation. It has never been run on a pedal.",
+    "evidence": [
+     "ev-measured-pedal",
+     "ev-state-1020"
+    ]
+   },
+   {
+    "capability": "Tune a whole amp chain by search",
+    "reality": "One song, one window: a tuned version of a tutorial chain beat the tutorial in a short blind session (8 trials, 6 decided, 1 of 2 repeats consistent) and one live listen. Evidence class B plus C; directional, not a demonstration that chains can be tuned reliably.",
+    "evidence": [
+     "ev-ds-tune-ratings",
+     "ev-retest-v6",
+     "ev-audit"
+    ]
+   },
+   {
+    "capability": "Run blind listening sessions",
+    "reality": "The session tool is built and seven short sessions (6 to 28 trials each) were rated for drive matching and one chain tuning. None covered the seven song matches, and the human's consistency on repeated pairs is 7 of 12, so the sessions are directional only.",
+    "evidence": [
+     "ev-ratings-v3",
+     "ev-ratings-v5",
+     "ev-retest-v6",
+     "ev-ab-tool"
+    ]
+   },
+   {
+    "capability": "Estimate a reverb's decay and amount from a separated guitar",
+    "reality": "Accurate on 189 known reverbs made in Helix Native (decay ordering 36 of 40 triples, rank correlation 0.85 to 0.89 on five songs; mix 0.88 to 0.94); cannot tell Room from Plate from Hall. On real stems a tail is readable on 2 of 7; the other five read separator leftovers. Confirmed blind on Mother, not reproducible on Territorial, pooled not confirmed.",
+    "evidence": [
+     "ev-t231-note",
+     "ev-t231-ledger",
+     "ev-t232-note",
+     "ev-t232-ledger"
+    ]
+   },
+   {
+    "capability": "Colour the drive match with a light reverb and a fitted equaliser",
+    "reality": "A light reverb after the drive was preferred on all seven songs in open listening; the fitted equaliser variants were indistinguishable but kept; one blind Mother pack favoured the fitted equaliser. No blind test of the reverb on the other songs, and Plate was not preferred blind.",
+    "evidence": [
+     "ev-t228-note",
+     "ev-t229-note",
+     "ev-t230-ledger",
+     "ev-decisions"
+    ]
    }
   ],
   "missing": [
@@ -772,10 +1150,6 @@
     "reality": "Not implemented end to end."
    },
    {
-    "capability": "Learned predictor for good starting points",
-    "reality": "Not started."
-   },
-   {
     "capability": "Pedal control on Windows or Linux",
     "reality": "Unverified; no machine available."
    },
@@ -784,28 +1158,49 @@
     "reality": "The Native host is mono only."
    },
    {
-    "capability": "Run blind listening sessions",
-    "reality": "The session tool is built; no session has been prepared or rated."
-   },
-   {
     "capability": "Look up song context",
     "reality": "An opt-in lookup is designed and a 3-song live probe was reported; years and tags need a second lookup. Nothing is wired into matching."
    },
    {
-    "capability": "Pass the known-answer test (Gate 2)",
-    "reality": "Attempt 1 ran on all 96 items and did not pass (category 0.802 against 0.85; model choice not shown no worse than the random walk). Attempt 2 needs a fresh set and per-family specialists."
+    "capability": "Match amp, cabinet and delay as part of the chain",
+    "reality": "Out of scope for now (human, 2026-10-25): the product chain is drive, equaliser, reverb; an amp may stand in for the drive only as a candidate. The single-block predictors fail inside chains.",
+    "evidence": [
+     "ev-t214",
+     "ev-state-1023"
+    ]
    },
    {
-    "capability": "A specialist for each effect family",
-    "reality": "Decided on 2026-10-17; none built yet. Order: modulation, reverb and delay, then amp."
+    "capability": "Match the product chain (drive, equaliser, reverb) from a song",
+    "reality": "Not implemented. The chain predictor's training data is still being rendered (37,998 chains at 2026-10-26 16:23); no result.",
+    "evidence": [
+     "ev-t233",
+     "ev-decisions"
+    ]
+   },
+   {
+    "capability": "A reverb model per song",
+    "reality": "None. A fixed default was rejected by the human; the estimator covers a real tail on 2 of 7 stems.",
+    "evidence": [
+     "ev-t231-note",
+     "ev-t232-ledger",
+     "ev-decisions"
+    ]
+   },
+   {
+    "capability": "A drive-only match that survives a blind listening on real songs",
+    "reality": "Not shown. The first blind session on five songs was negative.",
+    "evidence": [
+     "ev-t223-note",
+     "ev-decisions"
+    ]
    }
   ]
  },
  "recent_changes": [
   {
    "date": "2026-10-18",
-   "kind": "improvement",
-   "text": "Gate 2 attempt 3 met all 7 checks on the 96 sealed items: category 0.885, model 0.771, settings error 0.101, ranking the true preset first 0.979 under the owner's extended rule, better than the random walk on model and settings. The gate is not passed until the owner signs. Delay (5 of 12 exact models) is now the weakest effect.",
+   "kind": "activity",
+   "text": "Gate 2 attempt 3 met all 7 checks on the 96 sealed items: category 0.885, model 0.771, settings error 0.101, ranking the true preset first 0.979 under the owner's extended rule, better than the random walk on model and settings. The gate is not passed until the owner signs. Delay (5 of 12 exact models) is now the weakest effect. The same day the human judged the model 'garbage' and declared every lead-made method ruling behind it unapproved; the confirmation run and harness checks stay open.",
    "evidence": [
     "ev-gate2-attempt3",
     "ev-decisions",
@@ -1013,11 +1408,13 @@
   },
   {
    "date": "2026-10-17",
-   "kind": "improvement",
-   "text": "The tone comparison was admitted for single blocks when the clean recording is known. Tuned on a train split and scored once on a held-out split of 96 items, it ranked the true preset first 0.990 of the time against a bar of 0.90 (older measure 0.781), counting identical-sounding look-alikes as ties. The tuning score matched the test score, so it was not overfit. This replaces the failed first check as the main evidence for that case only.",
+   "kind": "activity",
+   "text": "The tone comparison was admitted for single blocks when the clean recording is known. Tuned on a train split and scored once on a held-out split of 96 items, it ranked the true preset first 0.990 of the time against a bar of 0.90 (older measure 0.781), counting identical-sounding look-alikes as ties. The tuning score matched the test score, so it was not overfit. This replaces the failed first check as the main evidence for that case only. Update 2026-10-18: the human judged the resulting model unusable and the admission is unapproved; in blind rating on hard same-performance pairs the measure agreed with the ear 10 of 25 times (chance).",
    "evidence": [
     "ev-trust-v2-test",
-    "ev-trust-v2-train"
+    "ev-trust-v2-train",
+    "ev-decisions",
+    "ev-ratings-v3"
    ]
   },
   {
@@ -1293,32 +1690,286 @@
    "evidence": [
     "ev-board"
    ]
+  },
+  {
+   "date": "2026-10-23",
+   "kind": "improvement",
+   "text": "Overnight, training data for amp, cabinet, modulation, delay, reverb and equaliser was rendered and the predictors trained. On 18 held-out recordings from the two library players they name the exact model well (cabinet 76 percent, equaliser 82, modulation 75) and poorly on a new player (amp 19 to 31 percent). Knobs are modest. Trained, not verified; nothing is adopted into any matcher.",
+   "evidence": [
+    "ev-slot-results",
+    "ev-slot-amp",
+    "ev-slot-cab"
+   ]
+  },
+  {
+   "date": "2026-10-23",
+   "kind": "improvement",
+   "text": "The amp 'silence' failures were explained (a fixed -90 dBFS render floor cut off genuinely quiet renders at low Master settings, mostly on preamps) and fixed by refilling 5,526 of 5,653 failed clips; 127 clips that are truly digital silence are left out.",
+   "evidence": [
+    "ev-slot-plan",
+    "ev-slot-results"
+   ]
+  },
+  {
+   "date": "2026-10-23",
+   "kind": "improvement",
+   "text": "Re-running the seven songs with the human's calibrated guitar lowered the listening-measure distance on 5 of 7 songs (clearly on 3). Label: listening-measure distance across different dry tracks; no ear verdict. The measure is not validated to order renders of different clean guitars, and notes, tone and level changed together, so no gain can be credited. The human wants to test the presets themselves.",
+   "evidence": [
+    "ev-t211",
+    "ev-t209"
+   ]
+  },
+  {
+   "date": "2026-10-23",
+   "kind": "decision",
+   "text": "The human approved a chain transfer test: about 300 random drive, amp and cabinet chains (plus optional effects) to see whether the slot predictors still name their block inside a chain. It ran the same day (see the result below).",
+   "evidence": [
+    "ev-state-1023"
+   ]
+  },
+  {
+   "date": "2026-10-22",
+   "kind": "improvement",
+   "text": "A full drive search against a rebuilt clean guitar was run on seven songs; the human listened once, openly, side by side with the separated guitar, with no alternative candidate, and said 'those actually all sound pretty good' (evidence class C). A knob fine-tune lowered the listening-measure distance on 6 of 7 and the human heard 'the same or better' in the same open pass; Output and Master moved freely.",
+   "evidence": [
+    "ev-t207",
+    "ev-t209"
+   ]
+  },
+  {
+   "date": "2026-10-22",
+   "kind": "improvement",
+   "text": "The human recorded a guided calibration session for their guitar. The profile (263 own notes, tone curve, normal playing level -36.1 dBFS) shows the real guitar plays 8 decibels quieter than the earlier stand-in level and is more mid-forward than the library guitars.",
+   "evidence": [
+    "ev-guitar-profile",
+    "ev-profile-standin"
+   ]
+  },
+  {
+   "date": "2026-10-22",
+   "kind": "improvement",
+   "text": "Basic Pitch was installed locally and its settings were swept against the human's dry takes; a clean guitar can now be rebuilt for all seven separated songs. Alignment to the stem was good on slow parts and unmeasurable on fast dense riffs.",
+   "evidence": [
+    "ev-basic-pitch",
+    "ev-rebuilt-dry"
+   ]
+  },
+  {
+   "date": "2026-10-22",
+   "kind": "decision",
+   "text": "A chord list on Mother made the match more decisive (runner-up margin 0.023 against 0.002), but the human heard the plain version as better in one open comparison, so the chord-list rebuild stays an option. The distances quoted for it (0.706 against 0.629) carry the label: listening-measure distance across different dry tracks; no ear verdict beyond that one open preference.",
+   "evidence": [
+    "ev-chord-ablation",
+    "ev-chord-note"
+   ]
+  },
+  {
+   "date": "2026-10-22",
+   "kind": "problem",
+   "text": "Five blind song matches (no dry guitar) were heard as two 'pretty off', one the closest so far, two 'somewhat close'. The weak spots are Zero Amp Bass DI standing in for a fuzz and a single drive block standing in for a rig.",
+   "evidence": [
+    "ev-t200-verdict",
+    "ev-five-songs"
+   ]
+  },
+  {
+   "date": "2026-10-22",
+   "kind": "decision",
+   "text": "The human approved a fixed slot order for chain prediction (drive, amp, cabinet, modulation, delay, reverb, equaliser, each optional) and a calibration step for each guitar before matching.",
+   "evidence": [
+    "ev-coverage",
+    "ev-guitar-profile"
+   ]
+  },
+  {
+   "date": "2026-10-21",
+   "kind": "problem",
+   "text": "Swapping the listening measure for freely licensed alternatives (PANNs, DAC) fell short of the current one, so the current measure stays, with its licence question open.",
+   "evidence": [
+    "ev-encoder-swap"
+   ]
+  },
+  {
+   "date": "2026-10-20",
+   "kind": "improvement",
+   "text": "A predictor-first drive matcher named the correct drive model first on 85 percent of 48 blind Helix targets (100 percent within three) in about 12 renders. On the human's own takes 67 and 88 percent. The human heard the first song match as pretty good. Evidence class D: the set was drawn by the search agent after the method was built, with no bar; the own-take cells are not statistically significant.",
+   "evidence": [
+    "ev-predictor-first",
+    "ev-mother-live",
+    "ev-predictor-note",
+    "ev-audit"
+   ]
+  },
+  {
+   "date": "2026-10-20",
+   "kind": "improvement",
+   "text": "A tuned version of a tutorial amp chain beat the tutorial settings in a short blind session (8 trials, 6 decided, 1 of 2 repeats consistent; mean rating 4.0 against 2.5) and in one live listen, on one song and one window. Directional only; it does not show that a whole chain can be tuned reliably by search.",
+   "evidence": [
+    "ev-ds-tune-ratings",
+    "ev-retest-v6",
+    "ev-audit"
+   ]
+  },
+  {
+   "date": "2026-10-23",
+   "kind": "problem",
+   "text": "The chain transfer test answered no: on 295 finished chains the single-block predictors name the drive 2 percent and the amp 1 percent of the time (93 and 54 alone); cabinet 25, modulation 21, delay 10, reverb 28, equaliser 12 percent; knobs at a constant guess. A drive in front of the amp hurts the amp predictor and a cabinet after them nearly erases both. The 240,000 single-block renders cannot be used as chain shortlists as they are. The human approved a chain-trained pilot (about 5,000 chains, scored on the same test set), which is running.",
+   "evidence": [
+    "ev-t214",
+    "ev-t214-note",
+    "ev-decisions"
+   ]
+  },
+  {
+   "date": "2026-10-23",
+   "kind": "decision",
+   "text": "At the human's request the lead produced a project analysis from an independent methodology audit and two research surveys. Findings the lead accepts: no result since mid-October rests on a sealed blind test; the listening measure is used beyond its ear validation; several methods became defaults by reuse without itemised approval; 240,000 single-block renders preceded the chain check; the rebuilt dry's contribution is unmeasured. Ten itemised decisions are listed for the human. This report corrects the overstatements the audit found (one experiment heard rather than two independent tests; measured-pedal mode is simulation only; 18 held-out files rather than thousands of clips; one song and six decided trials rather than 'a whole chain can be tuned'; the admitted score is unapproved and at chance on hard pairs; slot predictors trained, not verified; Gate 2 disowned by the human; every 'closer' figure labelled as a cross-dry-track distance with no ear verdict).",
+   "evidence": [
+    "ev-analysis",
+    "ev-audit",
+    "ev-research-chain",
+    "ev-research-dry",
+    "ev-decisions"
+   ]
+  },
+  {
+   "date": "2026-10-25",
+   "kind": "problem",
+   "text": "The first blind listening on real songs was negative. On five songs the human heard the five best drive candidates against the separated guitar and said 'so bad I can't even compare them'. It contradicts the open listens of 22 October that called the same kind of match 'pretty good'. Heard blind but answered aloud and not scored (evidence class C). Two stopped jobs (a preset-corpus render and a separation re-score) can resume.",
+   "evidence": [
+    "ev-t223-note",
+    "ev-decisions"
+   ]
+  },
+  {
+   "date": "2026-10-25",
+   "kind": "decision",
+   "text": "The human refocused the product: drive, then delay or reverb, then equaliser, with no amps or cabinets for now; delay was then put on hold, so the chain is drive, equaliser, reverb. An amp may be tested only as a stand-in for the drive. Gate 2 was closed as superseded and the 'yes go' bundle approved the governance changes (recorded as provisional).",
+   "evidence": [
+    "ev-decisions",
+    "ev-gates"
+   ]
+  },
+  {
+   "date": "2026-10-25",
+   "kind": "improvement",
+   "text": "Colour pilots on three then seven songs: a light reverb after the drive was preferred on all seven (open listening), fitted equaliser variants could not be told apart (kept at the human's request), the amp stand-in was mixed, and one blind Mother pack favoured the fitted equaliser. Plate sounded best openly but was not preferred in the later blind ranks. Directional only (class C, one B).",
+   "evidence": [
+    "ev-t228-note",
+    "ev-t229-note",
+    "ev-decisions"
+   ]
+  },
+  {
+   "date": "2026-10-25",
+   "kind": "problem",
+   "text": "The reverb pilot found no signal that agrees with the human: four pre-registered candidate signals all failed (best 0.05 rank correlation), although the listener was very consistent (mean rank difference 0.33 against 2.67 by chance). The human rejected a fixed reverb default and asked for a model.",
+   "evidence": [
+    "ev-t230-note",
+    "ev-t230-ledger",
+    "ev-decisions"
+   ]
+  },
+  {
+   "date": "2026-10-25",
+   "kind": "improvement",
+   "text": "A blind reverb estimator was built and validated on 189 known reverbs (decay ordering 36 of 40, mix always monotone, type not separable). On real stems it reads a tail on only 2 of 7; the rest is separator leftovers. The human said not to work on the separator.",
+   "evidence": [
+    "ev-t231-note",
+    "ev-t231-ledger",
+    "ev-decisions"
+   ]
+  },
+  {
+   "date": "2026-10-25",
+   "kind": "problem",
+   "text": "The pre-registered confirmation of the estimator held on Mother (named closest ranked 1 of 7, furthest 7 of 7) and was not reproducible on Territorial; pooled it is not confirmed. One song is not a result.",
+   "evidence": [
+    "ev-t232-note",
+    "ev-t232-ledger"
+   ]
+  },
+  {
+   "date": "2026-10-25",
+   "kind": "activity",
+   "text": "Dry-signal ablation measured (30 searches): the winning drive model stays the same on 5 to 6 of 7 songs under each alternative clean-guitar input; DS-Sample changes in every arm. Distances are not comparable; seven blind packs are built and unrated. No readiness gain until the ear rates them.",
+   "evidence": [
+    "ev-t224-note",
+    "ev-t224-ledger"
+   ]
+  },
+  {
+   "date": "2026-10-25",
+   "kind": "milestone",
+   "text": "Gate 3 advanced from 0 to 1 of 4 criteria: a sealed 120-item blind set was generated on the reserved third guitarist's recordings, with bars written down first. The bars are proposed by benchmark and not approved by the human; nothing is scored.",
+   "evidence": [
+    "ev-gate3-note",
+    "ev-gate3-sealed",
+    "ev-gate3-bars",
+    "ev-gates"
+   ]
+  },
+  {
+   "date": "2026-10-25",
+   "kind": "improvement",
+   "text": "Defaults are now pinned to a human-approved list (a file plus a test): knob fine-tuning is an option with the level knobs locked, and the provisional loss and the drive families are no longer defaults. Bundle approvals are recorded as provisional.",
+   "evidence": [
+    "ev-approved-methods",
+    "ev-decisions"
+   ]
+  },
+  {
+   "date": "2026-10-26",
+   "kind": "activity",
+   "text": "An unattended overnight job started rendering about 40,000 drive, equaliser and reverb chains (15 percent from the human's own session recordings) to train the product-chain predictor. At 2026-10-26 16:23 local: 37,998 chains done, shard 96 of 105, render stops by 20:00, then training. In progress; no result.",
+   "evidence": [
+    "ev-t233",
+    "ev-decisions"
+   ]
   }
  ],
  "in_progress": [
   {
-   "area": "Delay accuracy (next target)",
-   "text": "Delay is now the weakest effect (5 of 12 exact models, mostly one delay mistaken for another). Next step is diagnosis on development sets; the sealed sets v1, v2 and v3 are all spent.",
+   "area": "Product-chain predictor (overnight job)",
+   "text": "Rendering about 40,000 drive, equaliser and reverb chains; 37,998 done at 2026-10-26 16:23 local, then training and a seven-song table. In progress; no result and nothing adopted.",
    "evidence": [
-    "ev-gate2-attempt3",
+    "ev-t233",
+    "ev-decisions"
+   ]
+  },
+  {
+   "area": "Gate 3 bars (human)",
+   "text": "The sealed 120-item set exists; the bars are proposed and await the human's ruling. Nothing is scored.",
+   "evidence": [
+    "ev-gate3-note",
+    "ev-gate3-bars",
+    "ev-decisions"
+   ]
+  },
+  {
+   "area": "Reverb model (human decision)",
+   "text": "Estimator confirmed on one song of two; the human has not yet ruled on 'estimate when readable, fall back otherwise'.",
+   "evidence": [
+    "ev-t231-note",
+    "ev-t232-ledger",
+    "ev-decisions"
+   ]
+  },
+  {
+   "area": "Ratings waiting for the human",
+   "text": "Seven dry-ablation packs unrated; the stem-validation pack was answered with a verdict, not scored; a Cherub Rock section for reverb is needed; the calibrated presets have not been played on the Stomp.",
+   "evidence": [
+    "ev-t224-note",
+    "ev-t223-note",
     "ev-decisions"
    ]
   },
   {
    "area": "Pedal sampling fixes",
-   "text": "Handle the residual one-sample slip (about 1 in 90 renders), the four refused models and the in-place glide. Pre-roll is already fixed. No pedal result counts until then.",
+   "text": "Handle the residual one-sample slip (about 1 in 90 renders), the four refused models and the in-place glide. No pedal result counts until then.",
    "evidence": [
     "ev-stomp-verify",
     "ev-stomp-verify-final",
-    "ev-decisions"
-   ]
-  },
-  {
-   "area": "Chain building from analysis",
-   "text": "The chain builder exists with fake engines; the next step is a multi-block render set on Native and judging post-amp blocks against the current best render.",
-   "evidence": [
-    "ev-chain-builder",
-    "ev-presence",
     "ev-decisions"
    ]
   },
@@ -1333,18 +1984,27 @@
  ],
  "up_next": [
   {
-   "area": "Gate 2 sign-off",
-   "text": "The owner reviews the attempt 3 result and signs Gate 2.",
+   "area": "Read the chain predictor",
+   "text": "When training ends: held-out library files, the held-out part of the human's session and the seven songs (against the human's picks); then the sealed set once the bars are approved.",
    "evidence": [
-    "ev-gate2-attempt3",
-    "ev-gates"
+    "ev-t233",
+    "ev-gate3-note"
    ]
   },
   {
-   "area": "Listen to the delay misses",
-   "text": "Target-left, guess-right files for the delay misses and some wins are on the Gate 2 page.",
+   "area": "Score Gate 3 once",
+   "text": "After the human rules on the bars, the lead launches one scoring run of one frozen method; then the short blind listen.",
    "evidence": [
-    "ev-gate2-attempt3"
+    "ev-gate3-note",
+    "ev-gate3-bars"
+   ]
+  },
+  {
+   "area": "Reverb: compare heads with the estimator",
+   "text": "If the human rules for 'estimate when readable', compare the chain predictor's reverb heads with the estimator on the seven songs and rank more songs blind with the pick named in advance.",
+   "evidence": [
+    "ev-t231-note",
+    "ev-t232-note"
    ]
   },
   {
@@ -1356,11 +2016,9 @@
    ]
   },
   {
-   "area": "Chain builder on a real engine",
-   "text": "Use cabinet estimation by deconvolution as the second stage and the presence hint as a soft prior; confirm time-based blocks by rendering with and without them.",
+   "area": "On hold or stopped",
+   "text": "Delay (human: on hold), separator work (human: no), amp and cabinet matching (out of scope), the preset-corpus render and the separation re-score (stopped by the lead, resumable).",
    "evidence": [
-    "ev-chain-builder",
-    "ev-ir-library",
     "ev-decisions"
    ]
   }
@@ -1405,10 +2063,10 @@
    ],
    "purpose": "Extract the guitar from the recording and supply a clean guitar recording to compare against.",
    "status": "Partially Working",
-   "works": "Separation runs in seconds, sections are found and a library of clean guitar clips is indexed. A stress curve on a synthetic mix is recorded.",
-   "missing": "Any quality score on real songs and any measurement of the clean-guitar choice's benefit.",
-   "problem": "Separation quality on real songs is unknown.",
-   "next": "Stress-test on a few real songs once the owner chooses them.",
+   "works": "Separation runs in seconds, sections are found and a library of clean guitar clips is indexed. A stress curve on a synthetic mix is recorded. Since 21 October: a clean guitar can be rebuilt from a separated song and a calibration profile of one guitar exists. The ablation shows the winning drive model mostly stays the same under other clean-guitar inputs.",
+   "missing": "Any quality score on real songs and any measurement of the clean-guitar choice's benefit (the rebuild has never been compared with a library clean guitar on the same search). The rebuild is approximate and the level convention is undecided.",
+   "problem": "The rebuilt clean guitar's contribution is unmeasured by ear (seven blind packs unrated); separation quality on real songs is unknown, and the human has ruled out separator work.",
+   "next": "Human rates the dry-ablation packs.",
    "confidence": "Synthetic mix only; one real song without a quality score."
   },
   {
@@ -1422,28 +2080,29 @@
    ],
    "purpose": "Say how close two guitar sounds are, and describe how each block behaves.",
    "status": "Partially Working",
-   "works": "Five comparison measures run. One (the multi-resolution spectral measure, version 2) is admitted for single blocks with a known clean recording (0.990). A block-presence detector exists (cabinet and gain stage pass; the rest miss). A cabinet-response estimator is promising. Block fingerprints exist for 602 models.",
+   "works": "Five comparison measures run. The lead admitted one (the multi-resolution spectral measure, version 2) for single blocks with a known clean recording (0.990 on a held-out split); the human has not approved it, judged the model built on it unusable, and on hard same-performance pairs it is at chance. The learned listening measure orders effect models on the same performance in agreement with the ear and is the de facto ranker. A block-presence detector exists (cabinet and gain stage pass; the rest miss). A cabinet-response estimator is promising. Block fingerprints exist for 602 models.",
    "missing": "A measure for the no-recording song case; reliable detection of delay, reverb and modulation blocks.",
-   "problem": "The comparison is admitted only for the known-recording case. The score ranks the true preset first on 90 of 96 sealed items (bar 0.95): gain-stage neighbours score alike.",
-   "next": "Add a gain-stage score term that passes loss-trust on gain neighbours (running).",
-   "confidence": "Real Helix renders from Native; held-out splits scored once; synthetic known-answer data, not real songs or ears."
+   "problem": "No measure is approved by the human; the learned measure ranks the final candidates as an interim default and has no ear validation against a separated guitar (its blind session was answered with a verdict, not ranks).",
+   "next": "Decide whether to score the stem-validation pack; the chain predictor may replace measure-led ranking if it works.",
+   "confidence": "Real Helix renders from Native; held-out splits scored once; ear agreement only for ordering models on the same performance; not real songs."
   },
   {
    "id": "searching",
-   "name": "Searching for the preset and the song-to-preset pipeline",
+   "name": "Searching for the preset, the colour stage and the song-to-preset pipeline",
    "features": [
     "search",
     "pipeline",
     "chain-builder",
-    "family-specialists"
+    "family-specialists",
+    "colour-stage"
    ],
    "purpose": "Try candidate presets, score them against the target and return the best preset.",
    "status": "Partially Working",
-   "works": "A hybrid method with family specialists (cabinet and equaliser, time-based, modulation, amp, gain) runs on Native. On 96 sealed items it named the category 88.5 percent and the model 77.1 percent of the time with settings error 0.101 (attempt 3). A chain builder exists, tested with fake engines only.",
-   "missing": "Delay (model 5 of 12) and drive (7 of 12) are weak. Chain builder on a real engine, snapshots for several sections, a one-command tool.",
-   "problem": "Weak on delay and drive; delay is the biggest gap now.",
-   "next": "Diagnose and strengthen the delay specialist on development data.",
-   "confidence": "Synthetic known-answer data (96 sealed items) on Native; one informal listen on one real song."
+   "works": "A hybrid method with family specialists (cabinet and equaliser, time-based, modulation, amp, gain) runs on Native. On 96 sealed items it named the category 88.5 percent and the model 77.1 percent of the time with settings error 0.101 (attempt 3). A chain builder exists, tested with fake engines only. A full drive search plus knob fine-tune is run on seven songs from a rebuilt clean guitar (heard once, openly). A measured-pedal mode is built and simulated only. Since 25 October: a bounded equaliser fit, a reverb candidate grid and comparison pages, and a blind reverb estimator (decay and mix from a stem's note tails) exist as pilots.",
+   "missing": "No reverb model and no colour stage in any matcher; the estimator reads a real tail on 2 of 7 stems. Only the drive slot is matched; the first blind listening of those matches was negative. Chain builder on a real engine, snapshots, a one-command tool.",
+   "problem": "The first blind listening of drive-only matches on real songs was negative, and the reverb has no model.",
+   "next": "Read the chain predictor, then decide the reverb model with the human.",
+   "confidence": "Synthetic known-answer data (96 sealed items, Gate 2 now closed as superseded) on Native; seven songs heard once openly and five songs once blind (negative); reverb estimator on 189 known reverbs; the pedal never probed."
   },
   {
    "id": "testing",
@@ -1454,11 +2113,11 @@
    ],
    "purpose": "Provide the measurements and listening tests that decide whether the product works.",
    "status": "Partially Working",
-   "works": "The evidence ledger, smoke tests, engine agreement measurements, the 96-item known-answer set with its runner and frozen pass rule, three full attempt results (the third meets all checks), and a blind A/B session tool.",
-   "missing": "The human's Gate 2 sign-off, fresh sets for later work, a rated blind session.",
-   "problem": "Three sealed sets are now spent; Gate 2 is awaiting sign-off.",
-   "next": "Prepare listening on the delay misses; build development sets for delay work.",
-   "confidence": "Hardware measurements of engine agreement; full known-answer runs on Native; listening informal only."
+   "works": "The evidence ledger, smoke tests, engine agreement measurements, the 96-item known-answer set with its runner and frozen pass rule, three full attempt results (the third meets all checks on paper; the human judged the model unusable), a blind A/B session tool and seven rated short sessions. Since 25 October: a sealed 120-item Gate 3 set with a verifier and a scorer that refuses to run without a launch reference, a blind ranking-pack builder and scorer, and pre-registered pilots (reverb) scored by the script.",
+   "missing": "Approved Gate 3 bars and any scoring of the sealed set, a blind rating of the song matches that is scored, and sessions long enough to beat the listener's own repeat noise on pair trials (7 of 12).",
+   "problem": "Gate 3 bars are proposed, not approved, so the sealed set cannot be scored.",
+   "next": "Human rules on the bars; benchmark scores once.",
+   "confidence": "Hardware measurements of engine agreement; full known-answer runs on Native (Gate 2, closed as superseded); sealed set built but unscored; listening short and directional."
   },
   {
    "id": "learning",
@@ -1466,13 +2125,13 @@
    "features": [
     "learning"
    ],
-   "purpose": "Learn good starting points so the search needs fewer renders.",
-   "status": "Not Started",
-   "works": "Nothing.",
-   "missing": "Everything; it depends on a trusted comparison and on the licence findings.",
-   "problem": "Not applicable yet.",
-   "next": "None until Gate 2.",
-   "confidence": "None."
+   "purpose": "Learn from rendered pairs to name a block and its settings, so the search needs fewer renders.",
+   "status": "Partially Working",
+   "works": "A drive predictor narrows the search (85 percent right first on 48 blind targets, evidence class D) and six more slots have trained predictors from about 240,000 single-block renders. An overnight job is rendering about 40,000 drive, equaliser and reverb chains to train a predictor of the product chain (37,998 done at 2026-10-26 16:23).",
+   "missing": "The chain predictor has no result; the slot predictors for other slots are out of scope and failed inside chains; nothing is verified on the sealed set.",
+   "problem": "The open bet has no result yet, and single-block predictors do not transfer to chains.",
+   "next": "Let training finish, then read the seven-song table and propose how to score it.",
+   "confidence": "Measurement on Helix Native renders; the new job has produced no result; no ear test of any predictor-driven match."
   },
   {
    "id": "foundations",
@@ -1484,8 +2143,8 @@
    ],
    "purpose": "Make the project installable, legally clean and organised.",
    "status": "Working",
-   "works": "Installs on this Mac, licence checks pass, and the board, evidence ledger and gates are in use.",
-   "missing": "Windows and Linux checks, recorded licence-agreement findings, and tidier board lines.",
+   "works": "Installs on this Mac, licence checks pass, and the board, evidence ledger and gates are in use. A file now pins song-match defaults to what the human approved.",
+   "missing": "Windows and Linux checks, recorded licence-agreement findings, and tidier board lines (T223, T228 and T230 lines are behind the record).",
    "problem": "Licence-agreement findings are unrecorded; some board lines are stale.",
    "next": "Update the board; owner records the licence findings.",
    "confidence": "Tests and a licence scan; one operating system."
@@ -1707,6 +2366,114 @@
   {
    "term": "USB slip",
    "definition": "A one-sample shift or short burst in the audio coming back from the pedal over its USB connection, which makes a render differ slightly from an identical earlier one."
+  },
+  {
+   "term": "Basic Pitch",
+   "definition": "A free, Apache-2.0 licensed program from Spotify that writes down the notes in a recording. Used here to turn a separated guitar part into notes, which are then played back as a clean guitar."
+  },
+  {
+   "term": "rebuilt dry track",
+   "definition": "A stand-in clean guitar made for a song that has none: the notes found in the separated guitar are replayed using real clean guitar notes (from a library or from the player's own calibration session)."
+  },
+  {
+   "term": "guitar profile",
+   "definition": "A one-off calibration of one guitar: its normal playing level, its tone compared with the library guitars, and a bank of its own notes."
+  },
+  {
+   "term": "dBFS",
+   "definition": "Decibels relative to full scale: how loud a digital signal is. 0 is the loudest possible; -36 is much quieter than -28."
+  },
+  {
+   "term": "AFx-Rep",
+   "definition": "A learned listening measure (a neural network embedding) used here to order candidate presets by how close they sound to the target. Lower distance is closer."
+  },
+  {
+   "term": "predictor",
+   "definition": "A trained program that looks at a sound and guesses which block model and settings made it. Used to narrow the search."
+  },
+  {
+   "term": "slot",
+   "definition": "A fixed position in the signal chain: drive, amp, cabinet, modulation, delay, reverb, equaliser, in that order. Each slot is optional."
+  },
+  {
+   "term": "top-1 / top-3",
+   "definition": "How often the correct answer is the first choice, or among the first three choices."
+  },
+  {
+   "term": "fine-tuning (knobs)",
+   "definition": "After the block model is chosen, a local search that adjusts only its knobs to bring the render closer to the target."
+  },
+  {
+   "term": "LUFS",
+   "definition": "A loudness measure that follows how loud something sounds. Listening comparisons are level-matched with it so louder does not win."
+  },
+  {
+   "term": "new-player generalisation",
+   "definition": "How well a trained predictor works on a guitarist whose playing it never saw in training. The honest test for a tool that will be used by someone else."
+  },
+  {
+   "term": "evidence class",
+   "definition": "How strong a claim's evidence is, from the audit: A blind with a sealed set and a bar registered first; B blind on an unsealed set; C an open listen by the human (knowing which is which); D numbers only, on an unadmitted measure or without a bar; E no evidence."
+  },
+  {
+   "term": "test-retest consistency",
+   "definition": "How often the listener gives the same answer when a blind pair is repeated. The human's is 7 of 12 across the sessions so far, so small sessions cannot resolve small differences."
+  },
+  {
+   "term": "open listen",
+   "definition": "A listening session where the listener knows which candidate is which. It can flatter a method; a blind session cannot."
+  },
+  {
+   "term": "sealed set",
+   "definition": "A test set generated after the bars are registered, with hashes recorded, that no agent reads before the one scoring run."
+  },
+  {
+   "term": "different dry tracks",
+   "definition": "Two runs whose clean-guitar input differs (other notes, tone or level). A distance between their renders and the target mixes the effect of the guitar with the effect of the preset, so it cannot say which preset is closer."
+  },
+  {
+   "term": "provisional loss",
+   "definition": "The early combination of three tone measures used before any measure was admitted. Never admitted; at chance on hard pairs; still the default re-score of the block matcher."
+  },
+  {
+   "term": "P3",
+   "definition": "The third library guitarist's clean recordings, held back from every training set and every search so a sealed test can use them."
+  },
+  {
+   "term": "invariance ratio",
+   "definition": "How much a listening measure moves with a change of clean guitar compared with a knob move. Above 1 means the guitar matters more than the knob; the learned measure scored 30 for small knob moves."
+  },
+  {
+   "term": "EQ",
+   "definition": "Equaliser: a tone control that boosts or cuts parts of the frequency spectrum, such as bass or treble."
+  },
+  {
+   "term": "reverb",
+   "definition": "An effect that adds the sound of a space (room, plate, hall) after the guitar. Decay is how long the tail lasts; Mix is how much of it is blended in."
+  },
+  {
+   "term": "product chain",
+   "definition": "The chain the product builds, as redefined by the human on 2026-10-25: a drive effect, then an equaliser, then a reverb. No amp, cabinet or delay for now."
+  },
+  {
+   "term": "pre-registered",
+   "definition": "The analysis and the reading of its result were written down, with a hash, before any answer was seen, so the result cannot be bent to fit."
+  },
+  {
+   "term": "blind reverb estimator",
+   "definition": "A calculation that reads a reverb's decay and amount from the tails left at the end of notes in a recording, without knowing the reverb setting."
+  },
+  {
+   "term": "separator leftovers",
+   "definition": "Sound from the band (bass, drums, vocals) that the guitar separator fails to remove. It can look like a reverb tail and hide a real one."
+  },
+  {
+   "term": "approved-methods file",
+   "definition": "A list in the repository of method settings the human has ruled on, with the human's words; a test fails if the code's defaults drift from it."
+  },
+  {
+   "term": "class C / class B",
+   "definition": "Evidence classes from the audit: C is an open listen (the listener knew which was which); B is blind on an unsealed set. See 'evidence class'."
   }
  ],
  "evidence": [
@@ -2162,9 +2929,321 @@
   },
   {
    "id": "ev-gate2-attempt3",
-   "label": "Gate 2 attempt 3 on all 96 sealed synthetic-v3 items: all 7 checks met (rank-1 0.979 under the extended rule B); awaiting the human's sign-off",
+   "label": "Gate 2 attempt 3 on all 96 sealed synthetic-v3 items: all 7 checks met (rank-1 0.979 under the extended rule B); closed as superseded by the human on 2026-10-25, not signed",
    "kind": "ledger",
    "ref": "2026-10-18T15:46:15+00:00"
+  },
+  {
+   "id": "ev-predictor-first",
+   "label": "Predictor-first drive matcher, blind on 48 Helix targets",
+   "kind": "ledger",
+   "ref": "2026-10-20T18:37:33+00:00"
+  },
+  {
+   "id": "ev-mother-live",
+   "label": "Human listen: Mother drive match \"pretty good\"",
+   "kind": "ledger",
+   "ref": "2026-10-20T19:17:30+00:00"
+  },
+  {
+   "id": "ev-ds-tune-ratings",
+   "label": "DS-Sample chain tuning, blind ratings session (v6)",
+   "kind": "ledger",
+   "ref": "2026-10-20T21:04:14+00:00"
+  },
+  {
+   "id": "ev-encoder-swap",
+   "label": "Encoder swap measurement (AFx-Rep stays best)",
+   "kind": "ledger",
+   "ref": "2026-10-21T03:33:36+00:00"
+  },
+  {
+   "id": "ev-t200-verdict",
+   "label": "Human live verdicts on the five blind song matches",
+   "kind": "ledger",
+   "ref": "2026-10-22T18:44:27+00:00"
+  },
+  {
+   "id": "ev-rebuilt-dry",
+   "label": "Rebuilt dry track for Mother, alignment to the stem",
+   "kind": "ledger",
+   "ref": "2026-10-22T19:08:15+00:00"
+  },
+  {
+   "id": "ev-basic-pitch",
+   "label": "Basic Pitch settings sweep against the human's dry takes",
+   "kind": "ledger",
+   "ref": "2026-10-22T19:48:12+00:00"
+  },
+  {
+   "id": "ev-coverage",
+   "label": "Training-data coverage inventory (no renders)",
+   "kind": "ledger",
+   "ref": "2026-10-22T19:22:32+00:00"
+  },
+  {
+   "id": "ev-profile-standin",
+   "label": "Stand-in guitar level from 14 dry takes",
+   "kind": "ledger",
+   "ref": "2026-10-22T19:30:19+00:00"
+  },
+  {
+   "id": "ev-t207",
+   "label": "Seven-song dry-track drive search (distances)",
+   "kind": "ledger",
+   "ref": "2026-10-22T21:07:55+00:00"
+  },
+  {
+   "id": "ev-chord-ablation",
+   "label": "Mother without chord data (distance 0.629)",
+   "kind": "ledger",
+   "ref": "2026-10-22T23:06:08+00:00"
+  },
+  {
+   "id": "ev-t209",
+   "label": "Knob fine-tuning on the seven picks (distances)",
+   "kind": "ledger",
+   "ref": "2026-10-22T23:07:14+00:00"
+  },
+  {
+   "id": "ev-t211",
+   "label": "Calibrated-guitar re-run on seven songs (distances)",
+   "kind": "ledger",
+   "ref": "2026-10-23T00:31:57+00:00"
+  },
+  {
+   "id": "ev-slot-amp",
+   "label": "Amp slot heads, held-out DI files",
+   "kind": "ledger",
+   "ref": "2026-10-23T08:17:15+00:00"
+  },
+  {
+   "id": "ev-slot-cab",
+   "label": "Cab slot heads, held-out DI files",
+   "kind": "ledger",
+   "ref": "2026-10-23T12:15:45+00:00"
+  },
+  {
+   "id": "ev-slot-delay",
+   "label": "Delay slot heads, held-out DI files",
+   "kind": "ledger",
+   "ref": "2026-10-23T13:06:10+00:00"
+  },
+  {
+   "id": "ev-slot-eq",
+   "label": "Equaliser slot heads, held-out DI files",
+   "kind": "ledger",
+   "ref": "2026-10-23T13:46:04+00:00"
+  },
+  {
+   "id": "ev-slot-results",
+   "label": "Overnight slot-dataset results note",
+   "kind": "file",
+   "ref": "docs/notes/slot-datasets-v1-results.md"
+  },
+  {
+   "id": "ev-slot-plan",
+   "label": "Slot datasets: design and the amp silence diagnosis",
+   "kind": "file",
+   "ref": "docs/notes/slot-datasets-v1.md"
+  },
+  {
+   "id": "ev-guitar-profile",
+   "label": "Guitar calibration profile note",
+   "kind": "file",
+   "ref": "docs/notes/guitar-profile-t204.md"
+  },
+  {
+   "id": "ev-chord-note",
+   "label": "Chord-list rebuild note",
+   "kind": "file",
+   "ref": "docs/notes/chord-rebuild-t205.md"
+  },
+  {
+   "id": "ev-five-songs",
+   "label": "Five blind song matches note",
+   "kind": "file",
+   "ref": "docs/notes/five-songs-t200.md"
+  },
+  {
+   "id": "ev-state-1023",
+   "label": "State of the project, 2026-10-23 (with the corrections appended the same day)",
+   "kind": "file",
+   "ref": "docs/notes/state-of-project-2026-10-23.md"
+  },
+  {
+   "id": "ev-t214",
+   "label": "Chain transfer test: slot predictors on 295 finished chains (drive 0.02, amp 0.01 exact model; measurement only)",
+   "kind": "ledger",
+   "ref": "2026-10-23T15:49:38+00:00"
+  },
+  {
+   "id": "ev-t214-note",
+   "label": "Chain transfer test note",
+   "kind": "file",
+   "ref": "docs/notes/chain-transfer-t214.md"
+  },
+  {
+   "id": "ev-audit",
+   "label": "Methodology audit, 2026-10-23 (independent, read-only; evidence classes, overstatements found)",
+   "kind": "file",
+   "ref": "docs/notes/methodology-audit-2026-10-23.md"
+  },
+  {
+   "id": "ev-analysis",
+   "label": "Project analysis, 2026-10-23 (lead): verdict, alternatives, ten decisions for the human",
+   "kind": "file",
+   "ref": "docs/notes/project-analysis-2026-10-23.md"
+  },
+  {
+   "id": "ev-research-chain",
+   "label": "Research note: blind full-chain estimation and advanced predictors",
+   "kind": "file",
+   "ref": "docs/notes/research-full-chain-2026-10-23.md"
+  },
+  {
+   "id": "ev-research-dry",
+   "label": "Research note: the dry-signal strategy (rebuild, effect removal, separation, level)",
+   "kind": "file",
+   "ref": "docs/notes/research-dry-signal-2026-10-23.md"
+  },
+  {
+   "id": "ev-ratings-v3",
+   "label": "Blind rating session v3: hard same-performance pairs (learned measure 18 of 25; admitted spectral measure 10 of 25)",
+   "kind": "ledger",
+   "ref": "2026-10-18T21:00:11+00:00"
+  },
+  {
+   "id": "ev-ratings-v5",
+   "label": "Blind rating session v5: the same experiment's own picks (learned measure 20 of 21)",
+   "kind": "ledger",
+   "ref": "2026-10-19T16:59:45+00:00"
+  },
+  {
+   "id": "ev-retest-v6",
+   "label": "Blind rating session v6 repeat consistency (1 of 2; 7 of 12 across sessions)",
+   "kind": "ledger",
+   "ref": "2026-10-20T22:44:35+00:00"
+  },
+  {
+   "id": "ev-measured-pedal",
+   "label": "Measured-pedal mode note (simulation only; never run on a pedal)",
+   "kind": "file",
+   "ref": "docs/notes/measured-pedal-mode.md"
+  },
+  {
+   "id": "ev-state-1020",
+   "label": "State of the project, 2026-10-20 (with the 2026-10-23 corrections appended)",
+   "kind": "file",
+   "ref": "docs/notes/state-of-project-2026-10-20.md"
+  },
+  {
+   "id": "ev-nodi-v2",
+   "label": "No-dry-track drive matching at scale, version 2 (ranking comparison; Drive 52 percent at n 96)",
+   "kind": "file",
+   "ref": "docs/notes/nodi-drive-e2e-v2.md"
+  },
+  {
+   "id": "ev-predictor-note",
+   "label": "Predictor-first drive matcher note",
+   "kind": "file",
+   "ref": "docs/notes/predictor-first-t196.md"
+  },
+  {
+   "id": "ev-t223-note",
+   "label": "T223 AFx-Rep stem-validation pack note (unscored)",
+   "kind": "file",
+   "ref": "docs/notes/afx-stem-validation-t223.md"
+  },
+  {
+   "id": "ev-gate3-note",
+   "label": "Gate 3 sealed set gate3-v1 note",
+   "kind": "file",
+   "ref": "docs/notes/gate3-v1.md"
+  },
+  {
+   "id": "ev-gate3-sealed",
+   "label": "Gate 3 set sealed: 120 items",
+   "kind": "ledger",
+   "ref": "2026-10-25T18:58:08+00:00"
+  },
+  {
+   "id": "ev-gate3-bars",
+   "label": "Gate 3 bars registered (proposed, not approved)",
+   "kind": "ledger",
+   "ref": "2026-10-25T18:54:32+00:00"
+  },
+  {
+   "id": "ev-t224-note",
+   "label": "T224 dry-signal and level-only ablation note",
+   "kind": "file",
+   "ref": "docs/notes/dry-ablation-t224.md"
+  },
+  {
+   "id": "ev-t224-ledger",
+   "label": "T224 dry ablation search rows (picks only)",
+   "kind": "ledger",
+   "ref": "2026-10-25T20:08:29+00:00"
+  },
+  {
+   "id": "ev-t228-note",
+   "label": "T228 colour pilot note",
+   "kind": "file",
+   "ref": "docs/notes/colour-pilot-t228.md"
+  },
+  {
+   "id": "ev-t229-note",
+   "label": "T229 seven-song colour comparison note",
+   "kind": "file",
+   "ref": "docs/notes/colour-t229.md"
+  },
+  {
+   "id": "ev-t230-note",
+   "label": "T230 reverb-model pilot note",
+   "kind": "file",
+   "ref": "docs/notes/reverb-pilot-t230.md"
+  },
+  {
+   "id": "ev-t230-ledger",
+   "label": "T230 pre-registered scoring: listener repeat consistency",
+   "kind": "ledger",
+   "ref": "2026-10-25T22:40:16+00:00"
+  },
+  {
+   "id": "ev-t231-note",
+   "label": "T231 blind reverb estimator note",
+   "kind": "file",
+   "ref": "docs/notes/reverb-estimator-t231.md"
+  },
+  {
+   "id": "ev-t231-ledger",
+   "label": "T231 reverb estimator validation rows",
+   "kind": "ledger",
+   "ref": "2026-10-25T23:00:13+00:00"
+  },
+  {
+   "id": "ev-t232-note",
+   "label": "T232 reverb estimator confirmation note",
+   "kind": "file",
+   "ref": "docs/notes/reverb-confirm-t232.md"
+  },
+  {
+   "id": "ev-t232-ledger",
+   "label": "T232 pre-registered confirmation scoring",
+   "kind": "ledger",
+   "ref": "2026-10-25T23:35:34+00:00"
+  },
+  {
+   "id": "ev-approved-methods",
+   "label": "Approved-methods file and its pinning test",
+   "kind": "file",
+   "ref": "data/approved-methods.json"
+  },
+  {
+   "id": "ev-t233",
+   "label": "T233 product-chain overnight job script (in progress, no result)",
+   "kind": "file",
+   "ref": "scripts/product_chain_t233.py"
   }
  ],
  "engines": {
@@ -2445,6 +3524,287 @@
     "native": {
      "verdict": "Tested on macOS with Native 3.82 as a VST3 plug-in in a helper process. Other platforms untested. Real MIDI control into the AU build did not change parameters (DECISIONS 2026-10-15 native-engine, Native phase 2 block bypass)."
     }
+   }
+  ]
+ },
+ "evidence_classes": {
+  "about": "Every headline claim, with the class of evidence behind it, from the independent methodology audit of 2026-10-23, extended on 2026-10-26 with the claims of 25 and 26 October. Only Gate 2 reaches class A; the human has disowned it and it is closed as superseded.",
+  "legend": [
+   {
+    "class": "A",
+    "meaning": "Blind, on a sealed set, with the pass bar registered before the run."
+   },
+   {
+    "class": "B",
+    "meaning": "Blind, but on an unsealed set (built by the agent that built the method)."
+   },
+   {
+    "class": "C",
+    "meaning": "An open listen by the human, who knew which candidate was which."
+   },
+   {
+    "class": "D",
+    "meaning": "Numbers only: an unadmitted measure, or no bar, or a set drawn after the method was built."
+   },
+   {
+    "class": "E",
+    "meaning": "No evidence recorded."
+   }
+  ],
+  "claims": [
+   {
+    "claim": "Gate 2 'all 7 checks met'",
+    "class": "A",
+    "n": "96 items",
+    "limit": "Three sealed sets consumed; the ranking rule was amended before attempt 3; the admitted score changed between attempts; the model bar of 0.60 sits at the random-walk level; clean recording known and same notes. The human judged the model 'garbage'; the confirmation run and harness checks are open.",
+    "evidence": [
+     "ev-gate2-attempt3",
+     "ev-decisions",
+     "ev-audit"
+    ]
+   },
+   {
+    "claim": "The learned listening measure's ordering beats the provisional score (blind top-1 39 against 10 percent)",
+    "class": "D",
+    "n": "96 targets + 21 rated trials",
+    "limit": "Same engine and players on both sides; both arms scored by unadmitted measures. The later rating session (class B) rated this experiment's own picks, so it confirms the direction on one experiment heard, not two independent tests.",
+    "evidence": [
+     "ev-nodi-v2",
+     "ev-ratings-v5"
+    ]
+   },
+   {
+    "claim": "Predictor-first drive matcher: 85 percent right model first in 12 renders",
+    "class": "D",
+    "n": "48 + 24 targets",
+    "limit": "Set drawn by the search agent after the method was built; no bar; Helix against Helix; the human's own-take cells are not significant; no listen.",
+    "evidence": [
+     "ev-predictor-first",
+     "ev-predictor-note"
+    ]
+   },
+   {
+    "claim": "Mother drive match 'pretty good'",
+    "class": "C",
+    "n": "1 section",
+    "limit": "Open, one listener, one pass; no alternative heard.",
+    "evidence": [
+     "ev-mother-live"
+    ]
+   },
+   {
+    "claim": "The tuned tutorial chain beats the tutorial",
+    "class": "B",
+    "n": "8 trials, 6 decided",
+    "limit": "One song, one window; 1 of 2 repeats consistent; the tuned equaliser sits at its limits on 8 of 10 bands; a further tune changed the score and was heard as identical. Does not show that a whole chain can be tuned by ear-checked search.",
+    "evidence": [
+     "ev-ds-tune-ratings",
+     "ev-retest-v6"
+    ]
+   },
+   {
+    "claim": "Seven songs 'all sound pretty good'; fine-tuning 'the same or better'",
+    "class": "C",
+    "n": "7 songs",
+    "limit": "Open, one pass, one listener, no alternative candidate; Output and Master moved freely in the fine-tune; one drive block stands in for a rig.",
+    "evidence": [
+     "ev-t207",
+     "ev-t209",
+     "ev-decisions"
+    ]
+   },
+   {
+    "claim": "Calibration brings songs 'closer', 5 of 7",
+    "class": "D",
+    "n": "7 songs",
+    "limit": "listening-measure distance across different dry tracks; no ear verdict; notes, tone and level changed at once.",
+    "evidence": [
+     "ev-t211",
+     "ev-audit"
+    ]
+   },
+   {
+    "claim": "Chord list 'helps' (0.706 against 0.629); 'no-chord sounds better'",
+    "class": "C",
+    "n": "1 song, 1 window",
+    "limit": "listening-measure distance across different dry tracks; no ear verdict beyond the human's one open preference for the plain version.",
+    "evidence": [
+     "ev-chord-ablation",
+     "ev-chord-note"
+    ]
+   },
+   {
+    "claim": "Slot predictors 'strong within player'",
+    "class": "D",
+    "n": "18 held-out files from 2 players",
+    "limit": "Not thousands of independent clips; no bar; 'full beats half on every slot' was wrong for reverb; trained, not verified.",
+    "evidence": [
+     "ev-slot-results",
+     "ev-slot-amp",
+     "ev-decisions"
+    ]
+   },
+   {
+    "claim": "Slot predictors fail inside chains",
+    "class": "D",
+    "n": "295 chains",
+    "limit": "A sound negative result on held-out clean guitars; random chains are harsher than real rigs.",
+    "evidence": [
+     "ev-t214",
+     "ev-t214-note"
+    ]
+   },
+   {
+    "claim": "Five blind song matches: 1 closest, 2 somewhat close, 2 off",
+    "class": "C",
+    "n": "5 songs",
+    "limit": "Open live play after hearing the song and the stem; the 'documented pedal family was heard as closest' remark is after the fact.",
+    "evidence": [
+     "ev-t200-verdict",
+     "ev-five-songs"
+    ]
+   },
+   {
+    "claim": "Matching cost down about 30 times",
+    "class": "D",
+    "n": "144 matches",
+    "limit": "True for Helix single-drive targets; not shown on a song.",
+    "evidence": [
+     "ev-state-1020"
+    ]
+   },
+   {
+    "claim": "Measured-pedal mode 'model 96 percent'",
+    "class": "D",
+    "n": "54 simulated items",
+    "limit": "Simulation only; the pedal was never probed. Built, not working.",
+    "evidence": [
+     "ev-measured-pedal",
+     "ev-state-1020"
+    ]
+   },
+   {
+    "claim": "The admitted spectral measure ranks first 0.990 against a 0.90 bar",
+    "class": "D",
+    "n": "96 items",
+    "limit": "Admitted by the lead, unapproved by the human; at chance on hard same-performance pairs (10 of 25); valid only aligned with the same notes.",
+    "evidence": [
+     "ev-trust-v2-test",
+     "ev-ratings-v3",
+     "ev-decisions"
+    ]
+   },
+   {
+    "claim": "Drive knob within 0.15 '15 of 17' with inversion",
+    "class": "D",
+    "n": "17, then 96",
+    "limit": "Did not hold at 96 targets (52 percent); the version-1 note does not carry the correction.",
+    "evidence": [
+     "ev-nodi-v2"
+    ]
+   },
+   {
+    "claim": "'A constant mid-range knob guess scores about 0.3'",
+    "class": "E",
+    "n": "none",
+    "limit": "Not re-measured; repeated as fact in the chain transfer note.",
+    "evidence": [
+     "ev-decisions",
+     "ev-t214-note",
+     "ev-state-1023"
+    ]
+   },
+   {
+    "claim": "Chord-rebuild re-match '9.53 against 16.00 on the take'",
+    "class": "D",
+    "n": "1 window",
+    "limit": "A provisional (unadmitted) loss compared across different clean guitars; not a fidelity comparison.",
+    "evidence": [
+     "ev-board",
+     "ev-audit"
+    ]
+   },
+   {
+    "claim": "Top-5 drive candidates against the separated guitar: 'so bad I can't even compare them'",
+    "class": "C",
+    "n": "5 songs, 1 session",
+    "limit": "Negative. Heard blind, but answered aloud: the pre-registered ranking was not completed or scored, so there is no agreement number. Classed C as the lead instructed; under the audit legend a blind but unscored session could also be read as B. Contradicts the open listen of 22 October.",
+    "evidence": [
+     "ev-t223-note",
+     "ev-decisions"
+    ]
+   },
+   {
+    "claim": "A light reverb after the drive is 'better' on all seven songs",
+    "class": "C",
+    "n": "7 songs",
+    "limit": "Open and labelled, one listener, fixed reverb setting; Room and Plate not separated; Plate was the open favourite but not preferred in the blind ranks (mean rank Room 3.9, Hall 4.0, Plate 4.4).",
+    "evidence": [
+     "ev-t229-note",
+     "ev-t230-ledger",
+     "ev-decisions"
+    ]
+   },
+   {
+    "claim": "The fitted equaliser was closest on a blind Mother pack; equaliser variants 'very hard to tell' elsewhere",
+    "class": "B",
+    "n": "1 song, 1 pass (blind); 7 songs open",
+    "limit": "Blind on one song, built by the agent that built the method, no bar; the other songs were open listens where the variants could not be told apart. Equaliser options are kept by the human's decision.",
+    "evidence": [
+     "ev-t228-note",
+     "ev-t229-note",
+     "ev-decisions"
+    ]
+   },
+   {
+    "claim": "No computable signal agrees with the human's reverb ranks",
+    "class": "B",
+    "n": "6 songs",
+    "limit": "Pre-registered and ranked blind, listener consistent (0.33 against 2.67), but unsealed and the 'agrees' reading was a proposal, not an approved bar. Cherub Rock excluded. Negative: AFx-Rep rho 0.05, tail 0.04, regressors -0.09, dip fill -0.40.",
+    "evidence": [
+     "ev-t230-note",
+     "ev-t230-ledger"
+    ]
+   },
+   {
+    "claim": "Blind reverb estimator: decay ordering 36 of 40, rank 0.85 to 0.89, mix 0.88 to 0.94",
+    "class": "D",
+    "n": "189 known reverbs, 5 readable songs",
+    "limit": "Helix Native renders made by the same agent, no bar; type not separable; a real tail is readable on 2 of 7 real stems.",
+    "evidence": [
+     "ev-t231-note",
+     "ev-t231-ledger"
+    ]
+   },
+   {
+    "claim": "Estimator confirmed on Mother, not on Territorial",
+    "class": "B",
+    "n": "2 songs",
+    "limit": "Pre-registered named picks, ranked blind; Mother confirmed (closest 1 of 7, furthest 7 of 7), Territorial not reproducible (repeat ranks 4 and 1); pooled 'confirmed' False (rho 0.15, p 0.33). One song is not a result.",
+    "evidence": [
+     "ev-t232-note",
+     "ev-t232-ledger"
+    ]
+   },
+   {
+    "claim": "The winning drive model barely depends on the clean guitar fed to the search",
+    "class": "D",
+    "n": "7 songs, 30 searches",
+    "limit": "Counts of same picks only (5 to 6 of 7 per arm); several margins are razor thin; distances are not comparable across arms; no ear verdict (packs unrated).",
+    "evidence": [
+     "ev-t224-note",
+     "ev-t224-ledger"
+    ]
+   },
+   {
+    "claim": "Product-chain predictor (drive, equaliser, reverb)",
+    "class": "E",
+    "n": "none",
+    "limit": "Rendering in progress (37,998 chains at 2026-10-26 16:23); no training, no result, no ledger rows.",
+    "evidence": [
+     "ev-t233",
+     "ev-decisions"
+    ]
    }
   ]
  }

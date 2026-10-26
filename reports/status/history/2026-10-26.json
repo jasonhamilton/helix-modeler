@@ -1,0 +1,316 @@
+{
+ "actions": {
+  "cherub-section": {
+   "group": "soon",
+   "title": "Choose another section of Cherub Rock for judging reverb"
+  },
+  "choose-songs": {
+   "group": "soon",
+   "title": "Choose the first real songs for local testing"
+  },
+  "chord-lists-optional": {
+   "group": "later",
+   "title": "Supply chord lists for other songs (optional)"
+  },
+  "commit-push": {
+   "group": "soon",
+   "title": "Decide whether to commit and push the accumulated work"
+  },
+  "discogs-terms": {
+   "group": "later",
+   "title": "Read the Discogs terms if Discogs is wanted as a second source"
+  },
+  "g3-bars": {
+   "group": "blocking",
+   "title": "Rule on the Gate 3 bars"
+  },
+  "gate5-rating-later": {
+   "group": "later",
+   "title": "Rate blind sessions for the final song test when they exist"
+  },
+  "hx-edit-import": {
+   "group": "later",
+   "title": "Open newly generated presets in HX Edit and report errors"
+  },
+  "licence-agreements": {
+   "group": "later",
+   "title": "Record what the Line 6 licence agreements say about training and automation"
+  },
+  "licence-copyright": {
+   "group": "later",
+   "title": "Confirm the copyright line in the project licence"
+  },
+  "other-os": {
+   "group": "later",
+   "title": "Provide a Windows and a Linux machine, or accept macOS only"
+  },
+  "pedal-delay-check": {
+   "group": "later",
+   "title": "Check the delay settings on the pedal after loading a regenerated preset"
+  },
+  "play-along": {
+   "group": "soon",
+   "title": "Record the play-along takes and report what happened"
+  },
+  "rate-packs": {
+   "group": "soon",
+   "title": "Rate the dry-ablation packs and more reverb ranking packs on other songs"
+  },
+  "reverb-model": {
+   "group": "soon",
+   "title": "Rule on the reverb model: estimate when the tail is readable, fall back otherwise"
+  },
+  "song-list": {
+   "group": "soon",
+   "title": "Provide about 130 songs with known artist and title for the song-context test"
+  },
+  "test-presets-stomp": {
+   "group": "soon",
+   "title": "Load presets on the Stomp and play them"
+  }
+ },
+ "biggest_problem": "Nothing measured from the recording reliably sets the drive knobs, and the first blind test of drive-only matches was negative",
+ "capabilities": {
+  "missing": [
+   "A drive-only match that survives a blind listening on real songs",
+   "A reverb model per song",
+   "Look up song context",
+   "Match amp, cabinet and delay as part of the chain",
+   "Match the product chain (drive, equaliser, reverb) from a song",
+   "Pedal control on Windows or Linux",
+   "Produce up to three tone snapshots from one song",
+   "Stereo blocks and dual cabinets in Native",
+   "Turn a song into a pedal-verified preset with one command"
+  ],
+  "unproven": [
+   "Build a whole chain from analysis",
+   "Choose a clean reference guitar recording",
+   "Colour the drive match with a light reverb and a fitted equaliser",
+   "Detect which kinds of block a tone contains",
+   "Estimate a cabinet by deconvolution",
+   "Estimate a reverb's decay and amount from a separated guitar",
+   "Fine-tune the knobs of the chosen effect",
+   "Identify a real pedal by probing it (measured-pedal mode)",
+   "Isolate the guitar from a full mix",
+   "Judge tone similarity reliably",
+   "Learned predictor for good starting points",
+   "Match a song's drive effect from a rebuilt clean guitar",
+   "Measure each block's behaviour with a test signal",
+   "Name an effect from its output in slots after drive",
+   "Pedal renders are sample-stable and settings land exactly",
+   "Pick a preset that matches a recorded tone",
+   "Predict typical chain order",
+   "Rebuild a clean guitar from a separated song",
+   "Record the player's own guitar alongside the song",
+   "Render a chain one block at a time",
+   "Run blind listening sessions",
+   "Search for blocks and settings",
+   "Tune a whole amp chain by search"
+  ],
+  "verified": [
+   "Catch a mismatch between what was written and what the pedal holds",
+   "Control Helix Native from code",
+   "Control the HX Stomp from code and restore it",
+   "Hold the pedal's effect models in Native as single-block templates",
+   "Native and the pedal agree on simple presets",
+   "Native applies the requested settings exactly and repeats renders",
+   "Native stands in for the pedal on most effect types",
+   "Pin song-match defaults to what the human approved",
+   "Read, write and check preset files",
+   "Record and build a profile of one guitar",
+   "Render two variants in one pedal pass",
+   "Restore the pedal after a session, judged by decoded equality",
+   "Seal a blind test set before any method is scored",
+   "Write down the notes of a separated guitar part"
+  ]
+ },
+ "components": {
+  "engines": {
+   "name": "Sound engines: Helix Native and the HX Stomp pedal",
+   "status": "Working"
+  },
+  "foundations": {
+   "name": "Foundations: installation, licensing and the working process",
+   "status": "Working"
+  },
+  "judging": {
+   "name": "Judging tone similarity: comparison measures and block measuring",
+   "status": "Partially Working"
+  },
+  "learning": {
+   "name": "Learning from data",
+   "status": "Partially Working"
+  },
+  "prep": {
+   "name": "Preparing the song: guitar isolation and a clean reference guitar",
+   "status": "Partially Working"
+  },
+  "presets": {
+   "name": "Preset files and the block catalog",
+   "status": "Partially Working"
+  },
+  "searching": {
+   "name": "Searching for the preset, the colour stage and the song-to-preset pipeline",
+   "status": "Partially Working"
+  },
+  "testing": {
+   "name": "Testing, benchmarks and listening",
+   "status": "Partially Working"
+  }
+ },
+ "date": "2026-10-26",
+ "features": {
+  "block-probe": "prototype",
+  "cab-estimation": "prototype",
+  "chain-builder": "prototype",
+  "colour-stage": "prototype",
+  "dry-signal": "prototype",
+  "engine-interface": "working",
+  "evaluation": "prototype",
+  "family-specialists": "working",
+  "learning": "prototype",
+  "licensing": "working",
+  "listening": "prototype",
+  "loss-kit": "prototype",
+  "native-engine": "working",
+  "pipeline": "prototype",
+  "platform": "prototype",
+  "presence": "prototype",
+  "preset": "working",
+  "process": "working",
+  "search": "prototype",
+  "separation": "prototype",
+  "stomp-engine": "working"
+ },
+ "health": "At Risk",
+ "issues": {
+  "board-hygiene": {
+   "classification": "Confirmed Problem",
+   "priority": "Low",
+   "title": "A few task-board lines are stale"
+  },
+  "cab-reflections-mismatch": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "The pedal and Native disagree on one cabinet setting"
+  },
+  "chain-builder-unproven": {
+   "classification": "Unknown/Unverified",
+   "priority": "Low",
+   "title": "Building whole chains from single blocks is not yet shown to work"
+  },
+  "chain-gap": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "The product-chain predictor is the open bet, and single-block predictors do not transfer to chains"
+  },
+  "defaults-by-reuse": {
+   "classification": "Risk",
+   "priority": "Low",
+   "title": "Test settings became defaults without itemised approval: now pinned, approvals still provisional"
+  },
+  "delay-model-accuracy": {
+   "classification": "Confirmed Problem",
+   "priority": "Low",
+   "title": "Delay is the weakest effect: 5 of 12 exact models on the sealed set"
+  },
+  "eula-findings-unrecorded": {
+   "classification": "Unknown/Unverified",
+   "priority": "Low",
+   "title": "What the Line 6 licence agreements allow for training is not recorded"
+  },
+  "gate3-bars-pending": {
+   "classification": "Active Blocker",
+   "priority": "High",
+   "title": "Gate 3 bars are proposed, not approved, so the sealed test cannot be scored"
+  },
+  "native-coverage-gaps": {
+   "classification": "Risk",
+   "priority": "Medium",
+   "title": "The software engine cannot stand in for every pedal effect"
+  },
+  "native-verification-misses": {
+   "classification": "Confirmed Problem",
+   "priority": "Medium",
+   "title": "Native verification leaves recorded misses that are explained, not fixed"
+  },
+  "no-blind-listening": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "Blind evidence on real songs is one negative session, and the listener's consistency is mixed"
+  },
+  "no-stem-signal": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "Nothing measured from the recording reliably sets the drive knobs, and the first blind test of drive-only matches was negative"
+  },
+  "reverb-no-model": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "Reverb has no model: nothing measured from the recording agrees with the listener, and a real tail is readable on only 2 of 7 stems"
+  },
+  "separation-unmeasured": {
+   "classification": "Unknown/Unverified",
+   "priority": "Medium",
+   "title": "Guitar separation quality on real songs is unknown"
+  },
+  "single-platform-unpublished-helper": {
+   "classification": "Risk",
+   "priority": "Medium",
+   "title": "Everything is verified on one computer, one pedal firmware, with a private helper"
+  },
+  "slot-new-player": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "The effect-slot predictors are trained, not verified: weak on a new guitarist and failing inside chains"
+  },
+  "stomp-results-not-countable": {
+   "classification": "Confirmed Problem",
+   "priority": "High",
+   "title": "No pedal measurement counts until the sampling defects are handled"
+  },
+  "tone-comparison-known-di-only": {
+   "classification": "Unknown/Unverified",
+   "priority": "Medium",
+   "title": "The rebuilt clean guitar barely changes which drive wins, and nothing says it improves the match"
+  }
+ },
+ "ledger_rows": 2448,
+ "milestones": {
+  "Gate 1": {
+   "done": 4,
+   "signed": true,
+   "state": "Complete",
+   "total": 4
+  },
+  "Gate 2": {
+   "done": 3,
+   "signed": false,
+   "state": "Superseded",
+   "total": 3
+  },
+  "Gate 3": {
+   "done": 1,
+   "signed": false,
+   "state": "In Progress",
+   "total": 4
+  },
+  "Gate 4": {
+   "done": 0,
+   "signed": false,
+   "state": "Not Started",
+   "total": 4
+  },
+  "Gate 5": {
+   "done": 1,
+   "signed": false,
+   "state": "In Progress",
+   "total": 3
+  }
+ },
+ "readiness": "Prototype",
+ "schema": "tonematch.status-snapshot",
+ "tasks_done": 178,
+ "technical": "Advancing",
+ "version": 1
+}

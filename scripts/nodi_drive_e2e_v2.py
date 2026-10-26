@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# historical, Mother-specific
 """T185: larger end-to-end measurement of no-DI drive matching (builds on T183, scripts/nodi_drive_e2e.py).
 
 MEASUREMENT ONLY. Nothing here is adopted: the measured tolerances, the 15 families and the second-choice family are

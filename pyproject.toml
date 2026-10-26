@@ -19,7 +19,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5", "pip-licenses>=4", "markdown>=3.5"]
+dev = ["pytest>=8", "ruff>=0.5", "pip-licenses>=4", "markdown>=3.5", "tonematch[dry]"]
+# dry: the dry-track rebuild, guitar profile and take alignment (src/tonematch/dry_rebuild.py,
+# guitar_profile.py, scripts/align_takes.py). librosa ISC (its soxr dependency is LGPL, on
+# docs/licence-allowlist.json), scikit-learn BSD-3. Lower bounds are the versions installed in .venv.
+dry = ["librosa>=1.0", "scikit-learn>=1.9"]
 # native: GPLv3. Imported ONLY by tonematch.engines.native_host, which runs as a child process
 # (licence boundary). May live in a separate venv via TONEMATCH_NATIVE_PYTHON. DawDreamer is the
 # fallback host (MIDI CC route), not added until needed.

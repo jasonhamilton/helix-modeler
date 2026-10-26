@@ -2743,3 +2743,350 @@ human-ratings-v7 had 2 trials: c against c2, with the sides swapped on the secon
   2. Whether to fund a licence-clean route: a contrastive or supervised projection, or a fine-tune, on frozen DAC or PANNs features trained on Native renders. This was not measured.
 
 — learning
+
+## 2026-10-22 (search, T200): five songs matched blind; listening packs by LUFS
+
+- Human 2026-10-22: "I will not be providing dry tracks. Do your best". Five songs (ids teen-spirit, territorial, seek-destroy, satisfaction, cherub-rock) separated, a loud low-crest 10 s window picked by a stated rule, matched with `match_block.py --shortlist predictor --final-rank afxrep` on a Guitar-TECHS DI. Results, settings and caveats: `docs/notes/five-songs-t200.md`. Nothing adopted; knobs low confidence; the predictor has never seen six fuzzes (Satisfaction p 1.00 on a bass-DI block is a blind spot).
+- Two non-contract choices to confirm: (1) the DI is the first `pick_di` pick with sound in at least 0.8 of its half-second blocks, because the first Cherub Rock pick was mostly silence; (2) `match_block --pack-lufs` (default off) level-matches the pack by K-weighted LUFS, as the human asked for these runs. Window picking rule is `scripts/t200_windows.py`; it is a proposal, not an adopted method.
+
+— search
+
+## 2026-10-22 (human, recorded by lead): live verdicts on the T200 blind song matches (first three)
+
+The human played through each T200 match on the Stomp, after hearing the song section and the separated guitar. Verdict: **"the first and this one sound pretty off. The previous one was the closest so far"**.
+- teen-spirit (Zero Amp Bass DI): pretty off.
+- territorial (DM4 Classic Distortion): closest so far.
+- seek-destroy (DM4 Heavy Distortion): pretty off.
+
+Satisfaction and Cherub Rock are not yet heard. Informal; nothing adopted. — lead
+
+## 2026-10-22 (human, recorded by lead): live verdicts on the last two T200 song matches
+
+The human played the last two T200 blind matches on the Stomp. Verdict: **"the last two were somewhat close"**.
+- satisfaction (Zero Amp Bass DI, which is outside the true fuzz family because fuzzes were excluded from training): somewhat close.
+- cherub-rock (KillerZ): somewhat close.
+
+**Overall T200 tally (informal):**
+- closest: territorial (DM4 Classic Distortion, the DS-1 model, which matches the documented rig);
+- somewhat close: satisfaction and cherub-rock;
+- pretty off: teen-spirit and seek-destroy.
+
+Nothing adopted. — lead
+
+## 2026-10-22 (human): use the fixed slot order for chain prediction
+
+**Approval.** The improvement plan (published for review) proposed a fixed slot order for chain prediction: drive > amp > cab > mod > delay > reverb > EQ, with every slot optional. The human said: **"let's use the fixed slot order."** Other plan decisions remain open: the model shortlist per slot, the backing-track source, the bars, and the gate renumbering.
+
+**Next.** The human asked for a report of which blocks have training data and which do not, with accuracy, predictor details and sample counts (T202, learning). — lead
+
+## 2026-10-22 (human): run Basic Pitch locally on the guitar stems and tune its settings
+
+The human said: "let's install it locally and run the guitar stems through it. Also, we need to mess with some of the setting to get a better model out."
+- **T203, dry-signal.** Install basic-pitch (Apache-2.0) in its own venv under cache/, so the main environment is untouched, then run licence_check.
+- **Scoring.** Tune onset/frame thresholds, minimum note length, frequency range and the melodia option against reference transcriptions. The references are Basic Pitch run on the human's clean dry takes of the same parts: Mother take1 and DS-Sample 0:30–0:50 take2. Score by note F-measure with an onset tolerance.
+- **Apply.** Transcribe all seven stems with the chosen settings and rebuild dry tracks.
+- **Status.** Song audio stays local. A measurement; nothing adopted. — lead
+
+## 2026-10-22 (human): each guitar is sampled and calibrated before matching
+
+**Approval.** The lead proposed a short guided session, recorded once per guitar, to build a "guitar profile". It has three parts: (1) level, from the player's real input level and soft-to-hard picking range; (2) tone, the guitar's long-term spectrum against the Guitar-TECHS bank; (3) a note bank of the player's own notes. The human said: **"Yes I think that would be better. So each guitar needs to be sampled/calibrated before starting the process. This should hopefully get us a cleaner baseline and I would think improve the models"**.
+
+**Effects.**
+- Guitar calibration becomes the first step of the user pipeline, before any matching.
+- Rebuilt dry tracks (T201, T203) use the profile's level and tone and, where available, its own notes.
+- The level convention follows the profile, which addresses the T194 input-level confound.
+
+**T204, dry-signal and stomp-engine.** Build the guided recording session and the profile builder. Whether it improves matches is to be measured on Mother (the four-way comparison) and judged by ear; nothing about the models is adopted yet. — lead
+
+## 2026-10-22 (dry-signal): T203 results, Basic Pitch on the guitar stems (measurement; nothing adopted)
+
+- Basic Pitch 0.4.0 (Apache-2.0, model weights in the package under the same licence) runs from `cache/venvs/basic-pitch` on the ONNX runtime (no TensorFlow); it is an external tool, not a project dependency. `licence_check` stays PASS. Its venv holds soxr (LGPL, same terms as the existing allowlist entry) and certifi (MPL); re-review before any bundled release.
+- Sweep against Basic Pitch on the human's clean takes (Mother take1, DS-Sample take2, approximate references; the takes agree with each other at only F 0.55): defaults F 0.262 (P 0.361, R 0.205), tuned F 0.303 (P 0.329, R 0.282). The gain is small, flat, and not confirmed by leave-one-song-out. No setting fixed precision (stray notes). Proposed settings (onset 0.4, frame 0.3, min length 58 ms, melodia off, range 75-1400 Hz); a precision-leaning alternative is onset 0.5 (P 0.386, F 0.290). The human has not approved a method.
+- Rebuilt dry tracks for all seven stems in `data/songs/<id>-rebuilt/`. Alignment to the stem: Mother 0.286, DS-Sample 0.435, teen-spirit 0.457 (control 0.266, uninformative), satisfaction 0.195, cherub-rock 0.033, territorial -0.016, seek-destroy -0.092 (the last three: metric blind on fast dense distorted riffs). Mother with `--prefer-position low`: 0.320. Details: `docs/notes/basic-pitch-t203.md`.
+- Mother tempo (own measurement, onset autocorrelation): about 128 bpm in the intro, rising to about 140 or more by 50 s; `sections.json`'s 144.01 is an average. A fixed-grid quantisation was not run. `song_facts` was not written to `session.json` (the write was refused by the permission system; left for the lead).
+
+## 2026-10-22 (human): Mother's chord vocabulary for the dry rebuild
+
+The human gave the chord shapes Mother uses ("Here are the only chords played in the song"): B5 (A2 D4), G (E3 A2 D0), D5 (D0 G2), D+G (D0 G0), G5 (E3 A5 D5), and said the song has "like 2-3 chords per measure. Max is like 5."
+- The lead built a chord-constrained rebuild: Viterbi over Basic Pitch frame posteriors restricted to those chords, one strike per chord change plus strong re-strikes at least 0.45 s apart (about 2-3 chords per measure). Scratch script; outputs in `data/songs/mother-rebuilt/chords-five*/` (local).
+- The detector heard A5 (open A, D string fret 2) in the third chord of each cycle, not D5. Played both by ear; the human said clip 2's third chord (D5) was off and clip 3 (with A5) fixed it. **Mother's vocabulary for rebuilds is the five shapes plus A5.**
+- Scope: Mother only. Using a chord vocabulary for other songs, or making chord-constrained decoding the rebuild method, is not approved. — lead
+
+## 2026-10-22 (human): Mother's chord list, corrected
+
+Supersedes the shape list in the entry above. The human said "those are the chords": **B5, G5, A5, F#5, D5, C#5** (power chords). Rebuild voicings used: B5 47+54, G5 43+50+55, A5 45+52, F#5 42+49, D5 50+57, C#5 49+56 (MIDI). Same decoding and strike rule; output `data/songs/mother-rebuilt/chords-six/` (local). On the first 68 s the decoder picks B5 → G5 → A5 cycles, with F#5 and D5 briefly; C#5 not used. Mother only. — lead
+- Human's verdict on the six-chord rebuild (dry, and through the Zero Amp Bass DI match), 0-20 s: "sounds good". — lead
+
+## 2026-10-22 (human): chord-list rebuild becomes a pipeline option; re-match Mother on it
+
+The lead proposed (1) a `--chords` option in `rebuild_dry.py`: the user supplies the song's chord names and the rebuild is decoded from Basic Pitch posteriors restricted to them, one strike per chord change plus strong re-strikes; and (2) re-running the predictor-first drive match on Mother with the six-chord rebuild as the dry signal. The human said: **"yes lets try both"**. Chord names come from the user; nothing from tab sites is stored. — lead
+
+## 2026-10-22 (lead): T207 seven-song dry-track match (measurement; nothing adopted)
+
+The human asked to "render the dry tracks for all of the songs… Make sure to use the model that predicts based on the dry sample. Pick the 3 best songs and create a report". Done with the T185 configuration (afxrep shortlist from a coarse grid of the rebuilt dry through all 60 drive models, top 8, AFx-Rep final order); the T196 predictor was not used because it never sees the dry track. Every rebuild was set to the human's play-along level, -28.08 dBFS loud-frame (T204 stand-in), answering "are we matching the guitar loudness". The lead's three (proposal, not an approved score): Seek & Destroy, Mother, Cherub Rock. Knobs are coarse-grid (low confidence). Report: https://claude.ai/artifact/CBzzn5k6YCV9cDSDvS2z8i. — lead
+
+## 2026-10-22 (learning, T208): slot-dataset commands built; design awaiting the human (nothing adopted)
+
+- Human 2026-10-22: "let's also get the commands ready for the next training sessions on the other blocks".
+- **Built:** `scripts/slot_dataset_render.py` (plan, render, status, train, smoke; `--slot amp|cab|mod|delay|reverb|eq`), `scripts/slot_batch.sh <slot> <hours>` and `src/tonematch/learning/slot_dataset.py`.
+  - The job reuses drive-dataset-v1's supervisor, guards, progress/ETA, shards and AFx-Rep multi-crop features.
+  - `afx_heads` now takes any number of knob columns; two stays the default, and old checkpoints load unchanged.
+  - Commands, estimates and the decisions list: `docs/notes/slot-datasets-v1.md`.
+- **Smoke run:** 24 clips per slot, one fresh Native host per slot, 143 of 144 rendered (one silent preamp setting, skipped).
+  - Wall time per clip on one host: amp 0.63 s, cab 0.60 s, mod 0.44 s, delay 0.52 s, reverb 0.46 s, EQ 0.41 s.
+  - Estimated renders on 4 hosts at the recommended counts: about 10 h for all six (amp 5.4 h).
+  - Ledger: `render-cost / native / slot-dataset-v1-<slot>`, 2026-10-22T21:14:09Z.
+  - Finding: one Native host that switches categories slows to about 1.5 s per render. Batches are one slot per job, so they are not affected.
+- **Open for the human, with recommendations in the note:**
+  1. which slots;
+  2. single block or the lead's chain proposal (not approved);
+  3. the pools: stand-ins or `--all-native` for mod and reverb;
+  4. clip counts;
+  5. amp without a cab;
+  6. knob sampling and Mix;
+  7. the lead-in for time effects (a deviation from drive);
+  8. input level: raw, plus a level label;
+  9. reusing drive's DI split;
+  10. heads with one column per knob, and families;
+  11. ±0.15 for every knob, with no bar;
+  12. the training device;
+  13. the mono sum.
+
+  No long render has been started.
+
+— learning
+- Human's verdict on the T207 listening comparisons (left: separated song guitar; right: rebuilt dry through the best drive block, LUFS-matched; all seven songs, local page cache/matches/t207-listen/): "those actually all sound pretty good". First positive verdict across every song in one session. Informal listening, not a blind test; nothing adopted. — lead
+
+## 2026-10-22 (human): knob fine-tuning on the seven picks; slot-dataset-v1 defaults approved
+
+The lead asked "Want me to start the knob fine-tuning, and do you approve the amp training setup?"; the human said **"yes"**.
+- **Knob fine-tuning (T209, search).** For each song's T207 pick, a local search on that model's knobs around the coarse-grid point, same rebuilt dry (-28.08 dBFS) and window, scored by the same AFx-Rep distance used for the T207 final ranking (the dry track is not sample-aligned, so mrstft is not used). The model stays fixed. Measurement for the human's ear; no default changes.
+- **slot-dataset-v1 (T208) defaults approved as listed in docs/notes/slot-datasets-v1.md "Decisions for the human"**: one slot at a time in slot order, single block per slot (chain proposal not adopted), default pools (no `--all-native` stand-in ruling), ~500-600 clips per model for amp/cab and ~1,000 for small slots with half- and full-size training, amp without a cab first, uniform CC-grid knobs with level knobs at default and no Mix floor, 0.5-2 s lead-in for time effects, raw DI level stored as a label, drive's DI split with P3 reserved, per-knob heads with ±0.15 tolerance and no pass bar, CPU training, stereo summed to mono. Amp first, beginning with a 2-hour batch to measure the real rate.
+- The human also said "I provided you with all of the chords as well". The lead has a chord list only for Mother; the other songs' chords were not given in chat and the lead did not take chord content from the tab site. Asked the human for them. — lead
+- 2026-10-22 ablation the human asked for ("run the comparison again, but this time without any chord or key data on the dry runs"): only Mother's T207 dry track used outside data (the human's chord list and the tab-derived low-position choice); no rebuild used key data (T203 only flagged off-key notes, removed none). Mother re-run on the plain Basic Pitch rebuild: same pick and knobs (Zero Amp Bass DI, Drive 0.85, Treble 0.70), distance 0.629 vs 0.706 with chords, runner-up margin 0.002 vs 0.023. Local A/B: cache/matches/mother-chords-ab/index.html. Ear verdict pending. — lead
+
+## 2026-10-22 (search, T209): knob fine-tuning results (measurement; nothing adopted)
+
+Model fixed, CMA-ES on AFx-Rep distance, ≤120 renders. Distance fell on 6 of 7: Mother 0.706→0.490, Satisfaction 0.514→0.420, DS-Sample 0.552→0.497, Seek & Destroy 0.370→0.328, Territorial 0.444→0.413, Cherub Rock 0.503→0.499 (noise), Teen Spirit unchanged. Knobs on bounds: Satisfaction Bass −20 / Treble +20 (suspect), Mother Presence 1.0, DS-Sample Drive and Treble 1.0. Output/Master were free and moved (the distance has no level term); best.hlx carries them as found; pinning them is for the human. Local listening page cache/matches/t209-listen/index.html. Ear verdict pending.
+- T210 amp slot-dataset batch 1 (2 h) started after T209 freed the CPU, PID 36659. — lead
+- Human's verdict on T209 (left/right: T207 match vs fine-tuned match, LUFS-matched, all seven songs): "they all sound either the same or better for the fine tuning". Open listening, not blind. Making the fine-tune step part of the default matcher is not yet approved. — lead
+- Human's verdict on the Mother chord ablation (left/right song vs match, with chords vs Basic Pitch notes only): "the one with no chord, key or tab data actually sounds better". Open listening, one song, one window. `--chords` stays an option; nothing changed. — lead
+- 2026-10-22 tone test (human "yes"): Mother plain Basic Pitch dry vs the same through the stand-in profile's tone EQ (tone only), both -28.08 dBFS, T207 search + T209 fine-tune. Same pick (Zero Amp Bass DI); fine-tuned distance 0.464 plain vs 0.451 toned; the toned run pushed Drive, Blend and Presence to 1.0. Local A/B cache/matches/mother-tone-ab/. Ear verdict pending; the real profile session is next. `finetune_knobs.py --variant` added. — lead
+- 2026-10-22 first real guitar profile: the human recorded the T204 session (guitar id prs-7-tone, all 26 segments, no warnings). Profile built: 263 own notes (MIDI 38-76, 49 palm-muted), tone EQ vs Guitar-TECHS -6 dB at 80-125 Hz to +6 dB at 5 kHz, normal loud level -36.12 dBFS (9.4 dB below the -26.7 reference and about 8 dB below the play-along takes' -28.08). Mother rebuilt from it (496 own notes, 0 bank notes): data/songs/mother-rebuilt/profiled-prs7/. Played before/after dry to the human. Not yet matched. — lead
+- 2026-10-22 T211 results (calibrated guitar prs-7-tone on all seven songs; measurement, nothing adopted): fine-tuned AFx distance calibrated vs earlier best: Mother 0.399 vs 0.464, Territorial 0.365 vs 0.413, Teen Spirit 0.547 vs 0.614, Seek & Destroy 0.316 vs 0.328, Satisfaction 0.414 vs 0.420, Cherub Rock 0.504 vs 0.499, DS-Sample 0.540 (Valve Driver) vs 0.497 (Sub Oct Fuzz). Same pedal on 6 of 7. Fixed a crash in guitar_profile.render_profiled for notes past total_s (test added); rebuild_dry's --seconds default of 68 truncates full songs (DS-Sample's window is inside it; others re-run at full length). Local page cache/matches/t211-listen/. — lead
+
+## 2026-10-22 (learning, T211): amp "silence" failures explained; refill fix proposed, not adopted
+
+- **Cause.** The slot renderer reuses drive's absolute -90 dBFS floor in `render_one`.
+  - The failed amp clips are real, deterministic renders: a repeat nulls at -187 to -210 dB. They are quiet, -90 to -148 dBFS mean power, at low Master/Drive/Gain, mostly on preamps. Their spectral shape is unchanged when the knobs are raised.
+  - The engine's own guard has been at -240 dB since T139.
+  - 16 of 852 are digital zero: a Master or Gain pot at CC 0.
+  - Preamp Master acts as a pure volume control: spectral correlation 1.000 with the boosted render.
+- **Bias.** After 17,400 attempted clips, 4.7 % are lost (preamps 7.8 %, amps 1.5 %). The loss is concentrated at low CC: preamp Master CC 1–7 loses 48 %, CC 8–15 loses 27 %. 12 models lose more than 20 %.
+- **Built** (tested; not run on the real data, not adopted):
+  - a per-plan render floor and an `out_db` label (main plans unchanged);
+  - `slot_dataset_render.py refill` (a separate, append-only `amp-refill` plan of the failed clips, floor -240 dBFS, digital-zero clips skipped);
+  - `slot_batch.sh amp-refill`;
+  - `train --with-refill [--min-out-db]`.
+- **For the human:**
+  - A (recommended): refill, and choose any quiet-clip cut at training time.
+  - B: the -240 floor plus `out_db` in future slot plans.
+  - C: a CC floor on gain and level knobs (needs a new plan).
+  - D: treat preamp Master as a level knob (needs a new plan).
+- Details: `docs/notes/slot-datasets-v1.md`, "Amp silence failures". The running batch (PID 78416) was not touched.
+
+— learning
+- Note (lead): the amp silence diagnosis was filed by learning as T211, which clashed with the lead's T211 (calibrated seven-song run); it is renumbered T212 on the board and in slot-datasets-v1.md. DECISIONS entries above that say T211 for the silence diagnosis mean T212. — lead
+
+## 2026-10-22 (human): 12 hours of CPU; amp silence fix approved
+
+The lead asked "Do you approve the fix: refill the failed clips, and use the corrected cut-off for future blocks?"; the human said **"you have 12 hours on the cpu. run what you need"**. Taken as approval of T212 option A (refill only the failed amp clips at a -240 dBFS floor with `out_db` stored; training uses `--with-refill`, default keeps all; digital-zero clips skipped) and option B (new slot plans use the -240 floor and store `out_db`). Options C and D not adopted. Within the window, the lead runs the already-approved slot-dataset-v1 defaults in slot order: finish amp, refill, train amp at half and full size, then cab, delay, mod, reverb and EQ render + train as time allows. Measurement only; nothing is admitted into the matcher. — lead
+
+## 2026-10-22 (learning, T213): overnight slot-dataset-v1 supervisor launched (the human's approvals above; no new design)
+
+- **What runs.** `scripts/slot_overnight.py`, PID 66378, launched 21:09 local through `scripts/slot_overnight.sh`.
+  - It waits for amp batch PID 78416 and resumes amp if any shard is left.
+  - Then: amp refill at -240 dBFS (T212 A), amp training at half and full size with `--with-refill`.
+  - Then cab, delay, mod, reverb and eq in that order. Each is planned with `--silence-db -240` (T212 B: the plan stores the floor and records `out_db`), rendered, refilled only if a silence failure is not digital zero, and trained at half and full size.
+  - Window: the human's "11 hours", ending 2026-10-23 08:00. Nothing starts after 07:45 unless its estimate fits. Any child still alive at 07:55 gets SIGTERM.
+- **Implementation choices (not method changes):**
+  - "Half size" means the clips of the first half of the plan's shards, plus their refill clips. Plan clips are shuffled before sharding, so this is a seeded random half.
+  - A slot whose estimated render (last measured rate × 1.15) does not fit is skipped, not started. A training whose estimate does not fit is skipped.
+  - Training runs at nice 15 with 2 threads, alongside the next render. The render workers keep drive's busy-core gate.
+  - Added `plan --silence-db`, `train --fraction`, model top-3 in scores and summaries, and `TONEMATCH_SLOT_BASE` / `TONEMATCH_SLOT_MODELS` (for scratch smoke runs). With no flags, main plans and training behave as before.
+- **Results** go in `docs/notes/slot-datasets-v1-results.md`, rewritten after every training. They are measurement only and claim no admission into the matcher.
+
+— learning
+
+## 2026-10-23 (lead): T213 overnight slot training, read-out (measurement; nothing admitted)
+
+Finished 06:49, all six slots rendered and trained at half and full, proc_check clean. MLP model top-1 on held-out files of the same players (full): amp 0.54 (224 models), cab 0.76, delay 0.56, mod 0.75, reverb 0.47-0.50 (5 models), EQ 0.82-0.84. New player (p2p1/p1p2): amp 0.19-0.31, cab 0.32-0.37, delay 0.25-0.32, mod 0.47-0.60. Full beats half on every slot (amp +4 points). Knobs within ±0.15 for the true model: amp Drive 0.65, Treble 0.58, Mid 0.43, Master 0.37, Presence 0.36 (a constant guess at mid-range scores about 0.3); delay Mix 0.78, Time 0.42, Feedback 0.42; reverb Mix 0.88, Decay 0.55. Same pattern as drive before T191: decent within player, weak across players; the lesson then was more DI variety. Details docs/notes/slot-datasets-v1-results.md. — lead
+
+## 2026-10-23 (human): chain transfer test approved
+
+The lead proposed testing whether the slot-dataset-v1 heads (trained on single blocks) still name their block inside a full chain, before building a chain matcher; the human said **"yes"**. Design: about 300 random chains drive → amp → cab with optional mod/delay/reverb/EQ in the fixed slot order, approved default knob sampling, rendered on Native from the held-out (test-split) Guitar-TECHS DI files only, P3 never read. Each head runs on the finished chain output; report per block model top-1/top-3 and knobs within ±0.15 against the same head's single-block test numbers. No pass bar (bars are the human's). Measurement only. T214, learning. — lead
+- Correction to the 2026-10-23 T213 read-out above: "full beats half on every slot" is wrong for reverb, which fell slightly on the held-out test files (MLP 0.476 → 0.467) and rose only on the second test set (0.489 → 0.502). Found by learning during the T202 refresh. — lead
+
+## 2026-10-23 (learning, T214): chain transfer test results (measurement only; nothing adopted)
+
+The approved test was run: 300 seeded random chains in the slot order, drive-dataset-v1 test-split DIs only (P3 unread), rendered block-serially on Native (3 hosts, nice 10, LoadGuard, -240 dBFS floor; 8.3 min; 295 scored). The single-block heads do **not** name their block inside a chain. MLP top-1, chain vs single block:
+- drive 0.02 vs 0.93;
+- amp 0.01 vs 0.54;
+- cab 0.25 vs 0.76;
+- mod 0.21 vs 0.75;
+- delay 0.10 vs 0.56;
+- reverb 0.28 vs 0.47 (top-3 0.68 against a chance level of 0.60);
+- EQ 0.12 vs 0.82.
+
+Knobs within ±0.15 fall to 0.31-0.43, about a constant guess. The pipeline is sound: the drive head on the drive-only prefix gives 0.92, and the amp head on an amp fed by the raw DI gives 0.60. The loss comes from context. A drive in front of the amp takes amp top-1 to 0.16, and the cab after them takes drive to 0.03 and amp to 0.01. No pass bar; nothing is adopted. Options A (chain-rendered training pilot, recommended), B (per-slot context augmentation) and C (heads as weak priors only) are for the human. Details: docs/notes/chain-transfer-t214.md. — learning
+
+## 2026-10-23 (human): chain training pilot approved (T214 option A)
+
+After T214 showed the single-block heads fail inside chains, the lead recommended option A, a ~2 h pilot of about 5,000 chain-rendered training clips scored on the same 295-chain T214 test set; the human said **"yes start pilot"**. Design: the T214 chain generator with a new seed, approved default knob sampling, DIs from the drive-dataset-v1 train split only (test files and P3 never used for training), features from the finished chain output, every slot labelled per chain (presence, model, knobs). Same T189 heads per slot plus a presence head; arms: chain-only, and single-block + chain. No pass bar; measurement only. T215, learning. — lead
+
+## 2026-10-23 (lead, on Fable): project analysis (assessment; nothing adopted)
+
+At the human's request ("evaluate our current methodology and progress… alternatives… better methods for the full chain… our dry sampling technique"), the lead ran three Fable-powered inputs and wrote docs/notes/project-analysis-2026-10-23.md, published at https://claude.ai/artifact/2YAGoEnFog8L7GpM3V5McF. Inputs: an independent read-only audit of the primary records (docs/notes/methodology-audit-2026-10-23.md), a full-chain methods survey (research-full-chain-2026-10-23.md) and a dry-signal strategy survey (research-dry-signal-2026-10-23.md).
+
+Headline findings the lead accepts as its own: (1) no result since 10-14 rests on a sealed blind test; (2) AFx-Rep distance has been used beyond its ear validation (knob fine-tuning; "closer" claims across different dry tracks), contrary to the 10-18 ruling that knobs are not set by a sound-comparison score; (3) AFx-Rep final ranking and fine-tuning became defaults by reuse without an itemised approval, which is the lead's failure; (4) 240k single-block slot renders preceded the chain check that showed the heads do not transfer; (5) the rebuilt dry's own contribution is unmeasured (no library-DI ablation). The page lists ten itemised decisions for the human; until ruled on, the song-match defaults are to be read as test settings. The `song-match` skill description was corrected (it ran the AFx-Rep full search while labelled "predictor-first"). Board: T220 renumbered (full-chain survey; the two research agents both took T219), T221 DI-invariance check (running), T222 this analysis. — lead
+
+## 2026-10-23 (tone-metrics, T221): DI-invariance ratio check (measurement only; nothing adopted)
+
+Experiment 3 of `docs/notes/research-dry-signal-2026-10-23.md` section 7, run on cached renders only (the T175 drive plan and features, helix-trust-v1, mod-specialist calibration renders; helix-trust-v2 train-split models only; 0 renders; the time-specialist renders hold one setting per file and T185/T196 kept no audio, so they were unusable). For each of `embed_afxrep`, `ltas_tilt`, `envelope`, `crest_flatness_hnr` and `mrstft_v2` (reference): the invariance ratio R = median d(same setting on another DI) / median d(wrong setting, same DI) and the Spearman correlation of candidate order between DIs, by condition. Result (other player, pooled, n=621 from 43 models): R 1.02 / 1.32 / 1.86 / 1.96 / 2.30 and order 0.79 / 0.42 / 0.26 / 0.30 / 0.51; same player (n=585): R 0.60 / 1.56 / 1.23 / 1.02 / 2.22, order 0.83 / 0.45 / 0.44 / 0.53 / 0.59. Only `embed_afxrep` keeps the candidate order across a DI change, and only by separating models (R 0.82 against other models) while blind to knob moves (R 2.8); `envelope` and `crest_flatness_hnr` are not DI-invariant. Tremolo and vibrato are the exception (embedding R 0.05, order 0.99; envelope R 0.49). Note: `docs/notes/di-invariance-check-2026-10-23.md`; script `scripts/di_invariance_check.py`; ledger `benchmark / di-invariance-check`, 10 rows, 2026-10-23T16:47.
+
+- **Reading (tone-metrics, not a ruling):** render-and-compare without the target's own or a faithful rebuilt dry signal can choose models with `embed_afxrep` and cannot set knobs by any of these scores; do not add `envelope` or `crest_flatness_hnr` to a no-DI score. Consistent with T175 and the 2026-10-18 ruling 5 (T178). No weights, methods or gates change. — tone-metrics
+- T215 read-out (lead, 2026-10-23): amp at chance in every arm (top-3 .04 vs .013 chance), oracle cab conditioning +0.00; cab learns (top-3 .60, .75 when last in chain); drive 3× chance, flat curve. The survey's scaling bar is not met. The lead proposes NOT to scale the chain render overnight as formulated and instead to put preset-corpus retrieval and a cab-led render-and-rank ahead of it; this is a proposal for the human, and Gate 3 should be sealed before any further pilot is read. — lead
+
+## 2026-10-25 (human): "yes go" to the lead's post-assessment plan (bundle approval, itemised here as provisional)
+
+The lead listed the ten decisions with recommendations and the next steps; the human answered **"yes go"**. Per the audit's recommendation 9, this is recorded as a bundle approval of the lead's recommended options, each provisional until the human objects to a line:
+1. AFx-Rep final ranking for song matches: interim default, pending item 2.
+2. Blind validation of AFx-Rep against separated stems: 5 songs × 5 candidates on the same dry track, ranked by the human with repeats (benchmark builds it; T223).
+3. Knob fine-tuning: an option, not the default; Output/Master locked when used.
+4. Dry-signal ablation: four arms per song (library DI; plain rebuild; rebuild with the stem's note envelope imposed; the human's own take where it exists), same search, blind pack (T224).
+5. Level convention: play-along level (−28.1 dBFS) as the rebuild default; the profile warns when a take disagrees by more than 3 dB; the level-only ablation runs inside T224.
+6. Gate 3: benchmark registers bars and seals a set with the reserved third player before any further predictor result is read (T223).
+7. Separation-consistent re-score: approved as a test on the seven shortlists (queued after T224).
+8. Approval format: one line per item in the human's words from now on; bundles recorded as provisional (this entry is the first).
+9. Gate 2: closed as superseded (the human's 2026-10-18 verdict stands; T152/T155 cancelled).
+10. Provisional loss and drive families removed as defaults (T226).
+Full-chain route after T215: no overnight chain render; preset-corpus retrieval render (T225, after T224 frees the CPU) and a cab-shortlist-led render-and-rank search. — lead
+
+## 2026-10-25 (benchmark, T223): Gate 3 bars PROPOSED, registered before any set is drawn (not approved)
+
+Per the human's 2026-10-25 "yes go" (item 6) and the audit's recommendation 5. These bars are **proposed by benchmark, not approved**; the human has not set them. The lead is asked to put them to the human before the set is scored. They are written down here, with this timestamp (2026-10-25T18:55Z), before `gate3-v1` is drawn, so they cannot be fitted to it.
+
+Set `gate3-v1`: single drive-block targets (the current product), the 60 product drive models x 2 random settings = 120 items, each a 10 s active excerpt of Guitar-TECHS **P3** DI (the reserved third player) rendered on Native; the matcher gets only the rendered output. Size from the audit (recommendation 7): 120 items gives a 95% interval of about +-0.09 on a rate near 0.5 and more than the 50 pairs a 0.15 paired difference needs.
+
+Proposed bars (anchors in brackets are measured numbers, not targets):
+1. **G3-1 model top-1 >= 0.50.** (Chance 1/60 = 0.017. T185 blind top-1 0.39; the retrained heads on an unseen player 0.33-0.75.)
+2. **G3-2 model top-3 >= 0.70.** (T185 blind top-3 0.61, same player 0.73.)
+3. **G3-3a Drive knob within +-0.15 of the truth on items whose top-1 model is right: >= 0.60.** (T185 blind 0.51, same player 0.65.)
+4. **G3-3b mean share of all free non-level knobs within +-0.15 on those items: >= 0.50.** (A constant middle guess scores about 0.3.)
+5. **G3-4 baselines, same no-dry-track condition:** (i) uniform-random model with middle-of-every-knob settings; (ii) the true model at middle-of-every-knob settings (knob baseline); (iii) the T185 AFx-ordered arm if it runs on the set. Each of G3-1 to G3-3 must beat every applicable baseline by >= +0.15 in paired items with exact McNemar p < 0.05.
+6. **G3-5 ear (after 1-5 pass):** short blind listen with >= 30 decided trials and >= 6 repeats; the prediction re-rendered on the held-out P3 dry is judged closer to the target than the best baseline's pick in >= 70% of decided trials (21 of 30 gives exact p = 0.043). The listener's test-retest is reported first and bounds how much weight the result carries. The ear is the human's; benchmark scores nothing.
+7. **Rules.** Block category is trivial for a drive-only set and is dropped. One scoring attempt per frozen method (code hash and settings registered first); a changed method needs a new set. No one tunes on the set; labels stay sealed until the lead launches the run. Ties and edge cases follow the rule in force when the set is scored.
+
+Ledger: `benchmark / gate3-v1 / bars_registered`. — benchmark
+
+## 2026-10-25 (benchmark, T223): `gate3-v1` sealed on Guitar-TECHS P3; AFx-Rep stem-validation pack built (nothing scored, nothing adopted)
+
+**Gate 3 set, a benchmark action.** After the bars above were registered (18:55Z), `scripts/gate3_set.py generate` drew and rendered 120 single drive-block items (60 product drive models x 2 random CC-grid settings, level knobs at default) from random 10 s active excerpts of Guitar-TECHS **P3** DI, on one Native host at nice 10 behind LoadGuard. Seed 223001; no silent render. **sha256** `cache/gate3-v1/manifest.json` b69372d4b7c4126ad6dd47a0b7671228530fd3d37f7f178b3fa30fa595906b27; `cache/gate3-v1/sealed/labels.json` 88a8880c14947375f2fa21333d86298e491b2d649983b702b480898a848cdbaa. The matcher's inputs are `cache/gate3-v1/targets/`; labels and the dry P3 excerpts are in `sealed/`, unread since generation. Ledger `benchmark / gate3-v1 / sealed_items` = 120. Note: `docs/notes/gate3-v1.md`.
+- **Correction to the brief: this is not the first read of P3.** `scripts/sep_stress.py` (ledger `sep-stress-v1`, 2026-10-16) already used P3 clips 02, 03 and 08 as the guitar in the separation stress test, and the DI manifest holds P3 descriptors. Neither fed a matcher, a predictor or a training set. This task read P3 audio to count usable excerpts (no labels) and to render the set; it used files 01, 04, 05, 06, 07, 09, 10, 11, 12 and holds 02, 03, 08 back as the reserve for a second set.
+- **P3 stays out of every training path.** The drive-dataset and slot-dataset file lists exclude it, `dry_rebuild` refuses it, and a test checks that no plan.json under cache/ names a P3 file.
+- **Limit.** P3 has about 6.5 minutes of usable playing, so the 120 items share notes (about 31 non-overlapping 10 s windows). Item outcomes are not fully independent.
+- **Asked of the lead:** put the proposed bars (previous entry) to the human before the set is scored; record the human's words. Until then they are numbers on paper. The scorer refuses to run without a launch reference.
+
+**AFx-Rep against separated stems (human 2026-10-25 "yes go", item 2).** The blind pack is built: `reports/local/ratings/afx-stem-validation-v1/` (page http://127.0.0.1:8000/local/ratings/afx-stem-validation-v1/index.html), key `cache/ratings/afx-stem-validation-v1.key.json`, 41 trials (8 rankings of 5 candidates incl. 3 repeats; 25 adjacent/extreme A or B trials + 6 repeats + 2 checks), 5 songs (mother, cherub-rock, seek-destroy, teen-spirit, territorial), 25 renders, preregistration sha256 c6e177455ce8e7e2ffcc4b4bd7380bf76591cdbf25a192979accd919d33cf687 written into the session files before any trial was shown. ds-sample was left out up front (its target is a Helix render); satisfaction was dropped by a seeded draw made before rendering. Pre-registered: per-song and pooled Spearman between the human's ranks and AFx distance, pair agreement with the lower distance, the listener's test-retest, and a tie rule. Nobody has listened. Human steps: docs/notes/afx-stem-validation-t223.md. Ledger `benchmark / ab-afx-stem-validation-v1 / trials_built` = 41. — benchmark
+
+## 2026-10-25 (dry-signal, T224): dry-signal and level-only ablation run; blind packs ready (measurement only; nothing adopted)
+
+Decisions 4 and 5 of the 2026-10-25 bundle. Seven songs, the T207 search (afxrep shortlist 8, afxrep final rank, knob-tol 0.15, no fine-tune) on four dry arms (library DI; plain rebuild; rebuild with the stem's note envelope, new `rebuild_dry.py --envelope-from-stem`, off by default; the human's own take for Mother and DS-Sample) at -28.08 dBFS, plus the plain rebuild at -36.12 (which reproduces T211 exactly). 30 searches, 10,320 renders, 72.5 min, 3 hosts. Model agreement with the plain rebuild: envelope 6 of 7, library DI 5 of 7, level-only 5 of 7, own take 1 of 2; DS-Sample changes its model in every arm and Satisfaction's plain pick is a dead tie, so several differences are inside the margin. AFx-Rep distances are not comparable across arms and no fidelity claim is made. One blind LUFS-matched pack per song in `cache/dry-ablation-t224/packs/<song>/` with answer sheet and sealed key; the ear decides. Details and deviations: `docs/notes/dry-ablation-t224.md`. Ledger `search / dry-ablation-<song>-<arm>`, 30 rows. — dry-signal
+
+## 2026-10-25 (human): blind stem-validation session, verdict in the human's words
+
+During the T223 blind session (five songs, top-5 drive candidates on the rebuilt dry against the separated song guitar, LUFS-matched), the human said: **"only 23 comes even close. That was pretty bad all around"** and then **"no it's so bad I cant even compare them. It's like comparing two pieces of garbage and asking which one smells most like a flower."** Recorded as the human's verdict on the single-drive-block render-and-rank matches heard blind against the stems; not a rating row. It contradicts the open-listening "pretty good" of 2026-10-22, which was heard without alternatives and not blind, and it is the first blind evidence on real songs. The lead stopped the T225 (preset-corpus render) and T227 (separation re-score) agents, both resumable, pending a regroup; no method change. — lead
+
+## 2026-10-25 (human): refocus on the distortion model; chain = drive → delay/reverb → EQ; no amps or cabs for now
+
+The human said: **"what I would like to do next is focus on our distortion model we were working on. Those were sounding pretty good. Let's try to go back to that model and then see if we can improve upon that. I think the chain should be distortion/drive -> delay/reverb -> eq. Let's eliminate the amps and cabs for now and only use those blocks. We have the main sound down and now we should lightly "color" it to achive a closer sound. In addition we should test if amps/cabs can be substituted in as a distortion block. This will give us only 3 different blocks to tweak, which should simplify things. In additional I would like to make sure we are using the best models for each type of block. If we need to do some testing let's do a small run and see."**
+
+Effects (decisions by the human): the product chain is drive → (delay and/or reverb) → EQ; amp and cab slots are out of scope for now except as a candidate substitute for the drive block; the starting point is the existing drive match the human liked on the pedal; delay/reverb/EQ are a light colouring stage; a small pilot first. Lead's plan (T228, search with tone-metrics): per song, variants heard blind and loaded on the Stomp: (a) the current fine-tuned drive match; (b) + delay/reverb set by direct measurement from the stem (time-specialist), not by AFx ranking (the T221 check shows no score ranks delay/reverb); (c) + a bounded EQ fitted by LTAS ratio against the stem (±6 dB); (d) b+c; (e) an amp block in place of the drive; (f) amp + cab in place of the drive. Three songs, a few renders each. Block choices per type are proposals for the human in the pilot note. The chain T225/T227 jobs stay stopped. — lead
+
+## 2026-10-25 (search, T228): colour pilot built and run on three songs (measurement only; nothing adopted)
+
+Per the human's refocus (entry above) and the lead's course correction relayed the same day (variant f, amp plus cab, dropped; no cab block anywhere in the pilot; variants are a to e). Three songs (mother, seek-destroy, teen-spirit), the T211 windows and dry, Native, 188 renders in the final run (plus about 860 development renders, disclosed in the note). Blind LUFS-matched packs (3 clips per song, sealed keys), validated `.hlx` per variant and a Stomp load list are in `cache/colour-pilot-t228/`; nothing was loaded on the Stomp and nothing was listened to or scored by me. Details, tables and the block-choice proposals: `docs/notes/colour-pilot-t228.md`.
+- **Direct measurement found no delay and no reverb on any song, and could not have seen a light one.** The rebuilt dry is not the real performance: the time specialist's deconvolution gives a "late response" 21 dB above the direct sound, so I measured on the stem's note-onset curve and in the real note gaps instead. The stem and the render share at most 12% of the onset-curve variance (unrelated pairs about 0%); a tape delay at Mix 0.45 or a Room reverb at Mix 0.50 rendered onto the real stem was not detected on any song. Variants b and d are therefore identical to a and c. The only information is an upper bound on Mother (no echo as strong as Mix 0.30). The delay/reverb knob-fit code exists and is unit-tested on synthetic signals but was never used on a song.
+- **EQ.** A Graphic 10 Band fitted on the long-term-spectrum ratio (+-6 dB, under 100 Hz ignored) cuts the spectrum difference from 3.6 to 1.7 dB (mother), 8.2 to 5.9 (seek-destroy), 11.4 to 10.1 (teen-spirit). A cab-less chain keeps 17 to 30 dB too much treble on the last two, which a +-6 dB band cannot remove; an extra Parametric EQ with a high-cut reaches 3.4 and 4.8 dB there. Extra optional pack (my addition, not asked for): a, a fixed light Room reverb (not measured), the Parametric EQ.
+- **Amp in place of the drive (e).** Best of a 15-amp usage-ranked pool by AFx-Rep (screen 30 renders, fine-tune about 21, Master locked): Placater Dirty, Cali IV Lead, ANGL Meteor. By that score each is worse than the drive match (0.705 vs 0.399, 0.408 vs 0.316, 0.592 vs 0.547); the ear decides.
+- **Proposals, not adopted** (the human decides): delay Transistor Tape; reverb Room (Plate to probe next); EQ Parametric for a cab-less chain (Graphic 10 Band as the alternative); drop Killer Z as a duplicate of Heavy Dist only after a same-sound check; keep the other legacy/current pairs until checked, because the circuit note and the measured families disagree.
+- Ledger: `search / native / colour-pilot-<song>-<a|b|c|d|e|g|h|controls|total>`; 39 rows including four correction rows per song (f withdrawn; b and controls restated with the final alignment gate; totals). — search
+
+## 2026-10-25 (human): colour pilot, Mother pack verdict; block pools for delay/chorus/EQ
+
+- Blind Mother pack (left = separated song guitar, right = candidate): the human said **"on the colour pilot pack A sounds the closest."** Key opened after the verdict: A = variant c/d (the fine-tuned Zero Amp Bass DI drive match + the bounded ±6 dB 10-band graphic EQ fitted by LTAS ratio); B = a/b (the drive match alone); C = e (Placater Dirty amp in place of the drive). So the EQ colouring stage beat the plain drive, and the amp substitute was not closest. One song, one pass, blind; the other two packs unrated.
+- Block pools, the human's words: **"for the chorus and delay, if it is going to take a significant time to render, maybe we focus on a handful of common/generic. Also, for eq, we should select appropriately the ones that let us do what we want, so for example we probaby don't need a 3 channel eq if we have a 6 channel (or whatever the numbers are)."** Lead's proposal for the human's ruling: delay = Transistor Tape, Simple Delay, Bucket Brigade (3); chorus = 70s Chorus, Trinity Chorus (2); reverb = Room, Plate, Hall (3); EQ = Parametric and 10-band Graphic only (Simple EQ, 3-band and Low/High Cut dropped as subsets). Not adopted until ruled. — lead
+
+## 2026-10-25 (human): colour pilot, open listening on the comparison page (three songs)
+
+The human's words, per song (a = last run's fine-tuned drive match; c = + graphic EQ; h = + parametric high-cut EQ; g = + light Room reverb, fixed setting; e = amp in place of the drive):
+- Mother: "C and H - very close and I can't say for sure"; "G - sounds closer to the original song than the prior match"; "E - I think sounds better than the prior match".
+- Seek and Destroy: "C, H, E - very close and I can't say for sure"; "G sounds better".
+- Smells Like Teen Spirit: "C, H - very close and I can't say for sure"; "G is is better"; "E sounds worse".
+Open listening, not blind (the page was labelled at the human's request). Reading by the lead: the light Room reverb (g) was preferred on all three songs even though no reverb was measurable in the stems; the two EQ variants were not distinguishable from each other; the amp substitute was mixed (better on Mother, tie on Seek & Destroy, worse on Teen Spirit). Nothing adopted; the reverb setting was a fixed control, not a fit. — lead
+
+## 2026-10-25 (search, T229): colour comparison on seven songs built (measurement for the ear; nothing adopted)
+
+Per the human's colour-pilot verdicts and the lead's brief. Seven songs, variants a (fine-tuned drive match), c (+ fitted graphic EQ), r25 and r35 (c + Room, Mix 0.25 and 0.35) and p35 (c + Plate, Mix 0.35). 36 Native renders in all (33 final, 3 development). Labelled, LUFS-matched page, 35 validated `.hlx` and a load list in `cache/colour-t229/`; nothing was loaded on the Stomp; no listening or scoring by me. Details and EQ curves: `docs/notes/colour-t229.md`. Ledger: `search / native / colour-t229-<song>-<variant>` (35 rows). - search
+
+## 2026-10-25 (human): T229 seven-song colour comparison, open listening
+
+The human's words, "For all songs": c (a + fitted 10-band graphic EQ) "very hard to tell"; r25 (c + Room reverb Mix 0.25) "sounds better I think"; r35 (Mix 0.35) "Better"; p35 (c + Plate Mix 0.35) "better". Open listening, labelled. Reading by the lead: across seven songs a light reverb after the drive is heard as an improvement over the drive match; Mix 0.35 over 0.25; Room and Plate not separated; the fitted ±6 dB graphic EQ makes little audible difference. Nothing adopted; the lead will put a default colouring stage to the human as an itemised proposal. — lead
+
+## 2026-10-25 (human): delay on hold
+
+The human said: **"I think we should put delay pedals on hold. I don't think any of the songs have any delay in them and I feel like this is going to be hard to distinguish and implement"**. Effect: no delay block in the product chain and no delay pool work (the tempo-based delay run is cancelled); the chain under test is drive → reverb (→ EQ when needed). Items 1–3 and 6 of the lead's colouring proposal are still open; item 5 is withdrawn; item 4 (pools) now excludes delay. — lead
+
+## 2026-10-25 (human): EQ stays in the chain with options kept; reverb needs a model, not a default; Plate sounded best
+
+The human said: **"I want to keep a variety of EQ options on hold. Even though we couldn't distinguish it in these songs we may need to do it on others. It didn't hurt anything and these songs probably got their EQ correct from the drive pedal but that may not always be the case. As for the reverb I don't think we should simply have a default. I think we need to have a model. In most of the songs the plate reverb (last one) sounded best."**
+Effects: the fitted EQ stage stays in the chain (bounded, the pool of EQ blocks kept, Parametric and 10-band at least); a fixed reverb default is rejected; a reverb model (type and settings predicted per song) is required; Plate is the human's preferred type on most of the seven songs. Lead's proposal: a reverb-model pilot (T230) that first measures whether any signal we can compute from the stem predicts the human's reverb choices, before training anything. — lead
+
+## 2026-10-25 (human): reverb-model pilot T230 approved
+
+The human said **"yes"** to the lead's four-line proposal: (1) 27 candidates per song (Room/Plate/Hall × Mix 0.25/0.35/0.50 × three decays) after the drive match and the fitted EQ, seven songs; (2) the human ranks a blind pack of 6 per song plus a repeat as the ground truth; (3) a pre-registered test of which computable signal (stem note-tail statistics, the time-specialist reverb regressors, AFx-Rep distance per candidate) agrees with the ranks; (4) a small predictive model only if something agrees, else "Plate, Mix 0.35" as the by-ear starting point. Measurement; nothing adopted until the human rules on the result. — lead
+
+## 2026-10-25 (tone-metrics, T230): reverb-model pilot built; blind pages ready, analysis pre-registered (measurement only; nothing scored, nothing adopted)
+
+Per the human's "yes" (entry above). Seven T229 songs; after the T229 chain c (drive match -> fitted Graphic 10 Band), 27 reverb candidates per song: Room / Plate / Hall x Mix 0.25 / 0.35 / 0.50 x three Decay values per model chosen by impulse calibration so the measured RT60 (250 Hz to 4 kHz) is the same across models: 1.05 / 1.48 / 2.09 s = Room Decay 0.570 / 0.792 / 0.962, Plate 0.189 / 0.361 / 0.484, Hall 0.330 / 0.512 / 0.650 (the common range is 0.97 to 2.27 s: Plate cannot go shorter, Room not longer); Predelay 11 ms, LowCut 150, HighCut 3700; plus the T229 r35 and p35 audio. **211 Native renders** (21 calibration, 189 candidates, 1 bit-identical reproduction of T229 r35), one host, nice 10, LoadGuard.
+- **Pages:** http://127.0.0.1:8000/local/ratings/reverb-pilot-v1/index.html, one page per song, 7 clips (4 grid candidates by a seeded design with 2 Hall, 1 Room, 1 Plate covering every Mix and Decay level, + r35 + p35, + 1 repeat), left = song's guitar, right = candidate, LUFS-matched; ranks 1 to 7 with ties; download button; score with `.venv/bin/python scripts/reverb_pilot_t230.py score`.
+- **Pre-registered** before any candidate render: sha256 a7ba12a4fc3f... (v1, 22:03Z); one amendment before any pack existed (an unmeasurable note tail counts as furthest; 6 of Mother's 29 items), sha256 with amendment c13d90ac7b06.... Signals sealed (sha256 a46dc97176bd...) before the build: (i) AFx-Rep distance, (ii) note-tail slope and level in real gaps (defined on mother, territorial, ds-sample only), (iii) time-specialist Room/Plate/Hall regressors as a six-number distance, (iv) envelope dip fill while the dry plays (my addition, reason in the note). Primary: per-song and pooled Spearman with a within-song permutation test and Holm over four signals, the listener's repeat consistency reported first, ties excluded from decided pair counts. The proposed reading ("agrees" = pooled rho > 0, Holm p < 0.05, positive on at least 5 songs) is a proposal for the human, not a bar.
+- Nothing loaded on the Stomp; load list `cache/reverb-pilot-t230/load_list.md` (189 new presets, all hlx_validate exit 0). Note: `docs/notes/reverb-pilot-t230.md`. Ledger `benchmark / native / reverb-pilot-v1 / trials_built = 7, renders = 211`. T230 stays open until the human has ranked. — tone-metrics
+
+## 2026-10-25 (human + benchmark scoring): reverb pilot T230 result
+
+The human ranked six songs (Cherub Rock excluded: "Cherub rock is not a good clip/section for judging. Let's remove that or try another area in the song."). Pre-registered scoring (scripts/reverb_pilot_t230.py, hash c13d90ac…): listener repeat consistency mean rank difference 0.33 (chance 2.67; 6 of 6 within 1). No candidate signal agrees with the ranks: AFx-Rep mean rho 0.05 (Holm p 1.0), note-tail 0.04 (3 songs), time-specialist regressors −0.09, envelope dip-fill −0.40 (anti-correlated). Per the pre-registered reading, "agrees" is False for all four; the fallback is a by-ear starting point. Descriptive only: lower Mix slightly preferred (rho 0.27), longer decay slightly preferred (−0.24), mean rank by type Room 3.9, Hall 4.0, Plate 4.4 (ties frequent). Ledger: ab / reverb-pilot-v1 rows. Nothing adopted. — lead
+
+## 2026-10-25 (tone-metrics, T231): blind reverb estimator, validated on known reverbs (measurement; nothing adopted)
+
+After the human's "how can you not detect reverb? try harder", a blind estimator (abandonment-synchronous decay averaging; Ratnam-ML and Wen-SDD as references) was built and validated first on the 189 known T230 reverbs: decay length recovered on 4 of 5 readable songs (Spearman 0.85–0.89 vs true tail; 36/40 decay triples ordered), Mix tracked on all seven (rho 0.88–0.94, about 3 dB per step), Room/Plate/Hall not separable (43% vs 33% chance). On the real full-length stems a reverb tail is readable only on Mother (0.70 s) and Territorial (0.90 s); on five of seven the stem's "tail" is the separator's residue (−10 to −13 dB floor, same curve as the full mix). Post hoc agreement with the human's T230 ranks: Mother rho 0.65–0.77 and DS-Sample 0.80–0.93 with the estimate's closest candidate equal to the human's closest; three songs, a lead not a result. Proposal: a pre-registered repeat on Mother and Territorial naming the estimate's pick in advance; a cleaner stem would lower the residue floor. — lead
+
+## 2026-10-25 (human): no separator work; confirm the reverb estimator
+
+The human said: **"no. do not focus on the separator. The extracted samples are just fine"**. Effect: no separator change or comparison; the stems stay as they are. The lead proceeds with the pre-registered confirmation of the T231 estimator on Mother and Territorial (T232, tone-metrics), the estimator's pick named before the human listens. — lead
+
+## 2026-10-25 (tone-metrics, T232): reverb estimator confirmation registered and built (measurement only; nothing scored, nothing adopted)
+
+Per the lead's brief after the human's "no. do not focus on the separator" (stems as they are). Before any page existed, the T231 estimator (adc, unchanged) read each full stem and the fixed T231 distance rule named, among the 29 existing items: **Mother** (stem 0.70 s, -16.5 dB) closest **room-m35-short**, furthest **plate-m50-long**; **Territorial** (0.90 s, -13.6 dB) closest **room-m50-short**, furthest **room-m25-long** (disclosed: the human's T230 joint best on that song; T231's post hoc rho with this reference was -0.36 on Territorial, 0.77 on Mother). Registration sha256 `de5c7f7a0a62db813a1f7ab0548344b3508c0456af6006377930258090fb6b6e` (pinned in the script; on the pages; in the ledger). Analysis: repeat consistency first; named closest vs the median rank (one-sided, within-song permutation, pooled); Spearman of distance vs ranks with the same permutation test; ties excluded from decided pairs. Proposed reading "confirmed" (named closest in the top 2 of 7 on both songs AND pooled rho > 0, one-sided p < 0.05) is a proposal for the human, not a bar. Two blind pages of 7 clips (named closest, named furthest, 4 by seed 232 covering every type, Mix and decay, 1 repeat), LUFS-matched, sealed key; 0 renders. Pages: http://127.0.0.1:8000/local/ratings/reverb-confirm-v1/index.html; score: `.venv/bin/python scripts/reverb_confirm_t232.py score`. Note: docs/notes/reverb-confirm-t232.md. Ledger `benchmark / - / reverb-confirm-v1 / trials_built = 2`. — tone-metrics
+
+## 2026-10-25 (human ratings + pre-registered scoring): reverb confirmation T232 result
+
+Mother: the estimator's named closest (Room, Mix 0.35, short) was ranked 1 of 7 by the human and its named furthest (Plate 0.50 long) ranked 7 of 7; order rho 0.46; the repeat was within 1. Territorial: the named closest (Room 0.50 short) was ranked last (6.5) and the human's repeated clip got ranks 4 and 1, so that page is not reproducible. Pooled, the pre-registered reading "confirmed" is False (named-closest p 0.50; pooled rho 0.15, p 0.33; the furthest-mirror test p 0.08). Reading by the lead: the estimator agrees with the human on the one song where both the stem tail is readable and the listener was consistent, and says nothing yet on Territorial; one song is not a result. Ledger: ab / reverb-confirm-v1 rows. Nothing adopted. — lead
+
+## 2026-10-26 (human): product-chain predictor overnight; PRS calibration recordings as a training player
+
+The lead asked two lines: "Train the product-chain predictor overnight: yes / no. Use your PRS calibration recordings as a training player: yes / no." The human said **"Do both now"** (12–24 h of CPU offered). Effects: (1) T233, learning: render about 40k chains of drive → optional bounded EQ → optional light reverb (Room/Plate/Hall over the T230 mix/decay grid, no amp, no cab, no delay) from Guitar-TECHS P1/P2 train-split clips at known input levels, features only; train heads for drive model and level-conditioned knobs, reverb presence/type/decay/mix, EQ presence/curve; evaluate on held-out files and on the seven songs against the human's picks. (2) The human's own prs-7-tone session recordings (data/guitars/prs-7-tone/session-*) are a third DI source for training, local only, never committed; a held-out part of the session is kept for evaluation. P3 stays reserved. Both approved as a measurement; nothing is admitted into the matcher until the human hears it. — lead
+
+## 2026-10-26 (learning, T233): product-chain overnight job built and launched (measurement only; nothing adopted)
+
+Per the human's "Do both now" (entry above) and the lead's T233 brief. One unattended supervisor (`scripts/product_chain_t233.py overnight`, PID file `cache/product-chain-v1/overnight/supervisor.pid`), launched 10:07 local: plan, render to 20:00 at the latest (4 Native hosts, nice 10, LoadGuard), then training at nice 15, the seven-song table, `docs/notes/product-chain-t233.md`, ledger rows, board. Choices the brief left open, made by learning and listed so the lead and the human can overrule them: (1) PRS share of the training draws 15 % (6,044 of 40,000 chains), PRS windows drawn in proportion to each source's active windows; (2) library evaluation on the drive-dataset-v1 `test` split files (1,000 chains; read only for evaluation, never for training), PRS evaluation 600 chains on the held-out session part (free playing 15-30 s, E5/A5/D5); (3) Graphic 10 Band curves: 8 bands 125 Hz-16 kHz drawn uniform +-6 dB, smoothed 1-2-1, rescaled so the largest band is uniform 1.5-6 dB; 31/62 Hz at 0 as the T229 fit; Parametric: gains uniform +-6 dB, Low/Mid/High frequency log-uniform 80-400 / 300-5000 / 1500-8000 Hz, Q at default, high-cut log-uniform 5-12 kHz; (4) reverb RT60 log-uniform over the part of 0.8-2.5 s each model reaches (Room to 2.27 s, Plate from 0.97 s), inverted to Decay by the T230 calibration; (5) the input gain draw is capped so an excerpt's peak stays at or below -1 dBFS; (6) the EQ label is the EQ stage's measured output/input spectrum in 8 bands (one label for both EQ types; it tracks the set Graphic gains at r 0.97-0.98 per band on the first shard); (7) heads are checkpoints in `cache/models/product-chain-v1/` (not `models/`), Native-derived, local use. Smoke run on a 80-chain plan in a scratch folder (no ledger rows) passed every step. First shard: 400 chains, 0 dropped, 0.60 s/chain. — learning
